@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as MasterLoginRouteImport } from './routes/master-login'
 import { Route as AuthenticatedMasterRouteImport } from './routes/_authenticated/master'
 import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated/painel'
 import { Route as AgendarSlugRouteImport } from './routes/agendar.$slug'
@@ -47,6 +48,11 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MasterLoginRoute = MasterLoginRouteImport.update({
+  id: '/master-login',
+  path: '/master-login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedMasterRoute = AuthenticatedMasterRouteImport.update({
@@ -182,6 +188,7 @@ const ApiPublicHooksWhatsappRemindersRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/master-login': typeof MasterLoginRoute
   '/master': typeof AuthenticatedMasterRoute
   '/painel': typeof AuthenticatedPainelRouteWithChildren
   '/agendar/$slug': typeof AgendarSlugRoute
@@ -208,6 +215,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/master-login': typeof MasterLoginRoute
   '/master': typeof AuthenticatedMasterRoute
   '/agendar/$slug': typeof AgendarSlugRoute
   '/painel/as-pay': typeof AuthenticatedPainelAsPayRoute
@@ -235,6 +243,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/master-login': typeof MasterLoginRoute
   '/_authenticated/master': typeof AuthenticatedMasterRoute
   '/_authenticated/painel': typeof AuthenticatedPainelRouteWithChildren
   '/agendar/$slug': typeof AgendarSlugRoute
@@ -263,6 +272,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/auth'
+    | '/master-login'
     | '/master'
     | '/painel'
     | '/agendar/$slug'
@@ -289,6 +299,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/auth'
+    | '/master-login'
     | '/master'
     | '/agendar/$slug'
     | '/painel/as-pay'
@@ -315,6 +326,7 @@ export interface FileRouteTypes {
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/master-login'
     | '/_authenticated/master'
     | '/_authenticated/painel'
     | '/agendar/$slug'
@@ -343,6 +355,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  MasterLoginRoute: typeof MasterLoginRoute
   AgendarSlugRoute: typeof AgendarSlugRoute
   ApiPublicMercadopagoWebhookRoute: typeof ApiPublicMercadopagoWebhookRoute
   ApiPublicHooksWhatsappRemindersRoute: typeof ApiPublicHooksWhatsappRemindersRoute
@@ -369,6 +382,13 @@ declare module '@tanstack/react-router' {
       path: '/auth'
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/master-login': {
+      id: '/master-login'
+      path: '/master-login'
+      fullPath: '/master-login'
+      preLoaderRoute: typeof MasterLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/master': {
@@ -588,6 +608,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  MasterLoginRoute: MasterLoginRoute,
   AgendarSlugRoute: AgendarSlugRoute,
   ApiPublicMercadopagoWebhookRoute: ApiPublicMercadopagoWebhookRoute,
   ApiPublicHooksWhatsappRemindersRoute: ApiPublicHooksWhatsappRemindersRoute,

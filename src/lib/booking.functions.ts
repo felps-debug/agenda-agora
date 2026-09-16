@@ -233,6 +233,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
       })
       .select("id")
       .single();
+    if (apptError?.code === "23P01") throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
     if (apptError || !appointment) throw new Error(apptError?.message ?? "Falha ao reservar.");
 
     const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
@@ -407,10 +408,19 @@ export const getDepositStatus = createServerFn({ method: "POST" })
           .update({ status: "pago", paid_at: paidAt })
           .eq("id", charge.id);
         if (charge.appointment_id) {
-          await db
+          const { error: confirmError } = await db
             .from("appointments")
             .update({ status: "agendado", deposit_paid_at: paidAt })
             .eq("id", charge.appointment_id);
+          if (confirmError) {
+            // Sinal pago mas o horário colidiu com outro agendamento já confirmado
+            // (duas pessoas pagaram o mesmo slot quase ao mesmo tempo). Não manda a
+            // confirmação — seria mentira — e deixa registrado pra reconciliação manual.
+            console.error(
+              `Sinal pago sem conseguir confirmar o agendamento ${charge.appointment_id} (colisão de horário): ${confirmError.message}`,
+            );
+            return { status: "pago" as const };
+          }
           const { sendBookingConfirmation } = await import(
             "./whatsapp-notify.server"
           );

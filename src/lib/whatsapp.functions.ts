@@ -15,6 +15,13 @@ async function loadOwnedBusiness(
   supabase: any,
   businessId: string,
 ): Promise<BizRow> {
+  const { data: allowed, error: permError } = await supabase.rpc(
+    "has_business_permission",
+    { _business_id: businessId, _permission: "generate_qrcode" },
+  );
+  if (permError) throw new Error(permError.message);
+  if (!allowed) throw new Error("Você não tem permissão para gerenciar o WhatsApp deste negócio.");
+
   const { data, error } = await supabase
     .from("businesses")
     .select("id, name, whatsapp_instance, whatsapp_status")

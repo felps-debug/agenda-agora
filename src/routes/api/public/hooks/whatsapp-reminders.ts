@@ -1,19 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { sendBookingReminder } from "@/lib/whatsapp-notify.server";
+import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
 
-// Agendador de lembretes de WhatsApp: chamado pelo cron do banco a cada hora.
+// Agendador de lembretes de WhatsApp: chamado pelo Cron do Lovable a cada hora.
 // Envia o lembrete para agendamentos confirmados cuja janela de aviso abriu
 // (starts_at <= agora + reminder_hours_before) e que ainda não foram lembrados.
 export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const auth = request.headers.get("authorization");
-        const token = auth?.replace(/^Bearer\s+/i, "");
-        const secret = process.env["CRON_SECRET"];
-        if (!secret || token !== secret) {
-          return Response.json({ error: "Não autorizado." }, { status: 401 });
-        }
+        const authError = await authenticateCronRequest(request);
+        if (authError) return authError;
 
         const { supabaseAdmin } = await import(
           "@/integrations/supabase/client.server"
