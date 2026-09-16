@@ -130,7 +130,7 @@ function PublicBooking() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, name, category, phone, address, logo_url, status, brand_primary, brand_background")
+        .select("id, name, category, phone, address, status, brand_primary, brand_background")
         .eq("slug", slug)
         .maybeSingle();
       if (error) throw error;
@@ -138,10 +138,27 @@ function PublicBooking() {
     },
   });
 
+  // Consulta separada: logo_url é uma coluna nova e opcional. Isolada da query
+  // principal pra uma eventual falha nela (ex.: coluna ainda não propagada em
+  // algum ambiente) não derrubar a página de agendamento inteira.
+  const { data: logoPath } = useQuery({
+    queryKey: ["public-business-logo-path", business?.id],
+    enabled: !!business?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("businesses")
+        .select("logo_url")
+        .eq("id", business!.id)
+        .maybeSingle();
+      if (error) return null;
+      return data?.logo_url ?? null;
+    },
+  });
+
   const { data: logoUrl } = useQuery({
-    queryKey: ["public-business-logo", business?.logo_url],
-    enabled: !!business?.logo_url,
-    queryFn: () => getLogoUrl(business!.logo_url),
+    queryKey: ["public-business-logo", logoPath],
+    enabled: !!logoPath,
+    queryFn: () => getLogoUrl(logoPath!),
   });
 
   const { data: services } = useQuery({
