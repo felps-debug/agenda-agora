@@ -24,7 +24,7 @@ export const DEFAULT_CONFIRMATION_MESSAGE =
 export const DEFAULT_REMINDER_MESSAGE =
   "Olá, {nome}! Lembrete: seu horário de {servico} em {negocio} é {data} às {hora}. Qualquer imprevisto, avisa a gente! 😊";
 
-function renderMessage(template: string, vars: Record<string, string>) {
+export function renderMessage(template: string, vars: Record<string, string>) {
   return template.replace(/\{(nome|servico|hora|data|negocio)\}/g, (_, k) => vars[k] ?? "");
 }
 

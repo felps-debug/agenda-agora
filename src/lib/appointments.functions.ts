@@ -5,6 +5,17 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 const statusValues = ["agendado", "confirmado", "concluido", "cancelado", "bloqueado"] as const;
 const reopenableFrom = new Set(["cancelado", "concluido"]);
 
+/** Extraída pra ser testável sem precisar de servidor/banco — ver appointments.functions.test.ts. */
+export function permissionForStatusChange(
+  currentStatus: string,
+  nextStatus: string,
+): "reopen_appointment" | "cancel_appointment" | "complete_appointment" | null {
+  if (reopenableFrom.has(currentStatus) && !reopenableFrom.has(nextStatus)) return "reopen_appointment";
+  if (nextStatus === "cancelado") return "cancel_appointment";
+  if (nextStatus === "concluido") return "complete_appointment";
+  return null;
+}
+
 /**
  * Muda o status de um agendamento, exigindo a permissão granular certa quando a
  * transição é sensível (cancelar / concluir / reabrir). Sem isso, as flags
@@ -27,13 +38,7 @@ export const setAppointmentStatus = createServerFn({ method: "POST" })
     if (apptError) throw new Error(apptError.message);
     if (!appt) throw new Error("Agendamento não encontrado.");
 
-    const requiredPermission = reopenableFrom.has(appt.status) && !reopenableFrom.has(data.status)
-      ? "reopen_appointment"
-      : data.status === "cancelado"
-        ? "cancel_appointment"
-        : data.status === "concluido"
-          ? "complete_appointment"
-          : null;
+    const requiredPermission = permissionForStatusChange(appt.status, data.status);
 
     const { data: allowed, error: permError } = requiredPermission
       ? await context.supabase.rpc("has_business_permission", {

@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import { computeSlots, hhmm, minutesOf, toIso } from "./booking.functions";
+
+describe("minutesOf / hhmm", () => {
+  it("converte HH:mm pra minutos e volta", () => {
+    expect(minutesOf("09:30")).toBe(570);
+    expect(minutesOf("00:00")).toBe(0);
+    expect(hhmm(570)).toBe("09:30");
+    expect(hhmm(0)).toBe("00:00");
+  });
+});
+
+describe("toIso", () => {
+  it("interpreta a data/hora no fuso de São Paulo (UTC-3)", () => {
+    // 09:00 em São Paulo é 12:00 UTC.
+    expect(toIso("2026-09-15", "09:00")).toBe("2026-09-15T12:00:00.000Z");
+  });
+});
+
+describe("computeSlots", () => {
+  const hours = [{ starts_at: "09:00:00", ends_at: "12:00:00" }];
+
+  it("gera slots de 30 em 30 min que cabem o serviço inteiro dentro do expediente", () => {
+    const slots = computeSlots({ hours, busy: [], durationMinutes: 60, nowMin: -1 });
+    // último slot possível é 11:00 (11:00-12:00); 11:30 já estouraria o expediente
+    expect(slots).toEqual(["09:00", "09:30", "10:00", "10:30", "11:00"]);
+  });
+
+  it("não gera slot nenhum se o serviço não cabe no expediente", () => {
+    const slots = computeSlots({ hours, busy: [], durationMinutes: 240, nowMin: -1 });
+    expect(slots).toEqual([]);
+  });
+
+  it("remove slots que colidem com horário ocupado (agendamento ou bloqueio)", () => {
+    // ocupado das 10:00 às 11:00
+    const slots = computeSlots({ hours, busy: [[600, 660]], durationMinutes: 30, nowMin: -1 });
+    expect(slots).not.toContain("10:00");
+    expect(slots).not.toContain("10:30");
+    expect(slots).toContain("09:30");
+    expect(slots).toContain("11:00");
+  });
+
+  it("um agendamento que só encosta na borda (sem sobrepor) não bloqueia o slot vizinho", () => {
+    // ocupado das 10:00 às 10:30 exatamente
+    const slots = computeSlots({ hours, busy: [[600, 630]], durationMinutes: 30, nowMin: -1 });
+    expect(slots).toContain("09:30"); // termina 10:00, não sobrepõe
+    expect(slots).not.toContain("10:00"); // exatamente o horário ocupado
+    expect(slots).toContain("10:30"); // começa quando o ocupado termina
+  });
+
+  it("corta horários que já passaram quando é hoje (nowMin >= 0)", () => {
+    const slots = computeSlots({ hours, busy: [], durationMinutes: 30, nowMin: 600 }); // 10:00
+    expect(slots).not.toContain("09:00");
+    expect(slots).not.toContain("09:30");
+    expect(slots).not.toContain("10:00"); // <= nowMin é excluído, não só <
+    expect(slots).toContain("10:30");
+  });
+});

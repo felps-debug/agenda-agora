@@ -18,18 +18,42 @@ async function admin() {
   return supabaseAdmin;
 }
 
-function toIso(date: string, time: string) {
+export function toIso(date: string, time: string) {
   // Horários do negócio são interpretados no fuso de São Paulo (UTC-3).
   return new Date(`${date}T${time}:00-03:00`).toISOString();
 }
 
-function minutesOf(t: string) {
+export function minutesOf(t: string) {
   const [h, m] = t.split(":");
   return Number(h) * 60 + Number(m);
 }
 
-function hhmm(total: number) {
+export function hhmm(total: number) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Extraída de getAvailability pra ser testável sem banco — ver booking.functions.test.ts.
+ * nowMin: minuto atual do dia se `date` for hoje, ou -1 se for um dia futuro (sem corte).
+ */
+export function computeSlots(params: {
+  hours: { starts_at: string; ends_at: string }[];
+  busy: [number, number][];
+  durationMinutes: number;
+  nowMin: number;
+}): string[] {
+  const slots: string[] = [];
+  for (const h of params.hours) {
+    const from = minutesOf(h.starts_at.slice(0, 5));
+    const to = minutesOf(h.ends_at.slice(0, 5));
+    for (let t = from; t + params.durationMinutes <= to; t += 30) {
+      const end = t + params.durationMinutes;
+      if (t <= params.nowMin) continue;
+      if (params.busy.some(([bs, be]) => t < be && end > bs)) continue;
+      slots.push(hhmm(t));
+    }
+  }
+  return slots;
 }
 
 async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
@@ -143,17 +167,7 @@ export const getAvailability = createServerFn({ method: "POST" })
           })()
         : -1;
 
-    const slots: string[] = [];
-    for (const h of hours) {
-      const from = minutesOf(h.starts_at.slice(0, 5));
-      const to = minutesOf(h.ends_at.slice(0, 5));
-      for (let t = from; t + service.duration_minutes <= to; t += 30) {
-        const end = t + service.duration_minutes;
-        if (t <= nowMin) continue;
-        if (busy.some(([bs, be]) => t < be && end > bs)) continue;
-        slots.push(hhmm(t));
-      }
-    }
+    const slots = computeSlots({ hours, busy, durationMinutes: service.duration_minutes, nowMin });
     return { slots, depositCents: service.deposit_cents };
   });
 
