@@ -37,22 +37,22 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    const zapi = await import("./evolution.server");
+    const uazapi = await import("./uazapi.server");
     const business = await loadOwnedBusiness(context.supabase, data.businessId);
 
-    const connected = await zapi.isConnected();
+    const connected = await uazapi.isConnected();
     if (connected) {
       await context.supabase
         .from("businesses")
-        .update({ whatsapp_instance: "zapi", whatsapp_status: "conectado" })
+        .update({ whatsapp_instance: "uazapi", whatsapp_status: "conectado" })
         .eq("id", business.id);
       return { qrCode: null, alreadyConnected: true };
     }
 
-    const qrCode = await zapi.getQrCode();
+    const qrCode = await uazapi.getQrCode();
     await context.supabase
       .from("businesses")
-      .update({ whatsapp_instance: "zapi", whatsapp_status: "conectando" })
+      .update({ whatsapp_instance: "uazapi", whatsapp_status: "conectando" })
       .eq("id", business.id);
 
     return { qrCode, alreadyConnected: false };
@@ -64,8 +64,8 @@ export const refreshWhatsappQr = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     await loadOwnedBusiness(context.supabase, data.businessId);
-    const zapi = await import("./evolution.server");
-    const qrCode = await zapi.getQrCode();
+    const uazapi = await import("./uazapi.server");
+    const qrCode = await uazapi.getQrCode();
     return { qrCode };
   });
 
@@ -78,8 +78,8 @@ export const getWhatsappStatus = createServerFn({ method: "POST" })
     if (!business.whatsapp_instance) {
       return { status: "desconectado" as const, connected: false };
     }
-    const zapi = await import("./evolution.server");
-    const online = await zapi.isConnected();
+    const uazapi = await import("./uazapi.server");
+    const online = await uazapi.isConnected();
     const status =
       online || business.whatsapp_status === "conectando"
         ? online
@@ -102,8 +102,8 @@ export const disconnectWhatsapp = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, data.businessId);
     if (business.whatsapp_instance) {
-      const zapi = await import("./evolution.server");
-      await zapi.disconnect();
+      const uazapi = await import("./uazapi.server");
+      await uazapi.disconnect();
     }
     await context.supabase
       .from("businesses")

@@ -1,6 +1,6 @@
 // Envio automático de WhatsApp: confirmação (após pagar o sinal) e lembrete
 // (X horas antes do horário, disparado pelo agendador).
-import { sendTextMessage } from "./evolution.server";
+import { sendTextMessage } from "./uazapi.server";
 
 function formatDatePtBr(iso: string) {
   return new Date(iso).toLocaleDateString("pt-BR", {
