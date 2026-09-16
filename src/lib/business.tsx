@@ -23,6 +23,7 @@ type BusinessState = {
   setBusinessId: (id: string) => void;
   loading: boolean;
   refresh: () => void;
+  canViewCustomerPhone: boolean;
 };
 
 const BusinessContext = createContext<BusinessState>({
@@ -32,6 +33,7 @@ const BusinessContext = createContext<BusinessState>({
   setBusinessId: () => {},
   loading: true,
   refresh: () => {},
+  canViewCustomerPhone: true,
 });
 
 export function BusinessProvider({ children }: { children: ReactNode }) {
@@ -72,6 +74,21 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     setBusinessIdState(id);
   };
 
+  // Fail-closed: até confirmar a permissão, trata como sem acesso ao telefone do
+  // cliente. Dono sempre passa (has_business_permission já cobre owner_id = auth.uid()).
+  const { data: canViewCustomerPhone } = useQuery({
+    queryKey: ["can-view-customer-phone", businessId],
+    enabled: !!businessId,
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("has_business_permission", {
+        _business_id: businessId!,
+        _permission: "view_customer_phone",
+      });
+      if (error) throw error;
+      return !!data;
+    },
+  });
+
   const value: BusinessState = {
     businesses,
     businessId,
@@ -81,6 +98,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     refresh: () => {
       void queryClient.invalidateQueries({ queryKey: ["businesses"] });
     },
+    canViewCustomerPhone: canViewCustomerPhone ?? false,
   };
 
   return <BusinessContext.Provider value={value}>{children}</BusinessContext.Provider>;

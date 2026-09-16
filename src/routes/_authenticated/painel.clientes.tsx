@@ -33,7 +33,7 @@ export const Route = createFileRoute("/_authenticated/painel/clientes")({
 });
 
 function ClientesPage() {
-  const { businessId } = useBusiness();
+  const { businessId, canViewCustomerPhone } = useBusiness();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
@@ -115,7 +115,7 @@ function ClientesPage() {
   const exportCsv = () => {
     const rows = filtered.map((c) => [
       c.name,
-      c.phone ?? "",
+      canViewCustomerPhone ? c.phone ?? "" : "",
       c.email ?? "",
       lastVisit[c.id] ? new Date(lastVisit[c.id]!).toLocaleDateString("pt-BR") : "",
       (c.notes ?? "").replace(/\s+/g, " "),
@@ -240,7 +240,9 @@ function ClientesPage() {
                 return (
                   <tr key={c.id} className="border-t border-border/60">
                     <td className="px-4 py-3 font-medium">{c.name}</td>
-                    <td className="px-4 py-3 text-primary">{c.phone ?? "—"}</td>
+                    <td className="px-4 py-3 text-primary">
+                      {canViewCustomerPhone ? (c.phone ?? "—") : "•••••••••"}
+                    </td>
                     <td className="px-4 py-3">{days === null ? "—" : `${days} dias`}</td>
                     <td className="px-4 py-3 text-right">
                       <Button

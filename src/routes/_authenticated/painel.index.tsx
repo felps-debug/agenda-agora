@@ -77,7 +77,7 @@ const emptyForm = {
 };
 
 function AgendaPage() {
-  const { businessId, business } = useBusiness();
+  const { businessId, business, canViewCustomerPhone } = useBusiness();
   const queryClient = useQueryClient();
   const setAppointmentStatusFn = useServerFn(setAppointmentStatus);
   const [day, setDay] = useState(() => toDateInput(new Date()));
@@ -326,7 +326,7 @@ function AgendaPage() {
                       <span className="block font-medium">
                         {blocked ? "Horário bloqueado" : a.customer_name}
                       </span>
-                      {!blocked && a.customer_phone && (
+                      {!blocked && a.customer_phone && canViewCustomerPhone && (
                         <span className="block text-xs opacity-80">{a.customer_phone}</span>
                       )}
                     </span>
@@ -452,7 +452,7 @@ function AgendaPage() {
               <p className="text-muted-foreground">
                 {(selected.services as { name: string } | null)?.name ?? "Sem serviço"} ·{" "}
                 {slotOf(selected.starts_at)}
-                {selected.customer_phone ? ` · ${selected.customer_phone}` : ""}
+                {selected.customer_phone && canViewCustomerPhone ? ` · ${selected.customer_phone}` : ""}
               </p>
               {selected.notes && <p className="text-muted-foreground">{selected.notes}</p>}
               <div className="space-y-2">
