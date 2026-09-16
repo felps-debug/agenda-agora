@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Eye, CalendarX2, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { setAppointmentStatus } from "@/lib/appointments.functions";
 import { useBusiness } from "@/lib/business";
 import {
   STATUSES,
@@ -77,6 +79,7 @@ const emptyForm = {
 function AgendaPage() {
   const { businessId, business } = useBusiness();
   const queryClient = useQueryClient();
+  const setAppointmentStatusFn = useServerFn(setAppointmentStatus);
   const [day, setDay] = useState(() => toDateInput(new Date()));
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
@@ -180,10 +183,12 @@ function AgendaPage() {
 
   const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const { error } = await supabase.from("appointments").update({ status }).eq("id", id);
-      if (error) throw error;
+      await setAppointmentStatusFn({
+        data: { id, status: status as (typeof STATUSES)[number]["value"] },
+      });
     },
     onSuccess: () => void invalidate(),
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const remove = useMutation({
