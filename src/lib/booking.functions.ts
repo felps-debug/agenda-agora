@@ -10,6 +10,7 @@ const slugSchema = z.object({
 
 type Ctx = {
   businessId: string;
+  asaasSubaccountStatus: string;
   service: { id: string; name: string; duration_minutes: number; deposit_cents: number };
 };
 
@@ -30,6 +31,39 @@ export function minutesOf(t: string) {
 
 export function hhmm(total: number) {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+export function isValidCpfCnpj(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (![11, 14].includes(digits.length) || /^(\d)\1+$/.test(digits)) return false;
+
+  const validateDigit = (base: string, weights: number[]) => {
+    const sum = weights.reduce(
+      (total, weight, index) => total + Number(base[index]) * weight,
+      0,
+    );
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+
+  if (digits.length === 11) {
+    const first = validateDigit(digits.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]);
+    const second = validateDigit(
+      `${digits.slice(0, 9)}${first}`,
+      [11, 10, 9, 8, 7, 6, 5, 4, 3, 2],
+    );
+    return digits.endsWith(`${first}${second}`);
+  }
+
+  const first = validateDigit(
+    digits.slice(0, 12),
+    [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+  );
+  const second = validateDigit(
+    `${digits.slice(0, 12)}${first}`,
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
+  );
+  return digits.endsWith(`${first}${second}`);
 }
 
 /**
@@ -60,7 +94,7 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   const db = await admin();
   const { data: business } = await db
     .from("businesses")
-    .select("id, status")
+    .select("id, status, asaas_subaccount_status")
     .eq("slug", slug)
     .maybeSingle();
   if (!business) throw new Error("Negócio não encontrado.");
@@ -74,7 +108,11 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
     .eq("active", true)
     .maybeSingle();
   if (!service) throw new Error("Serviço não encontrado.");
-  return { businessId: business.id, service };
+  return {
+    businessId: business.id,
+    asaasSubaccountStatus: business.asaas_subaccount_status,
+    service,
+  };
 }
 
 async function validateProfessional(businessId: string, serviceId: string, professionalId?: string | null) {
@@ -204,16 +242,25 @@ export const reserveBooking = createServerFn({ method: "POST" })
         time: z.string().regex(/^\d{2}:\d{2}$/),
         customerName: z.string().min(2).max(80),
         customerPhone: z.string().min(8).max(20),
+        customerCpfCnpj: z
+          .string()
+          .transform((v) => v.replace(/\D/g, ""))
+          .refine(isValidCpfCnpj, "CPF ou CNPJ inválido"),
         notes: z.string().max(300).optional(),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { businessId, service } = await loadContext(data.slug, data.serviceId);
+    const { businessId, service, asaasSubaccountStatus } = await loadContext(
+      data.slug,
+      data.serviceId,
+    );
     await validateProfessional(businessId, service.id, data.professionalId);
     if (!service.deposit_cents || service.deposit_cents <= 0)
       throw new Error("Este serviço ainda não tem valor de sinal configurado.");
+    if (asaasSubaccountStatus !== "aprovada")
+      throw new Error("Este estabelecimento ainda não está habilitado para receber o sinal.");
 
     const startsAt = toIso(data.date, data.time);
     const endsAt = new Date(
@@ -260,6 +307,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
         status: "pendente",
         payer_name: data.customerName,
         payer_phone: data.customerPhone,
+        payer_cpf_cnpj: data.customerCpfCnpj,
         expires_at: expiresAt,
       })
       .select("id")
@@ -282,7 +330,9 @@ export const generateDepositPix = createServerFn({ method: "POST" })
     const db = await admin();
     const { data: charge } = await db
       .from("deposit_payments")
-      .select("id, amount_cents, status, payer_name, qr_code, qr_code_base64, ticket_url, expires_at")
+      .select(
+        "id, business_id, amount_cents, status, payer_name, payer_phone, payer_cpf_cnpj, qr_code, qr_code_base64, ticket_url, expires_at",
+      )
       .eq("id", data.chargeId)
       .maybeSingle();
     if (!charge) throw new Error("Cobrança não encontrada.");
@@ -294,20 +344,50 @@ export const generateDepositPix = createServerFn({ method: "POST" })
         ticketUrl: charge.ticket_url,
         expiresAt: charge.expires_at,
       };
+    if (!charge.payer_cpf_cnpj) throw new Error("CPF/CNPJ do pagador não informado.");
 
-    const { createPixCharge } = await import("./mercadopago.server");
+    const { data: business } = await db
+      .from("businesses")
+      .select("asaas_wallet_id, asaas_subaccount_status, asaas_commission_percent")
+      .eq("id", charge.business_id)
+      .single();
+
+    if (!business || business.asaas_subaccount_status !== "aprovada") {
+      throw new Error("O estabelecimento ainda não está habilitado para receber pelo Asaas.");
+    }
+
+    const { getBusinessAsaasAccessToken } = await import("./asaas-events.server");
+    const accessToken = await getBusinessAsaasAccessToken(charge.business_id);
+    const { getOrCreateCustomer, createPixCharge } = await import("./asaas.server");
+    const customerId = await getOrCreateCustomer({
+      accessToken,
+      name: charge.payer_name ?? "Cliente",
+      cpfCnpj: charge.payer_cpf_cnpj,
+      ...(charge.payer_phone ? { phone: charge.payer_phone } : {}),
+      externalReference: charge.id,
+    });
+
+    // Minimização de dados: o documento deixa de ser necessário após o vínculo.
+    await db
+      .from("deposit_payments")
+      .update({ asaas_customer_id: customerId, payer_cpf_cnpj: null })
+      .eq("id", charge.id);
+
     const pix = await createPixCharge({
+      accessToken,
       amountCents: charge.amount_cents,
       description: "Sinal do agendamento",
-      payerName: charge.payer_name ?? "Cliente",
-      payerEmail: `sinal+${charge.id}@agendaagora.app`,
+      customerId,
       externalReference: charge.id,
-      expiresInMinutes: 5,
+      commissionPercent: Number(business.asaas_commission_percent ?? 0),
     });
     await db
       .from("deposit_payments")
       .update({
+        provider: "asaas",
         provider_payment_id: pix.providerPaymentId,
+        provider_status: pix.status,
+        asaas_customer_id: customerId,
         qr_code: pix.qrCode,
         qr_code_base64: pix.qrCodeBase64,
         ticket_url: pix.ticketUrl,
@@ -324,21 +404,9 @@ export const generateDepositPix = createServerFn({ method: "POST" })
 export const cancelDepositBooking = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
-    const db = await admin();
-    const { data: charge } = await db
-      .from("deposit_payments")
-      .select("id, status, appointment_id")
-      .eq("id", data.chargeId)
-      .maybeSingle();
-    if (!charge) throw new Error("Cobrança não encontrada.");
-    if (charge.status === "pago") throw new Error("Esse sinal já foi pago.");
-    await db.from("deposit_payments").update({ status: "cancelado" }).eq("id", charge.id);
-    if (charge.appointment_id)
-      await db
-        .from("appointments")
-        .update({ status: "cancelado" })
-        .eq("id", charge.appointment_id);
-    return { ok: true };
+    const { cancelPendingDeposit } = await import("./asaas-events.server");
+    const result = await cancelPendingDeposit(data.chargeId);
+    return { ok: true, status: result.status };
   });
 
 export const getMyBookings = createServerFn({ method: "POST" })
@@ -393,64 +461,6 @@ export const getMyBookings = createServerFn({ method: "POST" })
 export const getDepositStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
-    const db = await admin();
-    const { data: charge } = await db
-      .from("deposit_payments")
-      .select("id, status, provider_payment_id, appointment_id, expires_at")
-      .eq("id", data.chargeId)
-      .maybeSingle();
-    if (!charge) throw new Error("Cobrança não encontrada.");
-    if (charge.status === "pago") return { status: "pago" as const };
-    if (charge.status !== "pendente") return { status: "expirado" as const };
-
-    const expire = async () => {
-      await db.from("deposit_payments").update({ status: "expirado" }).eq("id", charge.id);
-      if (charge.appointment_id)
-        await db
-          .from("appointments")
-          .update({ status: "cancelado" })
-          .eq("id", charge.appointment_id);
-    };
-
-    if (charge.provider_payment_id) {
-      const { fetchPaymentStatus } = await import("./mercadopago.server");
-      const status = await fetchPaymentStatus(charge.provider_payment_id);
-      if (status === "approved") {
-        const paidAt = new Date().toISOString();
-        await db
-          .from("deposit_payments")
-          .update({ status: "pago", paid_at: paidAt })
-          .eq("id", charge.id);
-        if (charge.appointment_id) {
-          const { error: confirmError } = await db
-            .from("appointments")
-            .update({ status: "agendado", deposit_paid_at: paidAt })
-            .eq("id", charge.appointment_id);
-          if (confirmError) {
-            // Sinal pago mas o horário colidiu com outro agendamento já confirmado
-            // (duas pessoas pagaram o mesmo slot quase ao mesmo tempo). Não manda a
-            // confirmação — seria mentira — e deixa registrado pra reconciliação manual.
-            console.error(
-              `Sinal pago sem conseguir confirmar o agendamento ${charge.appointment_id} (colisão de horário): ${confirmError.message}`,
-            );
-            return { status: "pago" as const };
-          }
-          const { sendBookingConfirmation } = await import(
-            "./whatsapp-notify.server"
-          );
-          await sendBookingConfirmation(charge.appointment_id);
-        }
-        return { status: "pago" as const };
-      }
-      if (["cancelled", "rejected", "expired"].includes(status)) {
-        await expire();
-        return { status: "expirado" as const };
-      }
-    }
-    if (charge.expires_at && new Date(charge.expires_at).getTime() < Date.now()) {
-      await expire();
-      return { status: "expirado" as const };
-    }
-
-    return { status: "pendente" as const };
+    const { synchronizeDepositPayment } = await import("./asaas-events.server");
+    return synchronizeDepositPayment(data.chargeId);
   });

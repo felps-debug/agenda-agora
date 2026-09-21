@@ -3,7 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ShieldCheck, Trash2, Plus, ExternalLink, Ban, PlayCircle } from "lucide-react";
+import { ShieldCheck, Trash2, Plus, ExternalLink, Ban, PlayCircle, Landmark } from "lucide-react";
 import {
   claimMaster,
   createBusinessWithOwner,
@@ -11,7 +11,9 @@ import {
   getMasterStatus,
   getPlatformMetrics,
   listAllBusinesses,
+  provisionAsaasSubaccount,
   registerSubscriptionCharge,
+  setAsaasSubaccountStatus,
   setBusinessStatus,
   setMonthlyFee,
 } from "@/lib/admin.functions";
@@ -50,6 +52,36 @@ const emptyForm = {
   password: "",
 };
 
+type AsaasForm = {
+  businessId: string;
+  name: string;
+  email: string;
+  cpfCnpj: string;
+  mobilePhone: string;
+  incomeValue: string;
+  address: string;
+  addressNumber: string;
+  province: string;
+  postalCode: string;
+  companyType: "MEI" | "LIMITED" | "INDIVIDUAL" | "ASSOCIATION";
+  commissionPercent: string;
+};
+
+const emptyAsaasForm: AsaasForm = {
+  businessId: "",
+  name: "",
+  email: "",
+  cpfCnpj: "",
+  mobilePhone: "",
+  incomeValue: "",
+  address: "",
+  addressNumber: "",
+  province: "",
+  postalCode: "",
+  companyType: "MEI",
+  commissionPercent: "0",
+};
+
 const formatPhone = (value: string) => {
   const d = value.replace(/\D/g, "").slice(0, 11);
   if (d.length <= 2) return d;
@@ -69,10 +101,14 @@ function MasterPage() {
   const statusUpdateFn = useServerFn(setBusinessStatus);
   const feeFn = useServerFn(setMonthlyFee);
   const chargeFn = useServerFn(registerSubscriptionCharge);
+  const provisionAsaasFn = useServerFn(provisionAsaasSubaccount);
+  const setAsaasStatusFn = useServerFn(setAsaasSubaccountStatus);
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [asaasOpen, setAsaasOpen] = useState(false);
+  const [asaasForm, setAsaasForm] = useState(emptyAsaasForm);
 
   const status = useQuery({ queryKey: ["master-status"], queryFn: () => statusFn() });
 
@@ -151,6 +187,34 @@ function MasterPage() {
       chargeFn({ data: vars }),
     onSuccess: () => {
       toast.success("Cobrança registrada como paga.");
+      refreshAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const provisionAsaas = useMutation({
+    mutationFn: () =>
+      provisionAsaasFn({
+        data: {
+          ...asaasForm,
+          incomeValue: Number(asaasForm.incomeValue.replace(",", ".")),
+          commissionPercent: Number(asaasForm.commissionPercent.replace(",", ".")),
+        },
+      }),
+    onSuccess: () => {
+      toast.success("Subconta Asaas criada. Conclua o onboarding antes de aprová-la.");
+      setAsaasOpen(false);
+      setAsaasForm(emptyAsaasForm);
+      refreshAll();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const setAsaasStatus = useMutation({
+    mutationFn: (vars: { businessId: string; status: "em_analise" | "aprovada" | "bloqueada" }) =>
+      setAsaasStatusFn({ data: vars }),
+    onSuccess: () => {
+      toast.success("Situação da subconta atualizada.");
       refreshAll();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -237,6 +301,7 @@ function MasterPage() {
             <tr>
               <th className="px-4 py-3">Estabelecimento</th>
               <th className="px-4 py-3">Dono</th>
+              <th className="px-4 py-3">Asaas</th>
               <th className="px-4 py-3">Mensalidade</th>
               <th className="px-4 py-3">Mês atual</th>
               <th className="px-4 py-3">Situação</th>
@@ -262,6 +327,43 @@ function MasterPage() {
                     <span className="block text-xs text-muted-foreground">
                       {b.phone ? formatPhone(b.phone) : "—"}
                     </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {b.asaas_subaccount_status === "pendente" ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setAsaasForm({
+                            ...emptyAsaasForm,
+                            businessId: b.id,
+                            name: b.name,
+                            mobilePhone: b.phone ?? "",
+                          });
+                          setAsaasOpen(true);
+                        }}
+                      >
+                        <Landmark className="size-4" /> Configurar
+                      </Button>
+                    ) : (
+                      <div className="space-y-1">
+                        <span className="block text-xs font-semibold">
+                          {b.asaas_subaccount_status === "aprovada" ? "Aprovada" : b.asaas_subaccount_status === "bloqueada" ? "Bloqueada" : "Em análise"}
+                        </span>
+                        {b.asaas_subaccount_status === "em_analise" && (
+                          <button
+                            type="button"
+                            className="text-xs text-primary hover:underline"
+                            onClick={() => setAsaasStatus.mutate({ businessId: b.id, status: "aprovada" })}
+                          >
+                            marcar onboarding concluído
+                          </button>
+                        )}
+                        <span className="block text-xs text-muted-foreground">
+                          Comissão: {Number(b.asaas_commission_percent ?? 0).toFixed(2)}%
+                        </span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -372,7 +474,7 @@ function MasterPage() {
             })}
             {!rows.length && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                   Nenhum estabelecimento cadastrado ainda.
                 </td>
               </tr>
@@ -458,6 +560,78 @@ function MasterPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={asaasOpen} onOpenChange={setAsaasOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Criar subconta Asaas</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Razão social / nome" id="asaas-name" value={asaasForm.name} onChange={(value) => setAsaasForm({ ...asaasForm, name: value })} />
+            <Field label="E-mail" id="asaas-email" type="email" value={asaasForm.email} onChange={(value) => setAsaasForm({ ...asaasForm, email: value })} />
+            <Field label="CPF/CNPJ" id="asaas-document" value={asaasForm.cpfCnpj} onChange={(value) => setAsaasForm({ ...asaasForm, cpfCnpj: value })} />
+            <Field label="Celular" id="asaas-phone" value={asaasForm.mobilePhone} onChange={(value) => setAsaasForm({ ...asaasForm, mobilePhone: value })} />
+            <Field label="Renda/faturamento mensal (R$)" id="asaas-income" value={asaasForm.incomeValue} onChange={(value) => setAsaasForm({ ...asaasForm, incomeValue: value })} />
+            <Field label="Comissão Agenda Agora (%)" id="asaas-commission" value={asaasForm.commissionPercent} onChange={(value) => setAsaasForm({ ...asaasForm, commissionPercent: value })} />
+            <div className="space-y-2">
+              <Label htmlFor="asaas-company-type">Tipo de empresa</Label>
+              <select
+                id="asaas-company-type"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={asaasForm.companyType}
+                onChange={(event) => setAsaasForm({ ...asaasForm, companyType: event.target.value as AsaasForm["companyType"] })}
+              >
+                <option value="MEI">MEI</option>
+                <option value="LIMITED">Limitada</option>
+                <option value="INDIVIDUAL">Individual</option>
+                <option value="ASSOCIATION">Associação</option>
+              </select>
+            </div>
+            <Field label="Endereço" id="asaas-address" value={asaasForm.address} onChange={(value) => setAsaasForm({ ...asaasForm, address: value })} />
+            <Field label="Número" id="asaas-number" value={asaasForm.addressNumber} onChange={(value) => setAsaasForm({ ...asaasForm, addressNumber: value })} />
+            <Field label="Bairro" id="asaas-province" value={asaasForm.province} onChange={(value) => setAsaasForm({ ...asaasForm, province: value })} />
+            <Field label="CEP" id="asaas-postal" value={asaasForm.postalCode} onChange={(value) => setAsaasForm({ ...asaasForm, postalCode: value })} />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            O Webhook será cadastrado junto com a subconta. A API key retornada será criptografada e nunca exibida no navegador.
+          </p>
+          <DialogFooter>
+            <Button
+              onClick={() => provisionAsaas.mutate()}
+              disabled={
+                provisionAsaas.isPending ||
+                !asaasForm.email.includes("@") ||
+                asaasForm.cpfCnpj.replace(/\D/g, "").length < 11 ||
+                !Number(asaasForm.incomeValue.replace(",", ".")) ||
+                asaasForm.postalCode.replace(/\D/g, "").length !== 8
+              }
+            >
+              Criar subconta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  id,
+  value,
+  onChange,
+  type = "text",
+}: {
+  label: string;
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
-import { brokeredPreviewStorage } from './previewAuthStorage';
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
@@ -19,11 +18,14 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 }
 
 function createSupabaseClient() {
-  const SUPABASE_URL = 'https://qagotnmdqjoodoudcikd.supabase.co';
-  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_ahOK_X2idzT_9V00g-guZQ_FZ_eScZj';
+  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'];
+  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'];
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    throw new Error('Configuracao publica do Supabase ausente.');
+  }
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     global: { fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY) },
-    auth: { storage: brokeredPreviewStorage(), persistSession: true, autoRefreshToken: true },
+    auth: { persistSession: true, autoRefreshToken: true },
   });
 }
 

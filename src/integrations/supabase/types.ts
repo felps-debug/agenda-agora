@@ -14,6 +14,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      asaas_business_credentials: {
+        Row: {
+          api_key_encrypted: string
+          asaas_account_id: string | null
+          business_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          asaas_account_id?: string | null
+          business_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          asaas_account_id?: string | null
+          business_id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asaas_business_credentials_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: true
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      asaas_webhook_events: {
+        Row: {
+          account_id: string | null
+          attempts: number
+          available_at: string
+          event_id: string
+          event_type: string
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          payload: Json
+          payment_id: string | null
+          processed_at: string | null
+          received_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          attempts?: number
+          available_at?: string
+          event_id: string
+          event_type: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          payload: Json
+          payment_id?: string | null
+          processed_at?: string | null
+          received_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          attempts?: number
+          available_at?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          payload?: Json
+          payment_id?: string | null
+          processed_at?: string | null
+          received_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       appointments: {
         Row: {
           business_id: string
@@ -138,6 +221,9 @@ export type Database = {
       businesses: {
         Row: {
           address: string | null
+          asaas_commission_percent: number
+          asaas_subaccount_status: string
+          asaas_wallet_id: string | null
           brand_background: string | null
           brand_primary: string | null
           category: string
@@ -161,6 +247,9 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          asaas_commission_percent?: number
+          asaas_subaccount_status?: string
+          asaas_wallet_id?: string | null
           brand_background?: string | null
           brand_primary?: string | null
           category?: string
@@ -184,6 +273,9 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          asaas_commission_percent?: number
+          asaas_subaccount_status?: string
+          asaas_wallet_id?: string | null
           brand_background?: string | null
           brand_primary?: string | null
           category?: string
@@ -252,6 +344,8 @@ export type Database = {
         Row: {
           amount_cents: number
           appointment_id: string | null
+          asaas_account_id: string | null
+          asaas_customer_id: string | null
           business_id: string
           created_at: string
           expires_at: string | null
@@ -259,8 +353,11 @@ export type Database = {
           paid_at: string | null
           payer_name: string | null
           payer_phone: string | null
+          payer_cpf_cnpj: string | null
           provider: string
+          provider_deleted_at: string | null
           provider_payment_id: string | null
+          provider_status: string | null
           qr_code: string | null
           qr_code_base64: string | null
           status: string
@@ -270,6 +367,8 @@ export type Database = {
         Insert: {
           amount_cents?: number
           appointment_id?: string | null
+          asaas_account_id?: string | null
+          asaas_customer_id?: string | null
           business_id: string
           created_at?: string
           expires_at?: string | null
@@ -277,8 +376,11 @@ export type Database = {
           paid_at?: string | null
           payer_name?: string | null
           payer_phone?: string | null
+          payer_cpf_cnpj?: string | null
           provider?: string
+          provider_deleted_at?: string | null
           provider_payment_id?: string | null
+          provider_status?: string | null
           qr_code?: string | null
           qr_code_base64?: string | null
           status?: string
@@ -288,6 +390,8 @@ export type Database = {
         Update: {
           amount_cents?: number
           appointment_id?: string | null
+          asaas_account_id?: string | null
+          asaas_customer_id?: string | null
           business_id?: string
           created_at?: string
           expires_at?: string | null
@@ -295,8 +399,11 @@ export type Database = {
           paid_at?: string | null
           payer_name?: string | null
           payer_phone?: string | null
+          payer_cpf_cnpj?: string | null
           provider?: string
+          provider_deleted_at?: string | null
           provider_payment_id?: string | null
+          provider_status?: string | null
           qr_code?: string | null
           qr_code_base64?: string | null
           status?: string

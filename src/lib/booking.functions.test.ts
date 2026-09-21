@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { computeSlots, hhmm, minutesOf, toIso } from "./booking.functions";
+import { computeSlots, hhmm, isValidCpfCnpj, minutesOf, toIso } from "./booking.functions";
+
+describe("isValidCpfCnpj", () => {
+  it("valida dígitos verificadores e rejeita sequências", () => {
+    expect(isValidCpfCnpj("529.982.247-25")).toBe(true);
+    expect(isValidCpfCnpj("04.252.011/0001-10")).toBe(true);
+    expect(isValidCpfCnpj("529.982.247-24")).toBe(false);
+    expect(isValidCpfCnpj("111.111.111-11")).toBe(false);
+  });
+});
 
 describe("minutesOf / hhmm", () => {
   it("converte HH:mm pra minutos e volta", () => {

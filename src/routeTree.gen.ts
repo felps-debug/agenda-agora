@@ -33,7 +33,8 @@ import { Route as AuthenticatedPainelRelatorioRouteImport } from './routes/_auth
 import { Route as AuthenticatedPainelServicosRouteImport } from './routes/_authenticated/painel.servicos'
 import { Route as AuthenticatedPainelTemplatesRouteImport } from './routes/_authenticated/painel.templates'
 import { Route as AuthenticatedPainelWhatsappRouteImport } from './routes/_authenticated/painel.whatsapp'
-import { Route as ApiPublicMercadopagoWebhookRouteImport } from './routes/api/public/mercadopago-webhook'
+import { Route as ApiPublicAsaasWebhookRouteImport } from './routes/api/public/asaas-webhook'
+import { Route as ApiPublicHooksAsaasEventsRouteImport } from './routes/api/public/hooks/asaas-events'
 import { Route as ApiPublicHooksWhatsappRemindersRouteImport } from './routes/api/public/hooks/whatsapp-reminders'
 
 const IndexRoute = IndexRouteImport.update({
@@ -172,10 +173,15 @@ const AuthenticatedPainelWhatsappRoute =
     path: '/whatsapp',
     getParentRoute: () => AuthenticatedPainelRoute,
   } as any)
-const ApiPublicMercadopagoWebhookRoute =
-  ApiPublicMercadopagoWebhookRouteImport.update({
-    id: '/api/public/mercadopago-webhook',
-    path: '/api/public/mercadopago-webhook',
+const ApiPublicAsaasWebhookRoute = ApiPublicAsaasWebhookRouteImport.update({
+  id: '/api/public/asaas-webhook',
+  path: '/api/public/asaas-webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksAsaasEventsRoute =
+  ApiPublicHooksAsaasEventsRouteImport.update({
+    id: '/api/public/hooks/asaas-events',
+    path: '/api/public/hooks/asaas-events',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicHooksWhatsappRemindersRoute =
@@ -208,8 +214,9 @@ export interface FileRoutesByFullPath {
   '/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/painel/templates': typeof AuthenticatedPainelTemplatesRoute
   '/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
-  '/api/public/mercadopago-webhook': typeof ApiPublicMercadopagoWebhookRoute
+  '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/painel/': typeof AuthenticatedPainelIndexRoute
+  '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
   '/api/public/hooks/whatsapp-reminders': typeof ApiPublicHooksWhatsappRemindersRoute
 }
 export interface FileRoutesByTo {
@@ -234,8 +241,9 @@ export interface FileRoutesByTo {
   '/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/painel/templates': typeof AuthenticatedPainelTemplatesRoute
   '/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
-  '/api/public/mercadopago-webhook': typeof ApiPublicMercadopagoWebhookRoute
+  '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/painel': typeof AuthenticatedPainelIndexRoute
+  '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
   '/api/public/hooks/whatsapp-reminders': typeof ApiPublicHooksWhatsappRemindersRoute
 }
 export interface FileRoutesById {
@@ -263,8 +271,9 @@ export interface FileRoutesById {
   '/_authenticated/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/_authenticated/painel/templates': typeof AuthenticatedPainelTemplatesRoute
   '/_authenticated/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
-  '/api/public/mercadopago-webhook': typeof ApiPublicMercadopagoWebhookRoute
+  '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/_authenticated/painel/': typeof AuthenticatedPainelIndexRoute
+  '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
   '/api/public/hooks/whatsapp-reminders': typeof ApiPublicHooksWhatsappRemindersRoute
 }
 export interface FileRouteTypes {
@@ -292,8 +301,9 @@ export interface FileRouteTypes {
     | '/painel/servicos'
     | '/painel/templates'
     | '/painel/whatsapp'
-    | '/api/public/mercadopago-webhook'
+    | '/api/public/asaas-webhook'
     | '/painel/'
+    | '/api/public/hooks/asaas-events'
     | '/api/public/hooks/whatsapp-reminders'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -318,8 +328,9 @@ export interface FileRouteTypes {
     | '/painel/servicos'
     | '/painel/templates'
     | '/painel/whatsapp'
-    | '/api/public/mercadopago-webhook'
+    | '/api/public/asaas-webhook'
     | '/painel'
+    | '/api/public/hooks/asaas-events'
     | '/api/public/hooks/whatsapp-reminders'
   id:
     | '__root__'
@@ -346,8 +357,9 @@ export interface FileRouteTypes {
     | '/_authenticated/painel/servicos'
     | '/_authenticated/painel/templates'
     | '/_authenticated/painel/whatsapp'
-    | '/api/public/mercadopago-webhook'
+    | '/api/public/asaas-webhook'
     | '/_authenticated/painel/'
+    | '/api/public/hooks/asaas-events'
     | '/api/public/hooks/whatsapp-reminders'
   fileRoutesById: FileRoutesById
 }
@@ -357,7 +369,8 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   MasterLoginRoute: typeof MasterLoginRoute
   AgendarSlugRoute: typeof AgendarSlugRoute
-  ApiPublicMercadopagoWebhookRoute: typeof ApiPublicMercadopagoWebhookRoute
+  ApiPublicAsaasWebhookRoute: typeof ApiPublicAsaasWebhookRoute
+  ApiPublicHooksAsaasEventsRoute: typeof ApiPublicHooksAsaasEventsRoute
   ApiPublicHooksWhatsappRemindersRoute: typeof ApiPublicHooksWhatsappRemindersRoute
 }
 
@@ -531,11 +544,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPainelWhatsappRouteImport
       parentRoute: typeof AuthenticatedPainelRoute
     }
-    '/api/public/mercadopago-webhook': {
-      id: '/api/public/mercadopago-webhook'
-      path: '/api/public/mercadopago-webhook'
-      fullPath: '/api/public/mercadopago-webhook'
-      preLoaderRoute: typeof ApiPublicMercadopagoWebhookRouteImport
+    '/api/public/asaas-webhook': {
+      id: '/api/public/asaas-webhook'
+      path: '/api/public/asaas-webhook'
+      fullPath: '/api/public/asaas-webhook'
+      preLoaderRoute: typeof ApiPublicAsaasWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/asaas-events': {
+      id: '/api/public/hooks/asaas-events'
+      path: '/api/public/hooks/asaas-events'
+      fullPath: '/api/public/hooks/asaas-events'
+      preLoaderRoute: typeof ApiPublicHooksAsaasEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/hooks/whatsapp-reminders': {
@@ -610,7 +630,8 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   MasterLoginRoute: MasterLoginRoute,
   AgendarSlugRoute: AgendarSlugRoute,
-  ApiPublicMercadopagoWebhookRoute: ApiPublicMercadopagoWebhookRoute,
+  ApiPublicAsaasWebhookRoute: ApiPublicAsaasWebhookRoute,
+  ApiPublicHooksAsaasEventsRoute: ApiPublicHooksAsaasEventsRoute,
   ApiPublicHooksWhatsappRemindersRoute: ApiPublicHooksWhatsappRemindersRoute,
 }
 export const routeTree = rootRouteImport

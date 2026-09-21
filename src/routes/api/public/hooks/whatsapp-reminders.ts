@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { sendBookingReminder } from "@/lib/whatsapp-notify.server";
 import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
 
-// Agendador de lembretes de WhatsApp: chamado pelo Cron do Lovable a cada hora.
+// Agendador de lembretes de WhatsApp: chamado pelo cron da infraestrutura a cada hora.
 // Envia o lembrete para agendamentos confirmados cuja janela de aviso abriu
 // (starts_at <= agora + reminder_hours_before) e que ainda não foram lembrados.
 export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({

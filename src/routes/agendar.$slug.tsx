@@ -102,6 +102,7 @@ function PublicBooking() {
   const [time, setTime] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [cpfCnpj, setCpfCnpj] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [pageStart, setPageStart] = useState(0);
   const [charges, setCharges] = useState<string[]>([]);
@@ -224,6 +225,7 @@ function PublicBooking() {
           time: time!,
           customerName: name.trim(),
           customerPhone: phone.trim(),
+          customerCpfCnpj: cpfCnpj.trim(),
           professionalId: professional?.id ?? null,
         },
       }),
@@ -243,6 +245,9 @@ function PublicBooking() {
   const submit = () => {
     if (name.trim().length < 2) return setFormError("Informe o seu nome e sobrenome");
     if (phone.trim().length < 8) return setFormError("Informe o seu telefone");
+    const cpfCnpjDigits = cpfCnpj.replace(/\D/g, "");
+    if (cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14)
+      return setFormError("Informe um CPF ou CNPJ válido (necessário pra gerar o Pix)");
     setFormError(null);
     reserve.mutate();
   };
@@ -471,6 +476,19 @@ function PublicBooking() {
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                       />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <Label htmlFor="cpf">CPF ou CNPJ:</Label>
+                      <Input
+                        id="cpf"
+                        inputMode="numeric"
+                        placeholder="000.000.000-00"
+                        value={cpfCnpj}
+                        onChange={(e) => setCpfCnpj(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Necessário pra emitir o Pix do sinal.
+                      </p>
                     </div>
                   </div>
 

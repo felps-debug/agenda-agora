@@ -1,28 +1,33 @@
-# SAAS AGENDAMENTO FUTURA
+# Agenda Agora
 
-QUERIA CRIAR UM SAAS DE AGENDAMENTO PRA COMERCIOS E EMPRESAS POR EXEMPLO UM CONSULTORIO DE DENTISTA BARBEARIA E ETC VOU TE MANDAR O LINK DE UM SAAS DE EXEMPLO DE AGENDAMENTO
+SaaS de agendamento para comercios e prestadores de servicos, com painel de
+agenda, profissionais, servicos, clientes, cobranca via Asaas e notificacoes.
 
-https://agendas.link/painel-adm/public/pages/login/login.php#addFun3
+## Stack
 
-This project was built with [Lovable](https://lovable.dev).
+- TanStack Start e React
+- Supabase (PostgreSQL, Auth e Cron)
+- Asaas
+- UAZAPI
+- Nitro
 
-**Live app**: https://biz-appt-star.lovable.app
+## Desenvolvimento local
 
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/bfefe583-3d24-407d-bf4b-eb4bf3082941).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Instale as dependencias e inicie o servidor:
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+bun install
+bun run dev
 ```
+
+As configuracoes locais ficam em `.env.local`. Nunca coloque chaves privadas
+no `.env`, pois ele e apenas o template versionado.
+
+## Producao
+
+```sh
+bun run build
+bun run start
+```
+
+Configure os segredos diretamente no ambiente da hospedagem.
