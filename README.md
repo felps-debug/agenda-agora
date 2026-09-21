@@ -31,3 +31,7 @@ bun run start
 ```
 
 Configure os segredos diretamente no ambiente da hospedagem.
+
+- Producao: https://agenda-agora-xi.vercel.app
+- Repositorio: https://github.com/felps-debug/agenda-agora
+- O branch `main` esta conectado a Vercel e publica automaticamente apos cada push.
