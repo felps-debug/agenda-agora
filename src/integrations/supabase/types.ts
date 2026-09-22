@@ -12,91 +12,33 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
-      asaas_business_credentials: {
-        Row: {
-          api_key_encrypted: string
-          asaas_account_id: string | null
-          business_id: string
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          api_key_encrypted: string
-          asaas_account_id?: string | null
-          business_id: string
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          api_key_encrypted?: string
-          asaas_account_id?: string | null
-          business_id?: string
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "asaas_business_credentials_business_id_fkey"
-            columns: ["business_id"]
-            isOneToOne: true
-            referencedRelation: "businesses"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      asaas_webhook_events: {
-        Row: {
-          account_id: string | null
-          attempts: number
-          available_at: string
-          event_id: string
-          event_type: string
-          id: string
-          last_error: string | null
-          locked_at: string | null
-          payload: Json
-          payment_id: string | null
-          processed_at: string | null
-          received_at: string
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          account_id?: string | null
-          attempts?: number
-          available_at?: string
-          event_id: string
-          event_type: string
-          id?: string
-          last_error?: string | null
-          locked_at?: string | null
-          payload: Json
-          payment_id?: string | null
-          processed_at?: string | null
-          received_at?: string
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          account_id?: string | null
-          attempts?: number
-          available_at?: string
-          event_id?: string
-          event_type?: string
-          id?: string
-          last_error?: string | null
-          locked_at?: string | null
-          payload?: Json
-          payment_id?: string | null
-          processed_at?: string | null
-          received_at?: string
-          status?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       appointments: {
         Row: {
           business_id: string
@@ -180,6 +122,89 @@ export type Database = {
           },
         ]
       }
+      asaas_business_credentials: {
+        Row: {
+          api_key_encrypted: string
+          asaas_account_id: string | null
+          business_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          api_key_encrypted: string
+          asaas_account_id?: string | null
+          business_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key_encrypted?: string
+          asaas_account_id?: string | null
+          business_id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asaas_business_credentials_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: true
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      asaas_webhook_events: {
+        Row: {
+          account_id: string | null
+          attempts: number
+          available_at: string
+          event_id: string
+          event_type: string
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          payload: Json
+          payment_id: string | null
+          processed_at: string | null
+          received_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          account_id?: string | null
+          attempts?: number
+          available_at?: string
+          event_id: string
+          event_type: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          payload: Json
+          payment_id?: string | null
+          processed_at?: string | null
+          received_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          account_id?: string | null
+          attempts?: number
+          available_at?: string
+          event_id?: string
+          event_type?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          payload?: Json
+          payment_id?: string | null
+          processed_at?: string | null
+          received_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       business_hours: {
         Row: {
           business_id: string
@@ -244,6 +269,8 @@ export type Database = {
           updated_at: string
           whatsapp_instance: string | null
           whatsapp_status: string
+          withdrawal_pix_key: string | null
+          withdrawal_pix_key_type: string | null
         }
         Insert: {
           address?: string | null
@@ -270,6 +297,8 @@ export type Database = {
           updated_at?: string
           whatsapp_instance?: string | null
           whatsapp_status?: string
+          withdrawal_pix_key?: string | null
+          withdrawal_pix_key_type?: string | null
         }
         Update: {
           address?: string | null
@@ -296,6 +325,8 @@ export type Database = {
           updated_at?: string
           whatsapp_instance?: string | null
           whatsapp_status?: string
+          withdrawal_pix_key?: string | null
+          withdrawal_pix_key_type?: string | null
         }
         Relationships: []
       }
@@ -351,9 +382,9 @@ export type Database = {
           expires_at: string | null
           id: string
           paid_at: string | null
+          payer_cpf_cnpj: string | null
           payer_name: string | null
           payer_phone: string | null
-          payer_cpf_cnpj: string | null
           provider: string
           provider_deleted_at: string | null
           provider_payment_id: string | null
@@ -374,9 +405,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           paid_at?: string | null
+          payer_cpf_cnpj?: string | null
           payer_name?: string | null
           payer_phone?: string | null
-          payer_cpf_cnpj?: string | null
           provider?: string
           provider_deleted_at?: string | null
           provider_payment_id?: string | null
@@ -397,9 +428,9 @@ export type Database = {
           expires_at?: string | null
           id?: string
           paid_at?: string | null
+          payer_cpf_cnpj?: string | null
           payer_name?: string | null
           payer_phone?: string | null
-          payer_cpf_cnpj?: string | null
           provider?: string
           provider_deleted_at?: string | null
           provider_payment_id?: string | null
@@ -426,6 +457,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      outreach_templates: {
+        Row: {
+          active: boolean
+          body: string
+          created_at: string
+          created_by: string | null
+          id: string
+          title: string
+          updated_at: string
+          usage_type: string
+        }
+        Insert: {
+          active?: boolean
+          body: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          title: string
+          updated_at?: string
+          usage_type: string
+        }
+        Update: {
+          active?: boolean
+          body?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          title?: string
+          updated_at?: string
+          usage_type?: string
+        }
+        Relationships: []
       }
       professionals: {
         Row: {
@@ -614,6 +678,7 @@ export type Database = {
           is_combo: boolean
           name: string
           price_cents: number
+          requires_deposit: boolean
           show_duration: boolean
           show_price: boolean
           show_service: boolean
@@ -631,6 +696,7 @@ export type Database = {
           is_combo?: boolean
           name: string
           price_cents?: number
+          requires_deposit?: boolean
           show_duration?: boolean
           show_price?: boolean
           show_service?: boolean
@@ -648,6 +714,7 @@ export type Database = {
           is_combo?: boolean
           name?: string
           price_cents?: number
+          requires_deposit?: boolean
           show_duration?: boolean
           show_price?: boolean
           show_service?: boolean
@@ -928,6 +995,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["super_admin", "owner", "professional"],
