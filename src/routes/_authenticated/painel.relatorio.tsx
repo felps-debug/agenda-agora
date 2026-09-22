@@ -1,20 +1,19 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+
+// recharts é pesado (~90kB gzip) e só é usado nesta tela; lazy-load pra não
+// entrar no bundle das rotas de agendamento/agenda.
+const ReportChart = lazy(() =>
+  import("@/components/painel/ReportChart").then((module) => ({
+    default: module.ReportChart,
+  })),
+);
 
 export const Route = createFileRoute("/_authenticated/painel/relatorio")({
   head: () => ({
@@ -38,10 +37,7 @@ function RelatorioPage() {
   const { businessId } = useBusiness();
   const [days, setDays] = useState(30);
 
-  const since = useMemo(
-    () => new Date(Date.now() - days * 86400000).toISOString(),
-    [days],
-  );
+  const since = useMemo(() => new Date(Date.now() - days * 86400000).toISOString(), [days]);
 
   const { data } = useQuery({
     queryKey: ["report", businessId, days],
@@ -56,10 +52,7 @@ function RelatorioPage() {
           .eq("business_id", businessId!)
           .gte("starts_at", since)
           .order("starts_at"),
-        supabase
-          .from("services")
-          .select("id, name, price_cents")
-          .eq("business_id", businessId!),
+        supabase.from("services").select("id, name, price_cents").eq("business_id", businessId!),
         supabase.from("professionals").select("id, name").eq("business_id", businessId!),
       ]);
       if (appts.error) throw appts.error;
@@ -151,7 +144,11 @@ function RelatorioPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card label="Faturamento" value={formatPrice(report.revenue)} hint="Serviços concluídos" />
-        <Card label="Sinais recebidos" value={formatPrice(report.deposits)} hint="Pagos pelo cliente" />
+        <Card
+          label="Sinais recebidos"
+          value={formatPrice(report.deposits)}
+          hint="Pagos pelo cliente"
+        />
         <Card
           label="Atendimentos"
           value={String(report.total)}
@@ -168,21 +165,15 @@ function RelatorioPage() {
         <h2 className="mb-4 text-sm font-semibold">Atendimentos por dia</h2>
         {report.chart.length ? (
           <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={report.chart}>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="dia" fontSize={12} stroke="var(--muted-foreground)" />
-                <YAxis allowDecimals={false} fontSize={12} stroke="var(--muted-foreground)" />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                />
-                <Bar dataKey="total" fill="var(--primary)" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  Carregando gráfico...
+                </div>
+              }
+            >
+              <ReportChart chart={report.chart} />
+            </Suspense>
           </div>
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">
@@ -221,13 +212,7 @@ function Card({ label, value, hint }: { label: string; value: string; hint?: str
   );
 }
 
-function ListCard({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { name: string; value: string }[];
-}) {
+function ListCard({ title, rows }: { title: string; rows: { name: string; value: string }[] }) {
   return (
     <div className="rounded-xl border border-border bg-card p-5">
       <h2 className="mb-3 text-sm font-semibold">{title}</h2>

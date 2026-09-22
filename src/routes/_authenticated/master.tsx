@@ -363,7 +363,7 @@ function MasterPage() {
             </Button>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <MetricCard
               label="Negócios ativos"
               value={String(metrics.data?.activeBusinesses ?? 0)}
@@ -386,7 +386,7 @@ function MasterPage() {
             />
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-md border border-border">
+          <div className="mt-6 overflow-x-auto rounded-md border border-border">
             <table className="w-full min-w-[860px] text-sm">
               <thead className="bg-secondary text-left text-xs uppercase text-muted-foreground">
                 <tr>
@@ -593,11 +593,11 @@ function MasterPage() {
             </Button>
           </div>
 
-          <div className="mt-4 space-y-3">
+          <div className="mt-6 space-y-3">
             {(templates.data ?? []).map((t) => (
               <div
                 key={t.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-4"
+                className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
