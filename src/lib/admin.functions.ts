@@ -1,18 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const phoneLogin = (phone: string) => `${onlyDigits(phone)}@agenda.local`;
 const phonePassword = (senha: string) => `agendaagora:${senha}`;
-
-async function assertSuperAdmin(userId: string) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data, error } = await supabaseAdmin.from("user_roles").select("role").eq("user_id", userId).eq("role", "super_admin").maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("Acesso restrito ao painel master.");
-  return supabaseAdmin;
-}
 
 /** Login dedicado do Master. A conta é criada/promovida no servidor no primeiro acesso. */
 export const masterLogin = createServerFn({ method: "POST" })
