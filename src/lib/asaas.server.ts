@@ -1,4 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
 
 const ASAAS_USER_AGENT = "AgendaAgora/1.0";
 const REQUEST_TIMEOUT_MS = 12_000;
@@ -409,3 +414,42 @@ export function getRequiredWebhookToken() {
   }
   return token;
 }
+
+export const withdrawalPixKeyTypes = ["cpf", "cnpj", "email", "telefone", "aleatoria"] as const;
+
+export const saveWithdrawalPixKeyInput = z.object({
+  businessId: z.string().uuid(),
+  pixKey: z.string().min(1).max(140),
+  pixKeyType: z.enum(withdrawalPixKeyTypes),
+});
+
+/** Extraída pra ser testável sem precisar do middleware de auth — ver asaas.server.test.ts. */
+export async function saveWithdrawalPixKeyForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: z.infer<typeof saveWithdrawalPixKeyInput>,
+) {
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", data.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!business) throw new Error("Somente o dono pode cadastrar a chave PIX de saque.");
+
+  const { error } = await supabase
+    .from("businesses")
+    .update({ withdrawal_pix_key: data.pixKey, withdrawal_pix_key_type: data.pixKeyType })
+    .eq("id", data.businessId);
+  if (error) throw new Error(error.message);
+
+  return { businessId: data.businessId, pixKey: data.pixKey, pixKeyType: data.pixKeyType };
+}
+
+/** Cadastra a chave PIX de saque do negócio; restrito ao dono (owner_id = auth.uid()). */
+export const saveWithdrawalPixKey = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => saveWithdrawalPixKeyInput.parse(data))
+  .handler(async ({ context, data }) =>
+    saveWithdrawalPixKeyForOwner(context.supabase, context.userId, data),
+  );

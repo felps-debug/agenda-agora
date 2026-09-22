@@ -5,6 +5,8 @@ import {
   decryptAsaasApiKey,
   encryptAsaasApiKey,
   getOrCreateCustomer,
+  saveWithdrawalPixKeyForOwner,
+  saveWithdrawalPixKeyInput,
 } from "./asaas.server";
 
 const jsonResponse = (value: unknown, status = 200) =>
@@ -111,5 +113,79 @@ describe("credencial Asaas", () => {
     const encrypted = encryptAsaasApiKey("$aact_subconta");
     expect(encrypted).not.toContain("$aact_subconta");
     expect(decryptAsaasApiKey(encrypted)).toBe("$aact_subconta");
+  });
+});
+
+// T020 (US4): saveWithdrawalPixKey cadastra a chave PIX de saque do dono em
+// businesses.withdrawal_pix_key/withdrawal_pix_key_type (data-model.md).
+function makeSupabaseMock({
+  businessFound,
+  updateError = null,
+}: {
+  businessFound: boolean;
+  updateError?: string | null;
+}) {
+  const update = vi.fn(() => ({
+    eq: vi.fn(async () => ({ error: updateError ? { message: updateError } : null })),
+  }));
+  const select = vi.fn(() => ({
+    eq: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: businessFound ? { id: "biz-1" } : null,
+          error: null,
+        })),
+      })),
+    })),
+  }));
+  return { from: vi.fn(() => ({ select, update })) } as unknown as Parameters<
+    typeof saveWithdrawalPixKeyForOwner
+  >[0];
+}
+
+describe("saveWithdrawalPixKey (chave PIX de saque)", () => {
+  it("rejeita usuário que não é owner_id do businessId", async () => {
+    const supabase = makeSupabaseMock({ businessFound: false });
+    await expect(
+      saveWithdrawalPixKeyForOwner(supabase, "user-nao-dono", {
+        businessId: "11111111-1111-1111-1111-111111111111",
+        pixKey: "11999990000",
+        pixKeyType: "telefone",
+      }),
+    ).rejects.toThrow("Somente o dono pode cadastrar a chave PIX de saque.");
+  });
+
+  it("aceita os 5 tipos de chave", async () => {
+    const supabase = makeSupabaseMock({ businessFound: true });
+    for (const pixKeyType of ["cpf", "cnpj", "email", "telefone", "aleatoria"] as const) {
+      await expect(
+        saveWithdrawalPixKeyForOwner(supabase, "user-dono", {
+          businessId: "11111111-1111-1111-1111-111111111111",
+          pixKey: `chave-${pixKeyType}`,
+          pixKeyType,
+        }),
+      ).resolves.toEqual({
+        businessId: "11111111-1111-1111-1111-111111111111",
+        pixKey: `chave-${pixKeyType}`,
+        pixKeyType,
+      });
+    }
+  });
+
+  it("rejeita pixKey vazio ou tipo fora do enum", () => {
+    expect(() =>
+      saveWithdrawalPixKeyInput.parse({
+        businessId: "11111111-1111-1111-1111-111111111111",
+        pixKey: "",
+        pixKeyType: "telefone",
+      }),
+    ).toThrow();
+    expect(() =>
+      saveWithdrawalPixKeyInput.parse({
+        businessId: "11111111-1111-1111-1111-111111111111",
+        pixKey: "chave-valida",
+        pixKeyType: "boleto",
+      }),
+    ).toThrow();
   });
 });
