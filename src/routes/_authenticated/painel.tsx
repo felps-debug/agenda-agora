@@ -226,6 +226,7 @@ function PainelLayout() {
           <img
             src={brandLogo.url}
             alt="Agenda Agora"
+            decoding="async"
             className="h-11 w-auto max-w-[220px] object-contain object-left"
           />
         </Link>

@@ -1022,6 +1022,7 @@ function PaymentDialog({
           <img
             src={`data:image/png;base64,${pix.qrCodeBase64}`}
             alt="QR Code do Pix para pagar o sinal"
+            decoding="async"
             className="mx-auto size-56 rounded-lg bg-white p-2"
           />
         )}

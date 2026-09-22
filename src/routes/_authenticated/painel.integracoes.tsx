@@ -140,6 +140,7 @@ function IntegracoesPage() {
                 <img
                   src={qrCode}
                   alt="QR Code para conectar o WhatsApp do negócio"
+                  decoding="async"
                   className="w-64 max-w-full"
                 />
               </div>
