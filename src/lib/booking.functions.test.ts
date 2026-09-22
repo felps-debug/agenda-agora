@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeSlots, hhmm, isValidCpfCnpj, minutesOf, toIso } from "./booking.functions";
+import {
+  computeSlots,
+  hhmm,
+  isValidCpfCnpj,
+  minutesOf,
+  shouldRequireDeposit,
+  toIso,
+} from "./booking.functions";
 
 describe("isValidCpfCnpj", () => {
   it("valida dígitos verificadores e rejeita sequências", () => {
@@ -63,5 +70,25 @@ describe("computeSlots", () => {
     expect(slots).not.toContain("09:30");
     expect(slots).not.toContain("10:00"); // <= nowMin é excluído, não só <
     expect(slots).toContain("10:30");
+  });
+});
+
+// T013 (US3) — escrito antes de T018/T019 existirem (data-model.md, FR-012).
+// `shouldRequireDeposit` ainda não existe em booking.functions.ts: esse teste
+// começa falhando até T018/T019 extraírem a checagem de `service.requires_deposit`
+// usada por `reserveBooking` (hoje só olha `deposit_cents`, ver linha ~260) para
+// essa função pura, com a assinatura esperada
+// `shouldRequireDeposit(service: { requires_deposit: boolean; deposit_cents: number }): boolean`.
+describe("shouldRequireDeposit", () => {
+  it("não cobra sinal quando requires_deposit é false, mesmo com deposit_cents > 0", () => {
+    expect(shouldRequireDeposit({ requires_deposit: false, deposit_cents: 5000 })).toBe(false);
+  });
+
+  it("cobra sinal quando requires_deposit é true e deposit_cents > 0", () => {
+    expect(shouldRequireDeposit({ requires_deposit: true, deposit_cents: 5000 })).toBe(true);
+  });
+
+  it("não cobra sinal sem deposit_cents configurado, mesmo com requires_deposit true", () => {
+    expect(shouldRequireDeposit({ requires_deposit: true, deposit_cents: 0 })).toBe(false);
   });
 });
