@@ -4,16 +4,19 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   CalendarDays,
-  Clock,
-  Copy,
   Check,
   ChevronLeft,
   ChevronRight,
+  Clock,
+  Copy,
+  DollarSign,
+  History,
   Info,
+  Loader2,
+  MapPin,
+  Phone,
   User,
   X,
-  History,
-  DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -168,7 +171,9 @@ function PublicBooking() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("services")
-        .select("id, name, duration_minutes, price_cents, deposit_cents, description, image_path, show_price, show_duration")
+        .select(
+          "id, name, duration_minutes, price_cents, deposit_cents, description, image_path, show_price, show_duration",
+        )
         .eq("business_id", business!.id)
         .eq("active", true)
         .eq("show_service", true)
@@ -179,18 +184,32 @@ function PublicBooking() {
   });
 
   const { data: professionals } = useQuery({
-    queryKey: ["public-professionals", service?.id], enabled: !!service,
+    queryKey: ["public-professionals", service?.id],
+    enabled: !!service,
     queryFn: async () => {
-      const { data: linked, error } = await supabase.from("service_professionals").select("professional_id").eq("service_id", service!.id);
+      const { data: linked, error } = await supabase
+        .from("service_professionals")
+        .select("professional_id")
+        .eq("service_id", service!.id);
       if (error) throw error;
       if (!linked.length) return [] as Professional[];
-      const { data, error: peopleError } = await supabase.from("professionals").select("id,name,role").in("id", linked.map((item) => item.professional_id)).eq("active", true).order("name");
-      if (peopleError) throw peopleError; return data as Professional[];
+      const { data, error: peopleError } = await supabase
+        .from("professionals")
+        .select("id,name,role")
+        .in(
+          "id",
+          linked.map((item) => item.professional_id),
+        )
+        .eq("active", true)
+        .order("name");
+      if (peopleError) throw peopleError;
+      return data as Professional[];
     },
   });
 
   const { data: serviceImage } = useQuery({
-    queryKey: ["public-service-image", service?.image_path], enabled: !!service?.image_path,
+    queryKey: ["public-service-image", service?.image_path],
+    enabled: !!service?.image_path,
     queryFn: () => getLogoUrl(service?.image_path),
   });
 
@@ -202,7 +221,15 @@ function PublicBooking() {
   const { data: availability, isFetching: loadingSlots } = useQuery({
     queryKey: ["public-slots", slug, service?.id, professional?.id, date],
     enabled: !!service && !!date && ((professionals?.length ?? 0) === 0 || !!professional),
-    queryFn: () => availabilityFn({ data: { slug, serviceId: service!.id, date: date!, professionalId: professional?.id ?? null } }),
+    queryFn: () =>
+      availabilityFn({
+        data: {
+          slug,
+          serviceId: service!.id,
+          date: date!,
+          professionalId: professional?.id ?? null,
+        },
+      }),
   });
 
   const bookings = useQuery({
@@ -236,10 +263,14 @@ function PublicBooking() {
       setProfessional(null);
       setDate(null);
       setTime(null);
+      setPageStart(0);
       setTab("historico");
       void bookings.refetch();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      setFormError(e.message);
+      toast.error(e.message);
+    },
   });
 
   const submit = () => {
@@ -252,17 +283,27 @@ function PublicBooking() {
     reserve.mutate();
   };
 
-  const closeModal = () => {
+  const openService = (selected: Service) => {
+    setService(selected);
+    setProfessional(null);
+    setDate(null);
+    setTime(null);
+    setPageStart(0);
+    setFormError(null);
+  };
+
+  const closeService = () => {
     setService(null);
     setProfessional(null);
     setDate(null);
     setTime(null);
+    setPageStart(0);
     setFormError(null);
   };
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-background pb-28"
+      className="flex min-h-screen flex-col bg-background pb-28 text-foreground"
       style={
         {
           ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
@@ -270,145 +311,192 @@ function PublicBooking() {
         } as React.CSSProperties
       }
     >
-      <header className="bg-sidebar px-4 py-3">
-        <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em] text-primary">
-          Agenda Agora
-        </span>
-      </header>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4">
-        <div className="flex min-h-[92px] items-center justify-center py-8">
-          {logoUrl ? (
-            <img
-              src={logoUrl}
-              alt={business?.name ? `Logotipo de ${business.name}` : "Logotipo"}
-              className="max-h-24 max-w-[70%] object-contain"
-            />
-          ) : !isLoading && !business ? (
-            <p className="text-sm text-muted-foreground">Negócio não encontrado</p>
+      <header className="border-b border-border/40 bg-sidebar px-4 py-3">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
+          <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em] text-primary">
+            Agenda Agora
+          </span>
+          {business?.phone ? (
+            <a
+              href={`tel:${business.phone}`}
+              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Phone className="size-3.5" /> Contato
+            </a>
           ) : null}
         </div>
+      </header>
 
-        {business?.status === "suspenso" && (
-          <div className="mb-6 rounded-xl border border-destructive/40 bg-destructive/10 p-6 text-center text-sm text-destructive">
-            Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
+        {isLoading ? (
+          <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
+            <Loader2 className="size-7 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Carregando...</p>
           </div>
-        )}
-
-        {business?.status === "suspenso" ? null : tab === "agendar" ? (
-          <div className="space-y-4">
-            {(services ?? []).map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => {
-                  setService(s);
-                  setProfessional(null);
-                  setDate(null);
-                  setTime(null);
-                  setFormError(null);
-                }}
-                className="w-full rounded-lg border border-border bg-card px-4 py-6 text-center transition-colors hover:border-primary"
-              >
-                <p className="text-lg">{s.name}</p>
-                {s.show_duration && <p className="mt-3 text-sm text-muted-foreground">{s.duration_minutes}min</p>}
-                {s.show_price && <p className="mt-1 text-sm text-muted-foreground">{formatPrice(s.price_cents)}</p>}
-                {s.deposit_cents > 0 && (
-                  <p className="mt-2 text-xs font-semibold text-primary">
-                    Sinal de {formatPrice(s.deposit_cents)}
-                  </p>
-                )}
-              </button>
-            ))}
-            {business && !services?.length && (
-              <p className="py-10 text-center text-sm text-muted-foreground">
-                Nenhum serviço disponível no momento.
-              </p>
-            )}
+        ) : !business ? (
+          <div className="flex min-h-[50vh] items-center justify-center py-10">
+            <p className="text-sm text-muted-foreground">Negócio não encontrado</p>
           </div>
         ) : (
-          <HistoryList
-            slug={slug}
-            bookings={bookings.data?.bookings ?? []}
-            onOpen={setActiveCharge}
-            onRefresh={() => void bookings.refetch()}
-          />
+          <>
+            <BusinessHeader
+              name={business.name}
+              logoUrl={logoUrl ?? null}
+              address={business.address}
+            />
+
+            {business.status === "suspenso" ? (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
+                Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+              </div>
+            ) : tab === "agendar" ? (
+              <div className="space-y-8">
+                {services?.length ? (
+                  <ServiceSection services={services} onSelect={openService} />
+                ) : (
+                  <div className="rounded-xl border border-border bg-card p-8 text-center">
+                    <p className="font-semibold">Nenhum serviço disponível no momento.</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Volte mais tarde para conferir novos horários e serviços.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <HistoryList
+                bookings={bookings.data?.bookings ?? []}
+                onOpen={setActiveCharge}
+                onRefresh={() => void bookings.refetch()}
+              />
+            )}
+          </>
         )}
       </main>
 
       {/* Modal de agendamento */}
-      <Dialog open={!!service} onOpenChange={(o) => !o && closeModal()}>
-        <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto bg-card">
+      <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
+        <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto bg-card p-0">
           {service && (
-            <div className="space-y-6 text-center">
+            <div className="space-y-6 p-5 text-center sm:p-6">
               <div>
+                {serviceImage && (
+                  <img
+                    src={serviceImage}
+                    alt={service.name}
+                    loading="lazy"
+                    decoding="async"
+                    className="mx-auto mb-5 max-h-52 w-full rounded-lg object-cover"
+                  />
+                )}
                 <h2 className="font-display text-xl font-bold">{service.name}</h2>
-                {serviceImage && <img src={serviceImage} alt={service.name} className="mx-auto mt-4 max-h-44 w-full rounded-md object-cover" />}
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                  {service.show_price ? <span>{formatPrice(service.price_cents)}</span> : null}
+                  {service.show_price && service.show_duration ? <span>·</span> : null}
+                  {service.show_duration ? <span>{service.duration_minutes}min</span> : null}
+                </div>
                 {service.description && (
-                  <p className="mt-2 text-sm text-muted-foreground">{service.description}</p>
+                  <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
+                    {service.description}
+                  </p>
                 )}
               </div>
 
-              {!!professionals?.length && <div><p className="mb-3 text-sm font-semibold">Escolha o profissional:</p><div className="grid gap-2 sm:grid-cols-2">{professionals.map((p) => <button key={p.id} type="button" onClick={() => { setProfessional(p); setDate(null); setTime(null); }} className={`rounded-md border p-3 text-left transition-colors ${professional?.id === p.id ? "border-primary bg-primary/20" : "border-border hover:border-primary"}`}><span className="block font-semibold">{p.name}</span>{p.role && <span className="text-xs text-muted-foreground">{p.role}</span>}</button>)}</div></div>}
-
-              {((professionals?.length ?? 0) === 0 || professional) && <div>
-                <p className="mb-3 text-sm font-semibold">Selecione o dia da semana desejado:</p>
-                {!days.length ? (
-                  <p className="text-sm text-muted-foreground">
-                    Nenhum dia de atendimento configurado.
-                  </p>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      aria-label="Dias anteriores"
-                      disabled={pageStart === 0}
-                      onClick={() => setPageStart(Math.max(0, pageStart - 7))}
-                      className="text-muted-foreground disabled:opacity-30"
-                    >
-                      <ChevronLeft className="size-6" />
-                    </button>
-                    <div className="flex flex-1 flex-wrap justify-center gap-2">
-                      {visibleDays.map((d) => (
-                        <button
-                          key={d.date}
-                          type="button"
-                          onClick={() => {
-                            setDate(d.date);
-                            setTime(null);
-                          }}
-                          className={`min-w-[5rem] rounded-md border px-3 py-2 text-sm transition-colors ${
-                            date === d.date
-                              ? "border-primary bg-primary/20 text-primary"
-                              : "border-border hover:border-primary"
-                          }`}
-                        >
-                          <span className="block">{ddmm(d.date)}</span>
-                          <span className="block">{DAY_LABEL[d.weekday]}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      aria-label="Próximos dias"
-                      disabled={pageStart + 7 >= days.length}
-                      onClick={() => setPageStart(pageStart + 7)}
-                      className="text-muted-foreground disabled:opacity-30"
-                    >
-                      <ChevronRight className="size-6" />
-                    </button>
+              {!!professionals?.length && (
+                <div>
+                  <p className="mb-3 text-sm font-semibold">Escolha o profissional</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {professionals.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setProfessional(p);
+                          setDate(null);
+                          setTime(null);
+                          setPageStart(0);
+                        }}
+                        className={`rounded-lg border p-3 text-left transition-colors ${
+                          professional?.id === p.id
+                            ? "border-primary bg-primary/15 text-foreground"
+                            : "border-border bg-background/30 hover:border-primary"
+                        }`}
+                      >
+                        <span className="block font-semibold">{p.name}</span>
+                        {p.role && (
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {p.role}
+                          </span>
+                        )}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>}
+                </div>
+              )}
+
+              {((professionals?.length ?? 0) === 0 || professional) && (
+                <div>
+                  <p className="mb-3 text-sm font-semibold">Escolha a data</p>
+                  {!days.length ? (
+                    <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                      Nenhum dia de atendimento está disponível no momento.
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label="Datas anteriores"
+                        disabled={pageStart === 0}
+                        onClick={() => setPageStart(Math.max(0, pageStart - 7))}
+                        className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                      >
+                        <ChevronLeft className="size-6" />
+                      </button>
+                      <div className="flex flex-1 flex-wrap justify-center gap-2">
+                        {visibleDays.map((d) => (
+                          <button
+                            key={d.date}
+                            type="button"
+                            onClick={() => {
+                              setDate(d.date);
+                              setTime(null);
+                            }}
+                            className={`min-w-[4.75rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
+                              date === d.date
+                                ? "border-primary bg-primary/15 text-primary"
+                                : "border-border bg-background/30 hover:border-primary"
+                            }`}
+                          >
+                            <span className="block font-semibold">{ddmm(d.date)}</span>
+                            <span className="mt-0.5 block text-[11px] opacity-80">
+                              {DAY_LABEL[d.weekday]}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Próximas datas"
+                        disabled={pageStart + 7 >= days.length}
+                        onClick={() => setPageStart(pageStart + 7)}
+                        className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                      >
+                        <ChevronRight className="size-6" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {date && (
                 <div>
-                  <p className="mb-3 text-sm font-semibold">Escolha um Horário Disponível:</p>
+                  <p className="mb-3 text-sm font-semibold">Escolha um horário disponível</p>
                   {loadingSlots ? (
-                    <p className="text-sm text-muted-foreground">Carregando horários...</p>
+                    <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="size-4 animate-spin" /> Carregando horários...
+                    </p>
                   ) : !availability?.slots.length ? (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhum horário livre nesse dia. Tente outra data.
+                    <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                      Nenhum horário livre nesta data. Escolha outro dia.
                     </p>
                   ) : (
                     <div className="flex flex-wrap justify-center gap-2">
@@ -417,10 +505,10 @@ function PublicBooking() {
                           key={s}
                           type="button"
                           onClick={() => setTime(s)}
-                          className={`rounded-md border px-4 py-2 text-sm transition-colors ${
+                          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                             time === s
-                              ? "border-primary bg-primary/20 text-primary"
-                              : "border-border hover:border-primary"
+                              ? "border-primary bg-primary/15 text-primary"
+                              : "border-border bg-background/30 hover:border-primary"
                           }`}
                         >
                           {s}
@@ -432,53 +520,58 @@ function PublicBooking() {
               )}
 
               {date && time && (
-                <div className="space-y-4">
+                <div className="space-y-4 border-t border-border pt-5">
                   <div>
-                    <h3 className="font-display text-lg font-bold">RESUMO</h3>
-                    <ul className="mt-2 space-y-1 text-sm">
-                      <li className="flex items-center justify-center gap-2">
-                        <Info className="size-4" /> {service.name}
-                      </li>
-                      <li className="flex items-center justify-center gap-2">
-                        <User className="size-4" /> {professional?.name ?? "Profissional Agenda"}
-                      </li>
-                      <li className="flex items-center justify-center gap-2">
-                        <CalendarDays className="size-4" /> {fullDate(date)}
-                      </li>
-                      <li className="flex items-center justify-center gap-2">
-                        <Clock className="size-4" /> {time}
-                      </li>
-                    </ul>
+                    <h3 className="font-display text-base font-bold uppercase tracking-wide">
+                      Resumo
+                    </h3>
+                    <div className="mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border bg-background/30 p-4 text-left text-sm">
+                      <p className="flex items-center gap-2">
+                        <Info className="size-4 shrink-0 text-primary" /> {service.name}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <User className="size-4 shrink-0 text-primary" />{" "}
+                        {professional?.name ?? "Profissional Agenda"}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <CalendarDays className="size-4 shrink-0 text-primary" /> {fullDate(date)}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Clock className="size-4 shrink-0 text-primary" /> {time}
+                      </p>
+                    </div>
                   </div>
 
                   {formError && (
-                    <p className="rounded-md bg-destructive/20 px-3 py-2 text-sm text-destructive-foreground">
+                    <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                       {formError}
                     </p>
                   )}
 
                   <div className="grid gap-3 text-left sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <Label htmlFor="nome">Nome e sobrenome:</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="nome">Nome e sobrenome</Label>
                       <Input
                         id="nome"
+                        autoComplete="name"
                         placeholder="Nome e sobrenome"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="fone">Telefone:</Label>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fone">Telefone</Label>
                       <Input
                         id="fone"
                         inputMode="tel"
-                        placeholder="(99)99999-9999"
+                        autoComplete="tel"
+                        placeholder="(99) 99999-9999"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-1 sm:col-span-2">
-                      <Label htmlFor="cpf">CPF ou CNPJ:</Label>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label htmlFor="cpf">CPF ou CNPJ</Label>
                       <Input
                         id="cpf"
                         inputMode="numeric"
@@ -493,11 +586,18 @@ function PublicBooking() {
                   </div>
 
                   <Button className="w-full" disabled={reserve.isPending} onClick={submit}>
-                    AGENDAR
+                    {reserve.isPending ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" /> Agendando...
+                      </>
+                    ) : (
+                      "Agendar"
+                    )}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    Sinal de {formatPrice(service.deposit_cents)} por Pix. O horário só é confirmado
-                    após o pagamento.
+                    {service.deposit_cents > 0
+                      ? `Sinal de ${formatPrice(service.deposit_cents)} por Pix. O horário só é confirmado após o pagamento.`
+                      : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
                   </p>
                 </div>
               )}
@@ -517,7 +617,7 @@ function PublicBooking() {
         />
       )}
 
-      <nav className="fixed inset-x-0 bottom-4 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border bg-card py-3 shadow-lg">
+      <nav className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border bg-card/95 py-3 shadow-lg backdrop-blur">
         {(
           [
             { key: "agendar", label: "Agendar", icon: CalendarDays },
@@ -528,10 +628,10 @@ function PublicBooking() {
             key={item.key}
             type="button"
             onClick={() => setTab(item.key)}
-            className={`flex flex-col items-center gap-1 text-xs ${
+            className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
               tab === item.key
                 ? "font-semibold text-foreground underline underline-offset-4"
-                : "text-muted-foreground"
+                : "text-muted-foreground hover:text-foreground"
             }`}
           >
             <item.icon className="size-4" />
@@ -540,6 +640,80 @@ function PublicBooking() {
         ))}
       </nav>
     </div>
+  );
+}
+
+function BusinessHeader({
+  name,
+  logoUrl,
+  address,
+}: {
+  name: string;
+  logoUrl: string | null;
+  address: string | null;
+}) {
+  return (
+    <div className="py-8 text-center">
+      {logoUrl ? (
+        <img
+          src={logoUrl}
+          alt={`Logotipo de ${name}`}
+          decoding="async"
+          fetchPriority="high"
+          className="mx-auto max-h-24 max-w-[72%] object-contain"
+        />
+      ) : (
+        <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border border-border bg-card text-xl font-bold text-primary">
+          {name.slice(0, 2).toUpperCase()}
+        </div>
+      )}
+      <h1 className="mt-4 text-xl font-semibold">{name}</h1>
+      {address ? (
+        <p className="mx-auto mt-2 flex max-w-md items-center justify-center gap-1.5 text-xs text-muted-foreground">
+          <MapPin className="size-3.5 shrink-0" /> {address}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ServiceSection({
+  services,
+  onSelect,
+}: {
+  services: Service[];
+  onSelect: (service: Service) => void;
+}) {
+  return (
+    <section>
+      <h2 className="mb-3 text-center text-sm font-bold uppercase tracking-[0.16em] text-muted-foreground">
+        Serviços
+      </h2>
+      <div className="space-y-3">
+        {services.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => onSelect(s)}
+            className="w-full rounded-lg border border-border bg-card px-4 py-5 text-center text-card-foreground transition-colors hover:border-primary"
+          >
+            <p className="text-base font-medium">{s.name}</p>
+            {(s.show_price || s.show_duration) && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {s.show_price ? formatPrice(s.price_cents) : null}
+                {s.show_price && s.show_duration ? " - " : null}
+                {s.show_duration ? `${s.duration_minutes}min` : null}
+              </p>
+            )}
+            {s.deposit_cents > 0 && (
+              <p className="mt-2 text-xs font-semibold text-primary">
+                Sinal de {formatPrice(s.deposit_cents)}
+              </p>
+            )}
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -558,49 +732,72 @@ type Booking = {
 
 function statusInfo(b: Booking) {
   if (b.chargeStatus === "pago")
-    return { tag: "#Agendamento Confirmado", tone: "border-primary/60", steps: 3, last: "Confirmado" };
+    return {
+      tag: "#Agendamento Confirmado",
+      tone: "border-primary/60",
+      label: "Confirmado",
+      steps: 3,
+    };
   if (b.chargeStatus === "pendente")
-    return { tag: "#Agendamento Pendente", tone: "border-primary/40", steps: 2, last: "Aguardando Pagamento" };
-  return { tag: "#Agendamento Cancelado", tone: "border-destructive/60", steps: 3, last: "Agendamento Cancelado" };
+    return {
+      tag: "#Agendamento Pendente",
+      tone: "border-primary/40",
+      label: "Aguardando pagamento",
+      steps: 2,
+    };
+  return {
+    tag: "#Agendamento Cancelado",
+    tone: "border-destructive/60",
+    label: "Cancelado",
+    steps: 3,
+  };
 }
 
 function HistoryList({
-  slug,
   bookings,
   onOpen,
   onRefresh,
 }: {
-  slug: string;
   bookings: Booking[];
   onOpen: (id: string) => void;
   onRefresh: () => void;
 }) {
-  void slug;
   if (!bookings.length)
     return (
-      <p className="py-10 text-center text-sm text-muted-foreground">
-        Seus agendamentos aparecerão aqui.
-      </p>
+      <div className="rounded-xl border border-border bg-card p-8 text-center">
+        <History className="mx-auto size-7 text-muted-foreground" />
+        <p className="mt-3 font-semibold">Nenhum agendamento por aqui ainda.</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Seus agendamentos feitos neste aparelho aparecerão aqui.
+        </p>
+      </div>
     );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="border-b border-border pb-3">
-        <p className="text-sm text-primary">Histórico de Agendamentos</p>
-        <p className="text-sm text-muted-foreground">{bookings[0]?.customerName}</p>
+        <p className="text-sm font-semibold text-primary">Histórico de agendamentos</p>
+        {bookings[0]?.customerName ? (
+          <p className="text-sm text-muted-foreground">{bookings[0].customerName}</p>
+        ) : null}
       </div>
       {bookings.map((b) => {
         const info = statusInfo(b);
         const starts = b.startsAt ? new Date(b.startsAt) : null;
         return (
-          <div key={b.chargeId} className={`rounded-xl border ${info.tone} bg-card p-4`}>
-            <p className="text-xs font-semibold italic text-muted-foreground">{info.tag}</p>
-            <div className="mt-3 space-y-1 rounded-lg border border-border p-3 text-sm">
+          <article key={b.chargeId} className={`rounded-xl border ${info.tone} bg-card p-4`}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold italic text-muted-foreground">{info.tag}</p>
+              <span className="rounded-full border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide">
+                {info.label}
+              </span>
+            </div>
+            <div className="mt-3 space-y-2 rounded-lg border border-border bg-background/20 p-3 text-sm">
               <p className="flex items-center gap-2">
-                <Info className="size-4" /> {b.serviceName}
+                <Info className="size-4 text-primary" /> {b.serviceName}
               </p>
               <p className="flex items-center gap-2">
-                <CalendarDays className="size-4" />{" "}
+                <CalendarDays className="size-4 text-primary" />{" "}
                 {starts
                   ? starts.toLocaleString("pt-BR", {
                       weekday: "long",
@@ -613,19 +810,23 @@ function HistoryList({
                   : "—"}
               </p>
               <p className="flex items-center gap-2">
-                <User className="size-4" /> {b.professionalName}
+                <User className="size-4 text-primary" /> {b.professionalName}
               </p>
             </div>
 
-            <div className="mt-4 flex items-start gap-4">
-              <Step icon={<History className="size-4" />} label="Agendamento Cadastrado" />
-              <Step icon={<DollarSign className="size-4" />} label="Aguardando Pagamento" />
+            <div className="mt-4 flex items-start justify-center gap-4">
+              <Step icon={<History className="size-4" />} label="Agendamento cadastrado" />
+              <Step icon={<DollarSign className="size-4" />} label="Pagamento do sinal" />
               {info.steps === 3 && (
                 <Step
                   icon={
-                    b.chargeStatus === "pago" ? <Check className="size-4" /> : <X className="size-4" />
+                    b.chargeStatus === "pago" ? (
+                      <Check className="size-4" />
+                    ) : (
+                      <X className="size-4" />
+                    )
                   }
-                  label={info.last}
+                  label={info.label}
                 />
               )}
             </div>
@@ -641,7 +842,7 @@ function HistoryList({
                 Pagar sinal de {formatPrice(b.amountCents)}
               </Button>
             )}
-          </div>
+          </article>
         );
       })}
     </div>
@@ -744,14 +945,9 @@ function PaymentDialog({
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto text-center">
-        <h2 className="font-display text-xl font-bold">Agendamento Aguardando Pagamento</h2>
+        <h2 className="font-display text-xl font-bold">Agendamento aguardando pagamento</h2>
         <p className="text-sm text-muted-foreground">
-          Para confirmar seu agendamento é necessário efetuar o pagamento via pix.
-        </p>
-        <p className="text-sm font-semibold">Selecione a forma de pagamento desejada</p>
-        <p className="text-sm text-muted-foreground">
-          Clique no valor e após isso clique em &quot;Gerar Código Pix&quot; para continuar com seu
-          pagamento.
+          Para confirmar seu agendamento, efetue o pagamento do sinal via Pix.
         </p>
         <p className="mx-auto w-fit rounded-md bg-muted px-4 py-1 text-sm font-semibold">
           {formatPrice(booking?.amountCents ?? 0)}
@@ -761,7 +957,8 @@ function PaymentDialog({
           disabled={generate.isPending || !!pix}
           onClick={() => generate.mutate()}
         >
-          Gerar Código Pix
+          {generate.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+          Gerar código Pix
         </Button>
 
         {pix?.qrCodeBase64 && (
@@ -774,7 +971,7 @@ function PaymentDialog({
         {pix?.qrCode && (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">
-              Utilize a função copia e cola de seu banco para efetuar o pagamento via pix
+              Use a função Pix copia e cola do seu banco para concluir o pagamento.
             </p>
             <p className="truncate rounded-md bg-muted px-3 py-2 text-left text-xs">{pix.qrCode}</p>
             <Button
