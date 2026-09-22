@@ -11,7 +11,13 @@ const slugSchema = z.object({
 type Ctx = {
   businessId: string;
   asaasSubaccountStatus: string;
-  service: { id: string; name: string; duration_minutes: number; deposit_cents: number };
+  service: {
+    id: string;
+    name: string;
+    duration_minutes: number;
+    deposit_cents: number;
+    requires_deposit: boolean;
+  };
 };
 
 async function admin() {
@@ -38,27 +44,18 @@ export function isValidCpfCnpj(value: string) {
   if (![11, 14].includes(digits.length) || /^(\d)\1+$/.test(digits)) return false;
 
   const validateDigit = (base: string, weights: number[]) => {
-    const sum = weights.reduce(
-      (total, weight, index) => total + Number(base[index]) * weight,
-      0,
-    );
+    const sum = weights.reduce((total, weight, index) => total + Number(base[index]) * weight, 0);
     const remainder = sum % 11;
     return remainder < 2 ? 0 : 11 - remainder;
   };
 
   if (digits.length === 11) {
     const first = validateDigit(digits.slice(0, 9), [10, 9, 8, 7, 6, 5, 4, 3, 2]);
-    const second = validateDigit(
-      `${digits.slice(0, 9)}${first}`,
-      [11, 10, 9, 8, 7, 6, 5, 4, 3, 2],
-    );
+    const second = validateDigit(`${digits.slice(0, 9)}${first}`, [11, 10, 9, 8, 7, 6, 5, 4, 3, 2]);
     return digits.endsWith(`${first}${second}`);
   }
 
-  const first = validateDigit(
-    digits.slice(0, 12),
-    [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
-  );
+  const first = validateDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   const second = validateDigit(
     `${digits.slice(0, 12)}${first}`,
     [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
@@ -90,6 +87,18 @@ export function computeSlots(params: {
   return slots;
 }
 
+/**
+ * Um serviço só cobra sinal se exigir sinal (requires_deposit) E tiver um valor
+ * configurado. Serviço com requires_deposit=false nunca cobra, independente do
+ * valor deixado em deposit_cents (FR-012, data-model.md).
+ */
+export function shouldRequireDeposit(service: {
+  requires_deposit: boolean;
+  deposit_cents: number;
+}): boolean {
+  return service.requires_deposit && service.deposit_cents > 0;
+}
+
 async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   const db = await admin();
   const { data: business } = await db
@@ -102,7 +111,7 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
     throw new Error("Os agendamentos deste estabelecimento estão temporariamente indisponíveis.");
   const { data: service } = await db
     .from("services")
-    .select("id, name, duration_minutes, deposit_cents")
+    .select("id, name, duration_minutes, deposit_cents, requires_deposit")
     .eq("id", serviceId)
     .eq("business_id", business.id)
     .eq("active", true)
@@ -115,12 +124,26 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   };
 }
 
-async function validateProfessional(businessId: string, serviceId: string, professionalId?: string | null) {
+async function validateProfessional(
+  businessId: string,
+  serviceId: string,
+  professionalId?: string | null,
+) {
   const db = await admin();
-  const { data: links } = await db.from("service_professionals").select("professional_id").eq("business_id", businessId).eq("service_id", serviceId);
+  const { data: links } = await db
+    .from("service_professionals")
+    .select("professional_id")
+    .eq("business_id", businessId)
+    .eq("service_id", serviceId);
   if (!links?.length) return null;
-  if (!professionalId || !links.some((link) => link.professional_id === professionalId)) throw new Error("Selecione um profissional disponível.");
-  const { data: professional } = await db.from("professionals").select("id, name, active, working_days").eq("id", professionalId).eq("business_id", businessId).maybeSingle();
+  if (!professionalId || !links.some((link) => link.professional_id === professionalId))
+    throw new Error("Selecione um profissional disponível.");
+  const { data: professional } = await db
+    .from("professionals")
+    .select("id, name, active, working_days")
+    .eq("id", professionalId)
+    .eq("business_id", businessId)
+    .maybeSingle();
   if (!professional?.active) throw new Error("Esse profissional não está disponível.");
   return professional;
 }
@@ -132,7 +155,8 @@ export const getAvailability = createServerFn({ method: "POST" })
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const weekday = new Date(`${data.date}T12:00:00-03:00`).getDay();
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
-    if (professional && !professional.working_days.includes(weekday)) return { slots: [] as string[], depositCents: service.deposit_cents };
+    if (professional && !professional.working_days.includes(weekday))
+      return { slots: [] as string[], depositCents: service.deposit_cents };
 
     const { data: hours } = await db
       .from("business_hours")
@@ -170,12 +194,14 @@ export const getAvailability = createServerFn({ method: "POST" })
       const e = new Date(a.ends_at);
       const off = (d: Date) =>
         Number(
-          d.toLocaleTimeString("pt-BR", {
-            timeZone: "America/Sao_Paulo",
-            hour: "2-digit",
-            minute: "2-digit",
-            hour12: false,
-          }).slice(0, 2),
+          d
+            .toLocaleTimeString("pt-BR", {
+              timeZone: "America/Sao_Paulo",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            })
+            .slice(0, 2),
         ) *
           60 +
         Number(
@@ -192,8 +218,7 @@ export const getAvailability = createServerFn({ method: "POST" })
     }
 
     const nowMin =
-      data.date ===
-      new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
+      data.date === new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
         ? (() => {
             const t = new Date().toLocaleTimeString("pt-BR", {
               timeZone: "America/Sao_Paulo",
@@ -257,7 +282,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
       data.serviceId,
     );
     await validateProfessional(businessId, service.id, data.professionalId);
-    if (!service.deposit_cents || service.deposit_cents <= 0)
+    if (service.requires_deposit && !shouldRequireDeposit(service))
       throw new Error("Este serviço ainda não tem valor de sinal configurado.");
     if (asaasSubaccountStatus !== "aprovada")
       throw new Error("Este estabelecimento ainda não está habilitado para receber o sinal.");
@@ -294,7 +319,8 @@ export const reserveBooking = createServerFn({ method: "POST" })
       })
       .select("id")
       .single();
-    if (apptError?.code === "23P01") throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
+    if (apptError?.code === "23P01")
+      throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
     if (apptError || !appointment) throw new Error(apptError?.message ?? "Falha ao reservar.");
 
     const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
@@ -430,11 +456,17 @@ export const getMyBookings = createServerFn({ method: "POST" })
       : { data: [] as never[] };
     const serviceIds = [...new Set((appts ?? []).map((a) => a.service_id).filter(Boolean))];
     const { data: servicesRows } = serviceIds.length
-      ? await db.from("services").select("id, name").in("id", serviceIds as string[])
+      ? await db
+          .from("services")
+          .select("id, name")
+          .in("id", serviceIds as string[])
       : { data: [] as never[] };
     const profIds = [...new Set((appts ?? []).map((a) => a.professional_id).filter(Boolean))];
     const { data: profs } = profIds.length
-      ? await db.from("professionals").select("id, name").in("id", profIds as string[])
+      ? await db
+          .from("professionals")
+          .select("id, name")
+          .in("id", profIds as string[])
       : { data: [] as never[] };
 
     const bookings = (charges ?? []).map((c) => {
@@ -456,7 +488,6 @@ export const getMyBookings = createServerFn({ method: "POST" })
     });
     return { bookings };
   });
-
 
 export const getDepositStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
