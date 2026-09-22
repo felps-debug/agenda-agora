@@ -32,7 +32,6 @@ import { Route as AuthenticatedPainelProfissionaisRouteImport } from './routes/_
 import { Route as AuthenticatedPainelRelatorioRouteImport } from './routes/_authenticated/painel.relatorio'
 import { Route as AuthenticatedPainelServicosRouteImport } from './routes/_authenticated/painel.servicos'
 import { Route as AuthenticatedPainelTemplatesRouteImport } from './routes/_authenticated/painel.templates'
-import { Route as AuthenticatedPainelWhatsappRouteImport } from './routes/_authenticated/painel.whatsapp'
 import { Route as ApiPublicAsaasWebhookRouteImport } from './routes/api/public/asaas-webhook'
 import { Route as ApiPublicHooksAsaasEventsRouteImport } from './routes/api/public/hooks/asaas-events'
 import { Route as ApiPublicHooksWhatsappRemindersRouteImport } from './routes/api/public/hooks/whatsapp-reminders'
@@ -167,12 +166,6 @@ const AuthenticatedPainelTemplatesRoute =
     path: '/templates',
     getParentRoute: () => AuthenticatedPainelRoute,
   } as any)
-const AuthenticatedPainelWhatsappRoute =
-  AuthenticatedPainelWhatsappRouteImport.update({
-    id: '/whatsapp',
-    path: '/whatsapp',
-    getParentRoute: () => AuthenticatedPainelRoute,
-  } as any)
 const ApiPublicAsaasWebhookRoute = ApiPublicAsaasWebhookRouteImport.update({
   id: '/api/public/asaas-webhook',
   path: '/api/public/asaas-webhook',
@@ -213,7 +206,6 @@ export interface FileRoutesByFullPath {
   '/painel/relatorio': typeof AuthenticatedPainelRelatorioRoute
   '/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/painel/templates': typeof AuthenticatedPainelTemplatesRoute
-  '/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
   '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/painel/': typeof AuthenticatedPainelIndexRoute
   '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
@@ -240,7 +232,6 @@ export interface FileRoutesByTo {
   '/painel/relatorio': typeof AuthenticatedPainelRelatorioRoute
   '/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/painel/templates': typeof AuthenticatedPainelTemplatesRoute
-  '/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
   '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/painel': typeof AuthenticatedPainelIndexRoute
   '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
@@ -270,7 +261,6 @@ export interface FileRoutesById {
   '/_authenticated/painel/relatorio': typeof AuthenticatedPainelRelatorioRoute
   '/_authenticated/painel/servicos': typeof AuthenticatedPainelServicosRoute
   '/_authenticated/painel/templates': typeof AuthenticatedPainelTemplatesRoute
-  '/_authenticated/painel/whatsapp': typeof AuthenticatedPainelWhatsappRoute
   '/api/public/asaas-webhook': typeof ApiPublicAsaasWebhookRoute
   '/_authenticated/painel/': typeof AuthenticatedPainelIndexRoute
   '/api/public/hooks/asaas-events': typeof ApiPublicHooksAsaasEventsRoute
@@ -300,7 +290,6 @@ export interface FileRouteTypes {
     | '/painel/relatorio'
     | '/painel/servicos'
     | '/painel/templates'
-    | '/painel/whatsapp'
     | '/api/public/asaas-webhook'
     | '/painel/'
     | '/api/public/hooks/asaas-events'
@@ -327,7 +316,6 @@ export interface FileRouteTypes {
     | '/painel/relatorio'
     | '/painel/servicos'
     | '/painel/templates'
-    | '/painel/whatsapp'
     | '/api/public/asaas-webhook'
     | '/painel'
     | '/api/public/hooks/asaas-events'
@@ -356,7 +344,6 @@ export interface FileRouteTypes {
     | '/_authenticated/painel/relatorio'
     | '/_authenticated/painel/servicos'
     | '/_authenticated/painel/templates'
-    | '/_authenticated/painel/whatsapp'
     | '/api/public/asaas-webhook'
     | '/_authenticated/painel/'
     | '/api/public/hooks/asaas-events'
@@ -537,13 +524,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPainelTemplatesRouteImport
       parentRoute: typeof AuthenticatedPainelRoute
     }
-    '/_authenticated/painel/whatsapp': {
-      id: '/_authenticated/painel/whatsapp'
-      path: '/whatsapp'
-      fullPath: '/painel/whatsapp'
-      preLoaderRoute: typeof AuthenticatedPainelWhatsappRouteImport
-      parentRoute: typeof AuthenticatedPainelRoute
-    }
     '/api/public/asaas-webhook': {
       id: '/api/public/asaas-webhook'
       path: '/api/public/asaas-webhook'
@@ -584,7 +564,6 @@ interface AuthenticatedPainelRouteChildren {
   AuthenticatedPainelRelatorioRoute: typeof AuthenticatedPainelRelatorioRoute
   AuthenticatedPainelServicosRoute: typeof AuthenticatedPainelServicosRoute
   AuthenticatedPainelTemplatesRoute: typeof AuthenticatedPainelTemplatesRoute
-  AuthenticatedPainelWhatsappRoute: typeof AuthenticatedPainelWhatsappRoute
   AuthenticatedPainelIndexRoute: typeof AuthenticatedPainelIndexRoute
 }
 
@@ -604,7 +583,6 @@ const AuthenticatedPainelRouteChildren: AuthenticatedPainelRouteChildren = {
   AuthenticatedPainelRelatorioRoute: AuthenticatedPainelRelatorioRoute,
   AuthenticatedPainelServicosRoute: AuthenticatedPainelServicosRoute,
   AuthenticatedPainelTemplatesRoute: AuthenticatedPainelTemplatesRoute,
-  AuthenticatedPainelWhatsappRoute: AuthenticatedPainelWhatsappRoute,
   AuthenticatedPainelIndexRoute: AuthenticatedPainelIndexRoute,
 }
 
