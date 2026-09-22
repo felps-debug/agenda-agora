@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  computeNowMin,
+  computeOpenDays,
   computeSlots,
   hhmm,
   isValidCpfCnpj,
@@ -90,5 +92,63 @@ describe("shouldRequireDeposit", () => {
 
   it("não cobra sinal sem deposit_cents configurado, mesmo com requires_deposit true", () => {
     expect(shouldRequireDeposit({ requires_deposit: true, deposit_cents: 0 })).toBe(false);
+  });
+});
+
+// T025 (US5) — computeNowMin/computeOpenDays extraídas de getAvailability/getOpenDays
+// pra provar, sem banco, que minimum_notice_hours e list_dates_days do Panel1Config
+// (contracts/server-functions.md, savePanel1Config) realmente mudam o resultado.
+describe("computeNowMin (minimum_notice_hours do Panel1Config afeta getAvailability)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // 15/09/2026 23:30 em São Paulo (UTC-3) = 16/09/2026 02:30 UTC.
+    vi.setSystemTime(new Date("2026-09-16T02:30:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("com antecedência mínima 0, o corte é o minuto atual do próprio dia", () => {
+    expect(computeNowMin("2026-09-15", "America/Sao_Paulo", 0)).toBe(23 * 60 + 30);
+  });
+
+  it("aumentar minimum_notice_hours pode bloquear o resto do dia de hoje", () => {
+    // +2h de antecedência empurra o corte pra 01:30 do dia 16 — o dia 15 inteiro
+    // (hoje) fica dentro da antecedência mínima e nenhum horário deve sobrar.
+    expect(computeNowMin("2026-09-15", "America/Sao_Paulo", 2)).toBe(1440);
+  });
+
+  it("um dia bem no futuro continua livre de corte, independente da antecedência", () => {
+    expect(computeNowMin("2026-09-20", "America/Sao_Paulo", 2)).toBe(-1);
+  });
+});
+
+describe("computeOpenDays (list_dates_days do Panel1Config afeta getOpenDays)", () => {
+  const allWeekdaysOpen = new Set([0, 1, 2, 3, 4, 5, 6]);
+
+  it("retorna exatamente `target` dias quando o negócio abre todos os dias", () => {
+    const seven = computeOpenDays({
+      openWeekdays: allWeekdaysOpen,
+      timezone: "America/Sao_Paulo",
+      target: 7,
+    });
+    const fifteen = computeOpenDays({
+      openWeekdays: allWeekdaysOpen,
+      timezone: "America/Sao_Paulo",
+      target: 15,
+    });
+    expect(seven).toHaveLength(7);
+    expect(fifteen).toHaveLength(15);
+  });
+
+  it("só lista dias cujo weekday está aberto", () => {
+    const onlyMonday = computeOpenDays({
+      openWeekdays: new Set([1]),
+      timezone: "America/Sao_Paulo",
+      target: 3,
+    });
+    expect(onlyMonday).toHaveLength(3);
+    expect(onlyMonday.every((d) => d.weekday === 1)).toBe(true);
   });
 });

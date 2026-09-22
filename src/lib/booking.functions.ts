@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { loadPanel1Config } from "@/lib/panel1-config.storage";
 
 const slugSchema = z.object({
   slug: z.string().min(1),
@@ -25,9 +26,65 @@ async function admin() {
   return supabaseAdmin;
 }
 
-export function toIso(date: string, time: string) {
-  // Horários do negócio são interpretados no fuso de São Paulo (UTC-3).
-  return new Date(`${date}T${time}:00-03:00`).toISOString();
+/**
+ * Fuso horários oferecidos em Panel1Preferences.timezone (painel.configuracoes.tsx)
+ * — todos brasileiros e sem horário de verão, por isso um offset fixo basta.
+ */
+function offsetForTimezone(timezone: string): string {
+  switch (timezone) {
+    case "America/Manaus":
+    case "America/Cuiaba":
+      return "-04:00";
+    default:
+      return "-03:00";
+  }
+}
+
+export function toIso(date: string, time: string, timezone = "America/Sao_Paulo") {
+  return new Date(`${date}T${time}:00${offsetForTimezone(timezone)}`).toISOString();
+}
+
+/**
+ * nowMin generalizado pra respeitar Panel1Preferences.minimum_notice_hours: 1440
+ * (todo o dia bloqueado) se `date` já está inteiramente dentro da antecedência
+ * mínima, -1 se `date` está totalmente livre dela, ou o minuto-do-dia do corte
+ * quando o corte cai dentro do próprio `date`.
+ */
+export function computeNowMin(date: string, timezone: string, minimumNoticeHours: number): number {
+  const cutoff = new Date(Date.now() + minimumNoticeHours * 3_600_000);
+  const cutoffDate = cutoff.toLocaleDateString("en-CA", { timeZone: timezone });
+  if (date < cutoffDate) return 1440;
+  if (date > cutoffDate) return -1;
+  const cutoffTime = cutoff.toLocaleTimeString("pt-BR", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return minutesOf(cutoffTime);
+}
+
+/**
+ * Extraída de getOpenDays pra ser testável sem banco — ver booking.functions.test.ts.
+ * Respeita Panel1Preferences.list_dates_days (quantidade de dias abertos a listar)
+ * e Panel1Preferences.timezone.
+ */
+export function computeOpenDays(params: {
+  openWeekdays: Set<number>;
+  timezone: string;
+  target: number;
+}): { date: string; weekday: number }[] {
+  const offset = offsetForTimezone(params.timezone);
+  // Pior caso: só 1 dos 7 dias da semana está aberto — precisa de até target*7 dias pra achar `target` ocorrências.
+  const iterationLimit = Math.min(400, params.target * 7 + 7);
+  const days: { date: string; weekday: number }[] = [];
+  for (let i = 0; i < iterationLimit && days.length < params.target; i++) {
+    const d = new Date(Date.now() + i * 86400000);
+    const date = d.toLocaleDateString("en-CA", { timeZone: params.timezone });
+    const weekday = new Date(`${date}T12:00:00${offset}`).getDay();
+    if (params.openWeekdays.has(weekday)) days.push({ date, weekday });
+  }
+  return days;
 }
 
 export function minutesOf(t: string) {
@@ -124,6 +181,13 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   };
 }
 
+/** Preferências do Panel1Config; defaults quando o estabelecimento nunca salvou config própria. */
+async function loadPreferences(businessId: string) {
+  const db = await admin();
+  const config = await loadPanel1Config(db, businessId);
+  return config.preferences;
+}
+
 async function validateProfessional(
   businessId: string,
   serviceId: string,
@@ -153,7 +217,10 @@ export const getAvailability = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = await admin();
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
-    const weekday = new Date(`${data.date}T12:00:00-03:00`).getDay();
+    const preferences = await loadPreferences(businessId);
+    const weekday = new Date(
+      `${data.date}T12:00:00${offsetForTimezone(preferences.timezone)}`,
+    ).getDay();
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
     if (professional && !professional.working_days.includes(weekday))
       return { slots: [] as string[], depositCents: service.deposit_cents };
@@ -170,8 +237,8 @@ export const getAvailability = createServerFn({ method: "POST" })
       .select("starts_at, ends_at, recurring, weekday, block_date, professional_id")
       .eq("business_id", businessId);
 
-    const dayStart = toIso(data.date, "00:00");
-    const dayEnd = toIso(data.date, "23:59");
+    const dayStart = toIso(data.date, "00:00", preferences.timezone);
+    const dayEnd = toIso(data.date, "23:59", preferences.timezone);
     const { data: appts } = await db
       .from("appointments")
       .select("starts_at, ends_at, status, professional_id")
@@ -196,7 +263,7 @@ export const getAvailability = createServerFn({ method: "POST" })
         Number(
           d
             .toLocaleTimeString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
+              timeZone: preferences.timezone,
               hour: "2-digit",
               minute: "2-digit",
               hour12: false,
@@ -207,7 +274,7 @@ export const getAvailability = createServerFn({ method: "POST" })
         Number(
           d
             .toLocaleTimeString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
+              timeZone: preferences.timezone,
               hour: "2-digit",
               minute: "2-digit",
               hour12: false,
@@ -217,18 +284,7 @@ export const getAvailability = createServerFn({ method: "POST" })
       busy.push([off(s), off(e)]);
     }
 
-    const nowMin =
-      data.date === new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" })
-        ? (() => {
-            const t = new Date().toLocaleTimeString("pt-BR", {
-              timeZone: "America/Sao_Paulo",
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            });
-            return minutesOf(t);
-          })()
-        : -1;
+    const nowMin = computeNowMin(data.date, preferences.timezone, preferences.minimum_notice_hours);
 
     const slots = computeSlots({ hours, busy, durationMinutes: service.duration_minutes, nowMin });
     return { slots, depositCents: service.deposit_cents };
@@ -245,18 +301,17 @@ export const getOpenDays = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!business || business.status === "suspenso")
       return { days: [] as { date: string; weekday: number }[] };
+    const preferences = await loadPreferences(business.id);
     const { data: hours } = await db
       .from("business_hours")
       .select("weekday")
       .eq("business_id", business.id);
     const open = new Set((hours ?? []).map((h) => h.weekday));
-    const days: { date: string; weekday: number }[] = [];
-    for (let i = 0; i < 21 && days.length < 12; i++) {
-      const d = new Date(Date.now() + i * 86400000);
-      const date = d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-      const weekday = new Date(`${date}T12:00:00-03:00`).getDay();
-      if (open.has(weekday)) days.push({ date, weekday });
-    }
+    const days = computeOpenDays({
+      openWeekdays: open,
+      timezone: preferences.timezone,
+      target: preferences.list_dates_days,
+    });
     return { days };
   });
 
