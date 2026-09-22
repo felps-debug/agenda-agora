@@ -282,9 +282,10 @@ export const reserveBooking = createServerFn({ method: "POST" })
       data.serviceId,
     );
     await validateProfessional(businessId, service.id, data.professionalId);
-    if (service.requires_deposit && !shouldRequireDeposit(service))
+    const chargesDeposit = shouldRequireDeposit(service);
+    if (service.requires_deposit && !chargesDeposit)
       throw new Error("Este serviço ainda não tem valor de sinal configurado.");
-    if (asaasSubaccountStatus !== "aprovada")
+    if (chargesDeposit && asaasSubaccountStatus !== "aprovada")
       throw new Error("Este estabelecimento ainda não está habilitado para receber o sinal.");
 
     const startsAt = toIso(data.date, data.time);
@@ -313,8 +314,8 @@ export const reserveBooking = createServerFn({ method: "POST" })
         customer_phone: data.customerPhone,
         starts_at: startsAt,
         ends_at: endsAt,
-        status: "aguardando_sinal",
-        deposit_cents: service.deposit_cents,
+        status: chargesDeposit ? "aguardando_sinal" : "agendado",
+        deposit_cents: chargesDeposit ? service.deposit_cents : 0,
         notes: data.notes ?? null,
       })
       .select("id")
@@ -322,6 +323,17 @@ export const reserveBooking = createServerFn({ method: "POST" })
     if (apptError?.code === "23P01")
       throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
     if (apptError || !appointment) throw new Error(apptError?.message ?? "Falha ao reservar.");
+
+    if (!chargesDeposit) {
+      return {
+        chargeId: null,
+        appointmentId: appointment.id,
+        amountCents: 0,
+        serviceName: service.name,
+        startsAt,
+        expiresAt: null,
+      };
+    }
 
     const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
     const { data: charge, error: chargeError } = await db

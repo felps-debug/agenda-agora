@@ -30,6 +30,7 @@ import {
   cancelDepositBooking,
   getDepositStatus,
   getMyBookings,
+  shouldRequireDeposit,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +63,7 @@ type Service = {
   duration_minutes: number;
   price_cents: number;
   deposit_cents: number;
+  requires_deposit: boolean;
   description: string | null;
   image_path: string | null;
   show_price: boolean;
@@ -110,6 +112,9 @@ function PublicBooking() {
   const [pageStart, setPageStart] = useState(0);
   const [charges, setCharges] = useState<string[]>([]);
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<{ serviceName: string; startsAt: string } | null>(
+    null,
+  );
 
   const availabilityFn = useServerFn(getAvailability);
   const openDaysFn = useServerFn(getOpenDays);
@@ -172,7 +177,7 @@ function PublicBooking() {
       const { data, error } = await supabase
         .from("services")
         .select(
-          "id, name, duration_minutes, price_cents, deposit_cents, description, image_path, show_price, show_duration",
+          "id, name, duration_minutes, price_cents, deposit_cents, requires_deposit, description, image_path, show_price, show_duration",
         )
         .eq("business_id", business!.id)
         .eq("active", true)
@@ -257,15 +262,19 @@ function PublicBooking() {
         },
       }),
     onSuccess: (r) => {
-      saveCharge(r.chargeId);
-      setActiveCharge(r.chargeId);
       setService(null);
       setProfessional(null);
       setDate(null);
       setTime(null);
       setPageStart(0);
-      setTab("historico");
-      void bookings.refetch();
+      if (r.chargeId) {
+        saveCharge(r.chargeId);
+        setActiveCharge(r.chargeId);
+        setTab("historico");
+        void bookings.refetch();
+      } else {
+        setConfirmed({ serviceName: r.serviceName, startsAt: r.startsAt });
+      }
     },
     onError: (e: Error) => {
       setFormError(e.message);
@@ -595,7 +604,7 @@ function PublicBooking() {
                     )}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    {service.deposit_cents > 0
+                    {shouldRequireDeposit(service)
                       ? `Sinal de ${formatPrice(service.deposit_cents)} por Pix. O horário só é confirmado após o pagamento.`
                       : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
                   </p>
@@ -616,6 +625,8 @@ function PublicBooking() {
           }}
         />
       )}
+
+      {confirmed && <ConfirmedDialog booking={confirmed} onClose={() => setConfirmed(null)} />}
 
       <nav className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border bg-card/95 py-3 shadow-lg backdrop-blur">
         {(
@@ -705,7 +716,7 @@ function ServiceSection({
                 {s.show_duration ? `${s.duration_minutes}min` : null}
               </p>
             )}
-            {s.deposit_cents > 0 && (
+            {shouldRequireDeposit(s) && (
               <p className="mt-2 text-xs font-semibold text-primary">
                 Sinal de {formatPrice(s.deposit_cents)}
               </p>
@@ -857,6 +868,52 @@ function Step({ icon, label }: { icon: React.ReactNode; label: string }) {
       </span>
       <span className="text-[10px] leading-tight text-muted-foreground">{label}</span>
     </div>
+  );
+}
+
+function ConfirmedDialog({
+  booking,
+  onClose,
+}: {
+  booking: { serviceName: string; startsAt: string };
+  onClose: () => void;
+}) {
+  const starts = new Date(booking.startsAt);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm bg-card text-center">
+        <div className="space-y-4 p-2">
+          <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <Check className="size-7" />
+          </span>
+          <div>
+            <h2 className="font-display text-lg font-bold">Agendamento confirmado!</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Este serviço não exige sinal — seu horário já está garantido.
+            </p>
+          </div>
+          <div className="space-y-2 rounded-lg border border-border bg-background/30 p-4 text-left text-sm">
+            <p className="flex items-center gap-2">
+              <Info className="size-4 shrink-0 text-primary" /> {booking.serviceName}
+            </p>
+            <p className="flex items-center gap-2">
+              <CalendarDays className="size-4 shrink-0 text-primary" />{" "}
+              {starts.toLocaleString("pt-BR", {
+                weekday: "long",
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "America/Sao_Paulo",
+              })}
+            </p>
+          </div>
+          <Button className="w-full" onClick={onClose}>
+            Fechar
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
