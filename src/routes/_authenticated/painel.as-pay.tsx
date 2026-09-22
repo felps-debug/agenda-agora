@@ -7,7 +7,7 @@ import { KeyRound, Wallet } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice, formatTime } from "@/lib/format";
-import { saveWithdrawalPixKey, withdrawalPixKeyTypes } from "@/lib/asaas.server";
+import { saveWithdrawalPixKey, withdrawalPixKeyTypes } from "@/lib/withdrawal.functions";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

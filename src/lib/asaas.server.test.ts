@@ -6,8 +6,8 @@ import {
   encryptAsaasApiKey,
   getOrCreateCustomer,
   saveWithdrawalPixKeyForOwner,
-  saveWithdrawalPixKeyInput,
 } from "./asaas.server";
+import { saveWithdrawalPixKeyInput } from "./withdrawal.functions";
 
 const jsonResponse = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
