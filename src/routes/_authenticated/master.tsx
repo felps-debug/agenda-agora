@@ -3,7 +3,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ShieldCheck, Trash2, Plus, ExternalLink, Ban, PlayCircle, Landmark } from "lucide-react";
+import {
+  ShieldCheck,
+  Trash2,
+  Plus,
+  ExternalLink,
+  Ban,
+  PlayCircle,
+  Landmark,
+  Megaphone,
+  Pencil,
+} from "lucide-react";
 import {
   claimMaster,
   createBusinessWithOwner,
@@ -17,10 +27,17 @@ import {
   setBusinessStatus,
   setMonthlyFee,
 } from "@/lib/admin.functions";
+import {
+  listOutreachTemplatesAdmin,
+  saveOutreachTemplate,
+  setOutreachTemplateActive,
+} from "@/lib/outreach-templates.functions";
 import { formatPrice } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -67,6 +84,29 @@ type AsaasForm = {
   commissionPercent: string;
 };
 
+type OutreachUsageType = "story" | "whatsapp" | "outro";
+
+type OutreachTemplateForm = {
+  id?: string;
+  title: string;
+  usageType: OutreachUsageType;
+  body: string;
+  active: boolean;
+};
+
+const emptyOutreachForm: OutreachTemplateForm = {
+  title: "",
+  usageType: "whatsapp",
+  body: "",
+  active: true,
+};
+
+const usageTypeLabel: Record<OutreachUsageType, string> = {
+  story: "Story",
+  whatsapp: "WhatsApp",
+  outro: "Outro",
+};
+
 const emptyAsaasForm: AsaasForm = {
   businessId: "",
   name: "",
@@ -103,12 +143,17 @@ function MasterPage() {
   const chargeFn = useServerFn(registerSubscriptionCharge);
   const provisionAsaasFn = useServerFn(provisionAsaasSubaccount);
   const setAsaasStatusFn = useServerFn(setAsaasSubaccountStatus);
+  const listTemplatesFn = useServerFn(listOutreachTemplatesAdmin);
+  const saveTemplateFn = useServerFn(saveOutreachTemplate);
+  const setTemplateActiveFn = useServerFn(setOutreachTemplateActive);
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [asaasOpen, setAsaasOpen] = useState(false);
   const [asaasForm, setAsaasForm] = useState(emptyAsaasForm);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const [templateForm, setTemplateForm] = useState<OutreachTemplateForm>(emptyOutreachForm);
 
   const status = useQuery({ queryKey: ["master-status"], queryFn: () => statusFn() });
 
@@ -220,6 +265,40 @@ function MasterPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  const templates = useQuery({
+    queryKey: ["master-outreach-templates"],
+    enabled: !!status.data?.isMaster,
+    queryFn: () => listTemplatesFn(),
+  });
+
+  const saveTemplate = useMutation({
+    mutationFn: () =>
+      saveTemplateFn({
+        data: {
+          ...(templateForm.id ? { id: templateForm.id } : {}),
+          title: templateForm.title,
+          usageType: templateForm.usageType,
+          body: templateForm.body,
+          active: templateForm.active,
+        },
+      }),
+    onSuccess: () => {
+      toast.success(templateForm.id ? "Template atualizado." : "Template criado.");
+      setTemplateOpen(false);
+      setTemplateForm(emptyOutreachForm);
+      void queryClient.invalidateQueries({ queryKey: ["master-outreach-templates"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleTemplateActive = useMutation({
+    mutationFn: (vars: { id: string; active: boolean }) => setTemplateActiveFn({ data: vars }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["master-outreach-templates"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   if (status.isLoading) {
     return <p className="p-8 text-sm text-muted-foreground">Carregando...</p>;
   }
@@ -266,223 +345,312 @@ function MasterPage() {
           <Link to="/painel">
             <Button variant="secondary">Meu painel</Button>
           </Link>
-          <Button onClick={() => setOpen(true)}>
-            <Plus className="size-4" /> Novo estabelecimento
-          </Button>
         </div>
       </div>
 
-      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          label="Negócios ativos"
-          value={String(metrics.data?.activeBusinesses ?? 0)}
-          hint={`${metrics.data?.suspendedBusinesses ?? 0} suspenso(s)`}
-        />
-        <MetricCard
-          label="Mensalidade prevista"
-          value={formatPrice(metrics.data?.mrrCents ?? 0)}
-          hint="Soma das mensalidades ativas"
-        />
-        <MetricCard
-          label="Recebido este mês"
-          value={formatPrice(metrics.data?.paidThisMonthCents ?? 0)}
-          hint={`${metrics.data?.delinquentCount ?? 0} em aberto`}
-        />
-        <MetricCard
-          label="Faturamento total"
-          value={formatPrice(metrics.data?.revenueTotalCents ?? 0)}
-          hint={`${metrics.data?.appointments ?? 0} agendamentos na plataforma`}
-        />
-      </div>
+      <Tabs defaultValue="negocios" className="mt-6">
+        <TabsList>
+          <TabsTrigger value="negocios">Estabelecimentos</TabsTrigger>
+          <TabsTrigger value="templates">
+            <Megaphone className="size-4" /> Templates de Divulgação
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="mt-6 overflow-x-auto rounded-md border border-border">
-        <table className="w-full min-w-[860px] text-sm">
-          <thead className="bg-secondary text-left text-xs uppercase text-muted-foreground">
-            <tr>
-              <th className="px-4 py-3">Estabelecimento</th>
-              <th className="px-4 py-3">Dono</th>
-              <th className="px-4 py-3">Asaas</th>
-              <th className="px-4 py-3">Mensalidade</th>
-              <th className="px-4 py-3">Mês atual</th>
-              <th className="px-4 py-3">Situação</th>
-              <th className="px-4 py-3">Link do cliente</th>
-              <th className="px-4 py-3">Acesso do dono</th>
-              <th className="px-4 py-3" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((b) => {
-              const suspended = b.status === "suspenso";
-              const paid = b.current_month_status === "pago";
-              return (
-                <tr key={b.id} className="border-t border-border">
-                  <td className="px-4 py-3 font-medium">
-                    {b.name}
-                    <span className="block text-xs text-muted-foreground">
-                      {b.category} · {b.appointments} agendamento(s)
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {b.owner_name ?? "—"}
-                    <span className="block text-xs text-muted-foreground">
-                      {b.phone ? formatPhone(b.phone) : "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {b.asaas_subaccount_status === "pendente" ? (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => {
-                          setAsaasForm({
-                            ...emptyAsaasForm,
-                            businessId: b.id,
-                            name: b.name,
-                            mobilePhone: b.phone ?? "",
-                          });
-                          setAsaasOpen(true);
-                        }}
-                      >
-                        <Landmark className="size-4" /> Configurar
-                      </Button>
-                    ) : (
-                      <div className="space-y-1">
-                        <span className="block text-xs font-semibold">
-                          {b.asaas_subaccount_status === "aprovada" ? "Aprovada" : b.asaas_subaccount_status === "bloqueada" ? "Bloqueada" : "Em análise"}
+        <TabsContent value="negocios">
+          <div className="flex justify-end">
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="size-4" /> Novo estabelecimento
+            </Button>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="Negócios ativos"
+              value={String(metrics.data?.activeBusinesses ?? 0)}
+              hint={`${metrics.data?.suspendedBusinesses ?? 0} suspenso(s)`}
+            />
+            <MetricCard
+              label="Mensalidade prevista"
+              value={formatPrice(metrics.data?.mrrCents ?? 0)}
+              hint="Soma das mensalidades ativas"
+            />
+            <MetricCard
+              label="Recebido este mês"
+              value={formatPrice(metrics.data?.paidThisMonthCents ?? 0)}
+              hint={`${metrics.data?.delinquentCount ?? 0} em aberto`}
+            />
+            <MetricCard
+              label="Faturamento total"
+              value={formatPrice(metrics.data?.revenueTotalCents ?? 0)}
+              hint={`${metrics.data?.appointments ?? 0} agendamentos na plataforma`}
+            />
+          </div>
+
+          <div className="mt-4 overflow-x-auto rounded-md border border-border">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead className="bg-secondary text-left text-xs uppercase text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">Estabelecimento</th>
+                  <th className="px-4 py-3">Dono</th>
+                  <th className="px-4 py-3">Asaas</th>
+                  <th className="px-4 py-3">Mensalidade</th>
+                  <th className="px-4 py-3">Mês atual</th>
+                  <th className="px-4 py-3">Situação</th>
+                  <th className="px-4 py-3">Link do cliente</th>
+                  <th className="px-4 py-3">Acesso do dono</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((b) => {
+                  const suspended = b.status === "suspenso";
+                  const paid = b.current_month_status === "pago";
+                  return (
+                    <tr key={b.id} className="border-t border-border">
+                      <td className="px-4 py-3 font-medium">
+                        {b.name}
+                        <span className="block text-xs text-muted-foreground">
+                          {b.category} · {b.appointments} agendamento(s)
                         </span>
-                        {b.asaas_subaccount_status === "em_analise" && (
+                      </td>
+                      <td className="px-4 py-3">
+                        {b.owner_name ?? "—"}
+                        <span className="block text-xs text-muted-foreground">
+                          {b.phone ? formatPhone(b.phone) : "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {b.asaas_subaccount_status === "pendente" ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setAsaasForm({
+                                ...emptyAsaasForm,
+                                businessId: b.id,
+                                name: b.name,
+                                mobilePhone: b.phone ?? "",
+                              });
+                              setAsaasOpen(true);
+                            }}
+                          >
+                            <Landmark className="size-4" /> Configurar
+                          </Button>
+                        ) : (
+                          <div className="space-y-1">
+                            <span className="block text-xs font-semibold">
+                              {b.asaas_subaccount_status === "aprovada"
+                                ? "Aprovada"
+                                : b.asaas_subaccount_status === "bloqueada"
+                                  ? "Bloqueada"
+                                  : "Em análise"}
+                            </span>
+                            {b.asaas_subaccount_status === "em_analise" && (
+                              <button
+                                type="button"
+                                className="text-xs text-primary hover:underline"
+                                onClick={() =>
+                                  setAsaasStatus.mutate({ businessId: b.id, status: "aprovada" })
+                                }
+                              >
+                                marcar onboarding concluído
+                              </button>
+                            )}
+                            <span className="block text-xs text-muted-foreground">
+                              Comissão: {Number(b.asaas_commission_percent ?? 0).toFixed(2)}%
+                            </span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          type="button"
+                          className="text-primary hover:underline"
+                          onClick={() => {
+                            const input = window.prompt(
+                              "Valor da mensalidade em reais",
+                              ((b.monthly_fee_cents ?? 0) / 100).toFixed(2),
+                            );
+                            if (input === null) return;
+                            const amount = Math.round(Number(input.replace(",", ".")) * 100);
+                            if (!Number.isFinite(amount) || amount < 0) {
+                              toast.error("Valor inválido");
+                              return;
+                            }
+                            fee.mutate({ id: b.id, amountCents: amount });
+                          }}
+                        >
+                          {formatPrice(b.monthly_fee_cents ?? 0)}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            paid
+                              ? "bg-success/15 text-success"
+                              : "bg-destructive/15 text-destructive"
+                          }`}
+                        >
+                          {paid ? "Pago" : "Em aberto"}
+                        </span>
+                        {!paid && (
                           <button
                             type="button"
-                            className="text-xs text-primary hover:underline"
-                            onClick={() => setAsaasStatus.mutate({ businessId: b.id, status: "aprovada" })}
+                            className="ml-2 text-xs text-primary hover:underline"
+                            onClick={() =>
+                              charge.mutate({
+                                businessId: b.id,
+                                month: currentMonth,
+                                status: "pago",
+                              })
+                            }
                           >
-                            marcar onboarding concluído
+                            marcar pago
                           </button>
                         )}
-                        <span className="block text-xs text-muted-foreground">
-                          Comissão: {Number(b.asaas_commission_percent ?? 0).toFixed(2)}%
-                        </span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      className="text-primary hover:underline"
-                      onClick={() => {
-                        const input = window.prompt(
-                          "Valor da mensalidade em reais",
-                          ((b.monthly_fee_cents ?? 0) / 100).toFixed(2),
-                        );
-                        if (input === null) return;
-                        const amount = Math.round(Number(input.replace(",", ".")) * 100);
-                        if (!Number.isFinite(amount) || amount < 0) {
-                          toast.error("Valor inválido");
-                          return;
-                        }
-                        fee.mutate({ id: b.id, amountCents: amount });
-                      }}
-                    >
-                      {formatPrice(b.monthly_fee_cents ?? 0)}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3">
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button
+                          variant={suspended ? "secondary" : "ghost"}
+                          size="sm"
+                          onClick={() =>
+                            setStatus.mutate({
+                              id: b.id,
+                              status: suspended ? "ativo" : "suspenso",
+                            })
+                          }
+                        >
+                          {suspended ? (
+                            <>
+                              <PlayCircle className="size-4" /> Reativar
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="size-4" /> Suspender
+                            </>
+                          )}
+                        </Button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a
+                          href={`/agendar/${b.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          /agendar/{b.slug} <ExternalLink className="size-3" />
+                        </a>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a
+                          href="/auth"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-primary hover:underline"
+                        >
+                          /auth <ExternalLink className="size-3" />
+                        </a>
+                        {b.phone && (
+                          <span className="block text-xs text-muted-foreground">
+                            Tel: {formatPhone(b.phone)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Remover ${b.name}`}
+                          onClick={() => remove.mutate(b.id)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!rows.length && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      Nenhum estabelecimento cadastrado ainda.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="templates">
+          <div className="flex justify-end">
+            <Button
+              onClick={() => {
+                setTemplateForm(emptyOutreachForm);
+                setTemplateOpen(true);
+              }}
+            >
+              <Plus className="size-4" /> Novo template
+            </Button>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {(templates.data ?? []).map((t) => (
+              <div
+                key={t.id}
+                className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium">{t.title}</p>
+                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
+                      {usageTypeLabel[t.usage_type as OutreachUsageType]}
+                    </span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        paid
-                          ? "bg-success/15 text-success"
-                          : "bg-destructive/15 text-destructive"
+                        t.active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
                       }`}
                     >
-                      {paid ? "Pago" : "Em aberto"}
+                      {t.active ? "Ativo" : "Inativo"}
                     </span>
-                    {!paid && (
-                      <button
-                        type="button"
-                        className="ml-2 text-xs text-primary hover:underline"
-                        onClick={() =>
-                          charge.mutate({
-                            businessId: b.id,
-                            month: currentMonth,
-                            status: "pago",
-                          })
-                        }
-                      >
-                        marcar pago
-                      </button>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Button
-                      variant={suspended ? "secondary" : "ghost"}
-                      size="sm"
-                      onClick={() =>
-                        setStatus.mutate({
-                          id: b.id,
-                          status: suspended ? "ativo" : "suspenso",
-                        })
-                      }
-                    >
-                      {suspended ? (
-                        <>
-                          <PlayCircle className="size-4" /> Reativar
-                        </>
-                      ) : (
-                        <>
-                          <Ban className="size-4" /> Suspender
-                        </>
-                      )}
-                    </Button>
-                  </td>
-                  <td className="px-4 py-3">
-                    <a
-                      href={`/agendar/${b.slug}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-primary hover:underline"
-                    >
-                      /agendar/{b.slug} <ExternalLink className="size-3" />
-                    </a>
-                  </td>
-                  <td className="px-4 py-3">
-                    <a
-                      href="/auth"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-primary hover:underline"
-                    >
-                      /auth <ExternalLink className="size-3" />
-                    </a>
-                    {b.phone && (
-                      <span className="block text-xs text-muted-foreground">
-                        Tel: {formatPhone(b.phone)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Remover ${b.name}`}
-                      onClick={() => remove.mutate(b.id)}
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </td>
-                </tr>
-              );
-            })}
-            {!rows.length && (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
-                  Nenhum estabelecimento cadastrado ainda.
-                </td>
-              </tr>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{t.body}</p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Editar ${t.title}`}
+                    onClick={() => {
+                      setTemplateForm({
+                        id: t.id,
+                        title: t.title,
+                        usageType: t.usage_type as OutreachUsageType,
+                        body: t.body,
+                        active: t.active,
+                      });
+                      setTemplateOpen(true);
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  <Button
+                    variant={t.active ? "ghost" : "secondary"}
+                    size="sm"
+                    onClick={() => toggleTemplateActive.mutate({ id: t.id, active: !t.active })}
+                  >
+                    {t.active ? "Desativar" : "Ativar"}
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {!templates.data?.length && (
+              <p className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                Nenhum template cadastrado ainda.
+              </p>
             )}
-          </tbody>
-        </table>
-      </div>
-
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -534,7 +702,9 @@ function MasterPage() {
                   id="opass"
                   inputMode="numeric"
                   value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                  onChange={(e) =>
+                    setForm({ ...form, password: e.target.value.replace(/\D/g, "").slice(0, 4) })
+                  }
                   placeholder="Ex.: 1237"
                   maxLength={4}
                 />
@@ -567,19 +737,55 @@ function MasterPage() {
             <DialogTitle>Criar subconta Asaas</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Razão social / nome" id="asaas-name" value={asaasForm.name} onChange={(value) => setAsaasForm({ ...asaasForm, name: value })} />
-            <Field label="E-mail" id="asaas-email" type="email" value={asaasForm.email} onChange={(value) => setAsaasForm({ ...asaasForm, email: value })} />
-            <Field label="CPF/CNPJ" id="asaas-document" value={asaasForm.cpfCnpj} onChange={(value) => setAsaasForm({ ...asaasForm, cpfCnpj: value })} />
-            <Field label="Celular" id="asaas-phone" value={asaasForm.mobilePhone} onChange={(value) => setAsaasForm({ ...asaasForm, mobilePhone: value })} />
-            <Field label="Renda/faturamento mensal (R$)" id="asaas-income" value={asaasForm.incomeValue} onChange={(value) => setAsaasForm({ ...asaasForm, incomeValue: value })} />
-            <Field label="Comissão Agenda Agora (%)" id="asaas-commission" value={asaasForm.commissionPercent} onChange={(value) => setAsaasForm({ ...asaasForm, commissionPercent: value })} />
+            <Field
+              label="Razão social / nome"
+              id="asaas-name"
+              value={asaasForm.name}
+              onChange={(value) => setAsaasForm({ ...asaasForm, name: value })}
+            />
+            <Field
+              label="E-mail"
+              id="asaas-email"
+              type="email"
+              value={asaasForm.email}
+              onChange={(value) => setAsaasForm({ ...asaasForm, email: value })}
+            />
+            <Field
+              label="CPF/CNPJ"
+              id="asaas-document"
+              value={asaasForm.cpfCnpj}
+              onChange={(value) => setAsaasForm({ ...asaasForm, cpfCnpj: value })}
+            />
+            <Field
+              label="Celular"
+              id="asaas-phone"
+              value={asaasForm.mobilePhone}
+              onChange={(value) => setAsaasForm({ ...asaasForm, mobilePhone: value })}
+            />
+            <Field
+              label="Renda/faturamento mensal (R$)"
+              id="asaas-income"
+              value={asaasForm.incomeValue}
+              onChange={(value) => setAsaasForm({ ...asaasForm, incomeValue: value })}
+            />
+            <Field
+              label="Comissão Agenda Agora (%)"
+              id="asaas-commission"
+              value={asaasForm.commissionPercent}
+              onChange={(value) => setAsaasForm({ ...asaasForm, commissionPercent: value })}
+            />
             <div className="space-y-2">
               <Label htmlFor="asaas-company-type">Tipo de empresa</Label>
               <select
                 id="asaas-company-type"
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={asaasForm.companyType}
-                onChange={(event) => setAsaasForm({ ...asaasForm, companyType: event.target.value as AsaasForm["companyType"] })}
+                onChange={(event) =>
+                  setAsaasForm({
+                    ...asaasForm,
+                    companyType: event.target.value as AsaasForm["companyType"],
+                  })
+                }
               >
                 <option value="MEI">MEI</option>
                 <option value="LIMITED">Limitada</option>
@@ -587,13 +793,34 @@ function MasterPage() {
                 <option value="ASSOCIATION">Associação</option>
               </select>
             </div>
-            <Field label="Endereço" id="asaas-address" value={asaasForm.address} onChange={(value) => setAsaasForm({ ...asaasForm, address: value })} />
-            <Field label="Número" id="asaas-number" value={asaasForm.addressNumber} onChange={(value) => setAsaasForm({ ...asaasForm, addressNumber: value })} />
-            <Field label="Bairro" id="asaas-province" value={asaasForm.province} onChange={(value) => setAsaasForm({ ...asaasForm, province: value })} />
-            <Field label="CEP" id="asaas-postal" value={asaasForm.postalCode} onChange={(value) => setAsaasForm({ ...asaasForm, postalCode: value })} />
+            <Field
+              label="Endereço"
+              id="asaas-address"
+              value={asaasForm.address}
+              onChange={(value) => setAsaasForm({ ...asaasForm, address: value })}
+            />
+            <Field
+              label="Número"
+              id="asaas-number"
+              value={asaasForm.addressNumber}
+              onChange={(value) => setAsaasForm({ ...asaasForm, addressNumber: value })}
+            />
+            <Field
+              label="Bairro"
+              id="asaas-province"
+              value={asaasForm.province}
+              onChange={(value) => setAsaasForm({ ...asaasForm, province: value })}
+            />
+            <Field
+              label="CEP"
+              id="asaas-postal"
+              value={asaasForm.postalCode}
+              onChange={(value) => setAsaasForm({ ...asaasForm, postalCode: value })}
+            />
           </div>
           <p className="text-xs text-muted-foreground">
-            O Webhook será cadastrado junto com a subconta. A API key retornada será criptografada e nunca exibida no navegador.
+            O Webhook será cadastrado junto com a subconta. A API key retornada será criptografada e
+            nunca exibida no navegador.
           </p>
           <DialogFooter>
             <Button
@@ -607,6 +834,71 @@ function MasterPage() {
               }
             >
               Criar subconta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{templateForm.id ? "Editar template" : "Novo template"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="tpl-title">Nome interno</Label>
+              <Input
+                id="tpl-title"
+                value={templateForm.title}
+                onChange={(e) => setTemplateForm({ ...templateForm, title: e.target.value })}
+                placeholder="Ex.: Divulgação de agendamento online"
+                maxLength={80}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tpl-usage">Tipo de uso</Label>
+              <select
+                id="tpl-usage"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={templateForm.usageType}
+                onChange={(e) =>
+                  setTemplateForm({
+                    ...templateForm,
+                    usageType: e.target.value as OutreachUsageType,
+                  })
+                }
+              >
+                <option value="story">Story</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="outro">Outro</option>
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tpl-body">Texto</Label>
+              <Textarea
+                id="tpl-body"
+                rows={6}
+                value={templateForm.body}
+                onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })}
+                placeholder="Use {nome_empresa}, {categoria}, {telefone}, {endereco} ou {link_publico}"
+                maxLength={2000}
+              />
+              <p className="text-xs text-muted-foreground">
+                Placeholders disponíveis: {"{nome_empresa}"}, {"{categoria}"}, {"{telefone}"},{" "}
+                {"{endereco}"}, {"{link_publico}"}.
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => saveTemplate.mutate()}
+              disabled={
+                saveTemplate.isPending ||
+                templateForm.title.trim().length < 2 ||
+                templateForm.body.trim().length < 1
+              }
+            >
+              {templateForm.id ? "Salvar alterações" : "Criar template"}
             </Button>
           </DialogFooter>
         </DialogContent>
