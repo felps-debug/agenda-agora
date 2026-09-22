@@ -88,7 +88,10 @@ function LembretesPage() {
       if (error) throw error;
       const serviceIds = [...new Set((appts ?? []).map((a) => a.service_id).filter(Boolean))];
       const { data: services } = serviceIds.length
-        ? await supabase.from("services").select("id, name").in("id", serviceIds as string[])
+        ? await supabase
+            .from("services")
+            .select("id, name")
+            .in("id", serviceIds as string[])
         : { data: [] as { id: string; name: string }[] };
       const apptIds = (appts ?? []).map((a) => a.id);
       const { data: logs } = apptIds.length
@@ -101,9 +104,7 @@ function LembretesPage() {
         ...a,
         serviceName: (services ?? []).find((s) => s.id === a.service_id)?.name ?? "Serviço",
         reminder:
-          (logs ?? []).find(
-            (l) => l.appointment_id === a.id && l.status === "enviado",
-          ) ?? null,
+          (logs ?? []).find((l) => l.appointment_id === a.id && l.status === "enviado") ?? null,
       }));
     },
     refetchInterval: 60_000,
@@ -168,9 +169,11 @@ function LembretesPage() {
         subtitle="Confirmação ao pagar o sinal e lembrete antes do horário — enviadas sozinhas pelo WhatsApp conectado."
       />
 
-      <div className="rounded-xl border border-border bg-card p-4">
+      <div className="surface p-5">
         <div className="flex items-center gap-3">
-          <MessageCircle className="size-5 text-primary" />
+          <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <MessageCircle className="size-5" />
+          </span>
           <div>
             <p className="font-semibold">Mensagem 1 — Confirmação do agendamento</p>
             <p className="text-xs text-muted-foreground">
@@ -178,7 +181,7 @@ function LembretesPage() {
             </p>
           </div>
         </div>
-        <div className="mt-3">
+        <div className="mt-4">
           <Label htmlFor="tpl-confirm">Texto da confirmação</Label>
           <Textarea
             id="tpl-confirm"
@@ -193,22 +196,24 @@ function LembretesPage() {
             }}
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Use {"{nome}"}, {"{servico}"}, {"{data}"}, {"{hora}"} e {"{negocio}"} — são
-            substituídos automaticamente.
+            Use {"{nome}"}, {"{servico}"}, {"{data}"}, {"{hora}"} e {"{negocio}"} — são substituídos
+            automaticamente.
           </p>
         </div>
       </div>
 
-      <div className="mt-4 rounded-xl border border-border bg-card p-4">
+      <div className="surface mt-4 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <BellRing className="size-5 text-primary" />
+            <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <BellRing className="size-5" />
+            </span>
             <div>
               <p className="font-semibold">Mensagem 2 — Lembrete do horário</p>
               <p className="text-xs text-muted-foreground">
                 {whatsappConnected
                   ? "Enviada automaticamente na antecedência que você definir."
-                  : "Conecte o WhatsApp na página WhatsApp para o envio automático funcionar."}
+                  : "Conecte o WhatsApp na página Integrações para o envio automático funcionar."}
               </p>
             </div>
           </div>
@@ -273,10 +278,7 @@ function LembretesPage() {
           ) : (
             <div className="space-y-2">
               {upcoming.data.map((a) => (
-                <div
-                  key={a.id}
-                  className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3"
-                >
+                <div key={a.id} className="surface flex flex-wrap items-center gap-3 p-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-medium">{a.customer_name}</p>
                     <p className="text-xs text-muted-foreground">
@@ -308,8 +310,8 @@ function LembretesPage() {
       {!enabled && (
         <div className="mt-6 flex items-center gap-3 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
           <MessageCircle className="size-5 shrink-0 text-primary" />
-          Ative o lembrete acima para os clientes receberem o aviso automaticamente no WhatsApp,
-          na antecedência que você definir. A lista de quem será lembrado aparece aqui.
+          Ative o lembrete acima para os clientes receberem o aviso automaticamente no WhatsApp, na
+          antecedência que você definir. A lista de quem será lembrado aparece aqui.
         </div>
       )}
     </div>
