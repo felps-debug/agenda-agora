@@ -101,9 +101,7 @@ function BloqueiosPage() {
 
   if (!businessId) return <NoBusiness />;
 
-  const filtered = (blocks ?? []).filter((b) =>
-    b.recurring ? showRecurring : showSpecific,
-  );
+  const filtered = (blocks ?? []).filter((b) => (b.recurring ? showRecurring : showSpecific));
 
   return (
     <div>
@@ -202,10 +200,7 @@ function BloqueiosPage() {
 
       <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
         <label className="flex items-center gap-2">
-          <Checkbox
-            checked={showRecurring}
-            onCheckedChange={(v) => setShowRecurring(v === true)}
-          />
+          <Checkbox checked={showRecurring} onCheckedChange={(v) => setShowRecurring(v === true)} />
           Recorrentes
         </label>
         <label className="flex items-center gap-2">

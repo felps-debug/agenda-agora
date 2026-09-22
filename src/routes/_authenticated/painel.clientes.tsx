@@ -115,16 +115,13 @@ function ClientesPage() {
   const exportCsv = () => {
     const rows = filtered.map((c) => [
       c.name,
-      canViewCustomerPhone ? c.phone ?? "" : "",
+      canViewCustomerPhone ? (c.phone ?? "") : "",
       c.email ?? "",
       lastVisit[c.id] ? new Date(lastVisit[c.id]!).toLocaleDateString("pt-BR") : "",
       (c.notes ?? "").replace(/\s+/g, " "),
     ]);
     const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const csv = [
-      ["Nome", "Telefone", "E-mail", "Último atendimento", "Observações"],
-      ...rows,
-    ]
+    const csv = [["Nome", "Telefone", "E-mail", "Último atendimento", "Observações"], ...rows]
       .map((r) => r.map((cell) => escape(String(cell))).join(";"))
       .join("\n");
     const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8;" });
@@ -144,68 +141,68 @@ function ClientesPage() {
         subtitle="Histórico e contato de quem atende com você."
         action={
           <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
-            <Download className="size-4" /> Exportar
-          </Button>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="size-4" /> Novo cliente
-              </Button>
-            </DialogTrigger>
-
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Novo cliente</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="cname">Nome</Label>
-                  <Input
-                    id="cname"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="cphone">Telefone</Label>
-                    <Input
-                      id="cphone"
-                      value={form.phone}
-                      onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="cmail">E-mail</Label>
-                    <Input
-                      id="cmail"
-                      type="email"
-                      value={form.email}
-                      onChange={(e) => setForm({ ...form, email: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cnotes">Observações</Label>
-                  <Textarea
-                    id="cnotes"
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    placeholder="Preferências, alergias, histórico..."
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button
-                  onClick={() => create.mutate()}
-                  disabled={!form.name.trim() || create.isPending}
-                >
-                  Salvar
+            <Button variant="outline" onClick={exportCsv} disabled={!filtered.length}>
+              <Download className="size-4" /> Exportar
+            </Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="size-4" /> Novo cliente
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Novo cliente</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="cname">Nome</Label>
+                    <Input
+                      id="cname"
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="cphone">Telefone</Label>
+                      <Input
+                        id="cphone"
+                        value={form.phone}
+                        onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="cmail">E-mail</Label>
+                      <Input
+                        id="cmail"
+                        type="email"
+                        value={form.email}
+                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="cnotes">Observações</Label>
+                    <Textarea
+                      id="cnotes"
+                      value={form.notes}
+                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                      placeholder="Preferências, alergias, histórico..."
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button
+                    onClick={() => create.mutate()}
+                    disabled={!form.name.trim() || create.isPending}
+                  >
+                    Salvar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         }
       />
@@ -264,7 +261,6 @@ function ClientesPage() {
           </p>
         </div>
       )}
-
     </div>
   );
 }

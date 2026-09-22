@@ -15,7 +15,7 @@ import {
   addMinutesIso,
   formatPrice,
 } from "@/lib/format";
-import { NoBusiness } from "@/components/painel/PageHeader";
+import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -211,7 +211,10 @@ function AgendaPage() {
     setDay(toDateInput(next));
   };
 
-  const bySlot = new Map<string, (typeof appointments extends (infer T)[] | undefined ? T : never)[]>();
+  const bySlot = new Map<
+    string,
+    (typeof appointments extends (infer T)[] | undefined ? T : never)[]
+  >();
   for (const a of appointments ?? []) {
     const key = slotOf(a.starts_at);
     bySlot.set(key, [...(bySlot.get(key) ?? []), a]);
@@ -234,48 +237,53 @@ function AgendaPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <Button variant="outline" size="icon" onClick={() => shiftDay(-1)} aria-label="Dia anterior">
-          <ChevronLeft className="size-4" />
-        </Button>
-        <Input
-          type="date"
-          className="w-44"
-          value={day}
-          onChange={(e) => setDay(e.target.value)}
-          aria-label="Data da agenda"
-        />
-        <Button variant="outline" size="icon" onClick={() => shiftDay(1)} aria-label="Próximo dia">
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
-
-      <p className="mt-2 pl-12 text-[0.82rem] font-medium capitalize">{weekday}</p>
+      <PageHeader
+        title="Agenda"
+        subtitle={`${weekday} · ${business?.name ?? ""}`}
+        action={
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => shiftDay(-1)}
+              aria-label="Dia anterior"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Input
+              type="date"
+              className="w-44"
+              value={day}
+              onChange={(e) => setDay(e.target.value)}
+              aria-label="Data da agenda"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => shiftDay(1)}
+              aria-label="Próximo dia"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+            <Button variant="secondary" size="icon" aria-label="Visualizar">
+              <Eye className="size-4" />
+            </Button>
+            <Button variant="secondary" size="icon" aria-label="Bloquear dia">
+              <CalendarX2 className="size-4" />
+            </Button>
+          </div>
+        }
+      />
 
       <button
         type="button"
         onClick={() => openNewAt("09:00")}
-        className="mt-2 ml-12 w-44 rounded-md bg-warning/70 px-4 py-2.5 text-[0.82rem] font-medium text-warning-foreground transition-opacity hover:opacity-90"
+        className="w-44 rounded-md bg-warning/70 px-4 py-2.5 text-[0.82rem] font-medium text-warning-foreground transition-opacity hover:opacity-90"
       >
         Encaixe
       </button>
 
-      <div className="mt-8 flex items-center gap-3">
-        <span className="flex size-16 items-center justify-center rounded-full bg-secondary text-xs font-bold uppercase text-muted-foreground">
-          {(business?.name ?? "??").slice(0, 2)}
-        </span>
-        <h1 className="text-[1.2rem] font-medium">Agenda</h1>
-        <div className="ml-auto flex gap-2">
-          <Button variant="secondary" size="icon" aria-label="Visualizar">
-            <Eye className="size-4" />
-          </Button>
-          <Button variant="secondary" size="icon" aria-label="Bloquear dia">
-            <CalendarX2 className="size-4" />
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-3 overflow-hidden rounded-md border border-border">
+      <div className="mt-4 overflow-hidden rounded-md border border-border">
         <div className="h-8 bg-secondary" />
         <ul>
           {SLOTS.map((slot) => {
@@ -288,7 +296,7 @@ function AgendaPage() {
                     onClick={() => openNewAt(slot)}
                     className="flex w-full items-center gap-4 border-b border-background bg-slot-free px-4 py-2.5 text-left text-slot-free-foreground transition-opacity hover:opacity-90"
                   >
-                     <span className="w-14 font-medium">{slot}</span>
+                    <span className="w-14 font-medium">{slot}</span>
                     <span className="flex-1" />
                   </button>
                   <button
@@ -452,7 +460,9 @@ function AgendaPage() {
               <p className="text-muted-foreground">
                 {(selected.services as { name: string } | null)?.name ?? "Sem serviço"} ·{" "}
                 {slotOf(selected.starts_at)}
-                {selected.customer_phone && canViewCustomerPhone ? ` · ${selected.customer_phone}` : ""}
+                {selected.customer_phone && canViewCustomerPhone
+                  ? ` · ${selected.customer_phone}`
+                  : ""}
               </p>
               {selected.notes && <p className="text-muted-foreground">{selected.notes}</p>}
               <div className="space-y-2">
