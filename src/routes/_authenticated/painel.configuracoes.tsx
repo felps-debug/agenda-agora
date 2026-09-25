@@ -257,21 +257,27 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
       await saveConfigFn({ data: { businessId, patch: { preferences: preferencesPatch } } });
 
-      const { error: reminderError } = await supabase
+      const { data: updatedBusiness, error: reminderError } = await supabase
         .from("businesses")
         .update({
           reminder_enabled: normalizedPrefs.notify_clients,
           reminder_hours_before: normalizedPrefs.reminder_hours_before,
         })
-        .eq("id", businessId);
+        .eq("id", businessId)
+        .select("id")
+        .maybeSingle();
       if (reminderError) throw reminderError;
+      if (!updatedBusiness) throw new Error("O negócio não foi encontrado para atualizar.");
 
       if (selected === "greeting" && user?.id && ownerName.trim()) {
-        const { error: profileError } = await supabase
+        const { data: updatedProfile, error: profileError } = await supabase
           .from("profiles")
           .update({ full_name: ownerName.trim() })
-          .eq("id", user.id);
+          .eq("id", user.id)
+          .select("id")
+          .maybeSingle();
         if (profileError) throw profileError;
+        if (!updatedProfile) throw new Error("O perfil não foi encontrado para atualizar.");
       }
     },
     onSuccess: () => {

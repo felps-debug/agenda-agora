@@ -6,6 +6,16 @@ import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  CalendarCheck2,
+  ChartNoAxesColumnIncreasing,
+  CircleDollarSign,
+  HandCoins,
+  Scissors,
+  UsersRound,
+  WalletCards,
+  type LucideIcon,
+} from "lucide-react";
 
 // recharts é pesado (~90kB gzip) e só é usado nesta tela; lazy-load pra não
 // entrar no bundle das rotas de agendamento/agenda.
@@ -143,28 +153,40 @@ function RelatorioPage() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card label="Faturamento" value={formatPrice(report.revenue)} hint="Serviços concluídos" />
         <Card
+          icon={WalletCards}
+          effect="strong"
+          label="Faturamento"
+          value={formatPrice(report.revenue)}
+          hint="Serviços concluídos"
+        />
+        <Card
+          icon={HandCoins}
+          effect="medium"
           label="Sinais recebidos"
           value={formatPrice(report.deposits)}
           hint="Pagos pelo cliente"
         />
         <Card
+          icon={CalendarCheck2}
+          effect="subtle"
           label="Atendimentos"
           value={String(report.total)}
           hint={`${report.done} concluídos · ${report.canceled} cancelados`}
         />
         <Card
+          icon={CircleDollarSign}
+          effect="none"
           label="Ticket médio"
           value={formatPrice(report.ticket)}
           hint={`${report.clients} cliente(s) no período`}
         />
       </div>
 
-      <div className="rounded-xl border border-border bg-card p-5">
-        <h2 className="mb-4 text-sm font-semibold">Atendimentos por dia</h2>
+      <section className="report-luminous-card report-effect-none report-chart-card p-5 sm:p-6">
+        <ReportCardTitle icon={ChartNoAxesColumnIncreasing} title="Atendimentos por dia" />
         {report.chart.length ? (
-          <div className="h-64">
+          <div className="relative z-10 mt-5 h-64">
             <Suspense
               fallback={
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -176,14 +198,15 @@ function RelatorioPage() {
             </Suspense>
           </div>
         ) : (
-          <p className="py-10 text-center text-sm text-muted-foreground">
+          <p className="relative z-10 flex min-h-36 items-center justify-center text-center text-sm text-muted-foreground">
             Nenhum atendimento no período.
           </p>
         )}
-      </div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <ListCard
+          icon={Scissors}
           title="Serviços mais vendidos"
           rows={report.byService.map((s) => ({
             name: s.name,
@@ -191,6 +214,7 @@ function RelatorioPage() {
           }))}
         />
         <ListCard
+          icon={UsersRound}
           title="Ocupação por profissional"
           rows={report.byProfessional.map((p) => ({
             name: p.name,
@@ -202,32 +226,79 @@ function RelatorioPage() {
   );
 }
 
-function Card({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Card({
+  icon: Icon,
+  effect,
+  label,
+  value,
+  hint,
+}: {
+  icon: LucideIcon;
+  effect: "strong" | "medium" | "subtle" | "none";
+  label: string;
+  value: string;
+  hint?: string;
+}) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-bold">{value}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    <article
+      className={`report-luminous-card report-effect-${effect} report-metric-card p-4 sm:p-[1.125rem]`}
+    >
+      <div className="report-icon-box">
+        <Icon className="size-[1.05rem]" strokeWidth={1.8} aria-hidden="true" />
+      </div>
+      <div className="relative z-10 mt-4">
+        <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-[#70757f]">
+          {label}
+        </p>
+        <p className="mt-1.5 text-[1.35rem] font-semibold leading-none tracking-[-0.025em] text-[#f2f4f8]">
+          {value}
+        </p>
+        {hint && <p className="mt-2 text-xs leading-relaxed text-[#777d87]">{hint}</p>}
+      </div>
+    </article>
+  );
+}
+
+function ReportCardTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
+  return (
+    <div className="relative z-10 flex items-center gap-3">
+      <div className="report-icon-box">
+        <Icon className="size-[1.05rem]" strokeWidth={1.8} aria-hidden="true" />
+      </div>
+      <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[#eef1f6]">{title}</h2>
     </div>
   );
 }
 
-function ListCard({ title, rows }: { title: string; rows: { name: string; value: string }[] }) {
+function ListCard({
+  icon,
+  title,
+  rows,
+}: {
+  icon: LucideIcon;
+  title: string;
+  rows: { name: string; value: string }[];
+}) {
   return (
-    <div className="rounded-xl border border-border bg-card p-5">
-      <h2 className="mb-3 text-sm font-semibold">{title}</h2>
+    <section className="report-luminous-card report-effect-none report-list-card p-5 sm:p-6">
+      <ReportCardTitle icon={icon} title={title} />
       {rows.length ? (
-        <ul className="space-y-2 text-sm">
+        <ul className="relative z-10 mt-5 space-y-2 text-sm">
           {rows.map((r) => (
-            <li key={r.name} className="flex justify-between gap-3 border-b border-border pb-2">
-              <span>{r.name}</span>
-              <span className="text-muted-foreground">{r.value}</span>
+            <li
+              key={r.name}
+              className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.055] bg-black/20 px-3.5 py-3"
+            >
+              <span className="text-[#dfe3ea]">{r.name}</span>
+              <span className="shrink-0 text-[#777d87]">{r.value}</span>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="py-6 text-center text-sm text-muted-foreground">Sem dados no período.</p>
+        <p className="relative z-10 flex min-h-32 items-center justify-center text-center text-sm text-muted-foreground">
+          Sem dados no período.
+        </p>
       )}
-    </div>
+    </section>
   );
 }

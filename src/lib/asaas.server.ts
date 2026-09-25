@@ -29,10 +29,16 @@ function normalizedDocument(value: string) {
   return value.replace(/\D/g, "");
 }
 
+/** Caminho sem query string: a busca de cliente leva CPF/CNPJ na URL. */
+export function sanitizeAsaasPath(path: string) {
+  return path.split(/[?#]/, 1)[0] ?? "";
+}
+
 class AsaasApiError extends Error {
   constructor(
     public readonly status: number,
     public readonly path: string,
+    public readonly codes: string[] = [],
   ) {
     super(`Falha na comunicação com o Asaas (${status}).`);
     this.name = "AsaasApiError";
@@ -49,6 +55,7 @@ async function asaasFetch<T>(
   accessToken = rootApiKey(),
 ): Promise<T> {
   const method = (init.method ?? "GET").toUpperCase();
+  const safePath = sanitizeAsaasPath(path);
   if ((method === "GET" || method === "DELETE") && init.body != null) {
     throw new Error(`${method} do Asaas não pode enviar body.`);
   }
@@ -68,17 +75,40 @@ async function asaasFetch<T>(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
-    console.error(`Asaas indisponível em ${method} ${path}:`, error);
+    console.error("Asaas indisponível", {
+      method,
+      path: safePath,
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
     throw new Error("O Asaas não respondeu. Tente novamente em instantes.");
   }
 
   const text = await response.text();
   if (!response.ok) {
-    console.error(`Asaas falhou [${response.status}] ${method} ${path}.`);
-    throw new AsaasApiError(response.status, path);
+    let codes: string[] = [];
+    try {
+      const payload = JSON.parse(text) as { errors?: Array<{ code?: unknown }> };
+      codes = (payload.errors ?? [])
+        .map((item) => item.code)
+        .filter((code): code is string => typeof code === "string");
+    } catch {
+      // Keep provider response bodies out of logs and user-facing errors.
+    }
+    console.error(`Asaas falhou [${response.status}] ${method} ${safePath}.`);
+    throw new AsaasApiError(response.status, safePath, codes);
   }
 
   return (text ? JSON.parse(text) : null) as T;
+}
+
+/** Erro de validação definitivo: nenhuma cobrança Pix foi criada. */
+export function isDefinitivePixAvailabilityRejection(error: unknown): boolean {
+  return (
+    error instanceof AsaasApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.codes.includes("invalid_billingType")
+  );
 }
 
 export type PixCharge = {
@@ -96,6 +126,8 @@ type AsaasList<T> = { data?: T[] };
 export type AsaasPayment = {
   id: string;
   status: string;
+  value?: number;
+  externalReference?: string;
   dueDate?: string;
   invoiceUrl?: string;
   deleted?: boolean;
@@ -173,20 +205,40 @@ export async function findPaymentByExternalReference(
   return result.data?.[0] ?? null;
 }
 
-async function pixData(accessToken: string, payment: AsaasPayment): Promise<PixCharge> {
+/** Uma cobrança reaproveitada precisa ter o mesmo valor do sinal gravado na reserva. */
+function assertPaymentAmount(payment: AsaasPayment, amountCents: number) {
+  if (typeof payment.value !== "number") return;
+  if (Math.round(payment.value * 100) !== amountCents) {
+    console.error(`Cobrança Asaas ${payment.id} diverge do valor do sinal.`);
+    throw new Error("A cobrança Pix desta reserva diverge do valor do sinal.");
+  }
+}
+
+async function pixData(
+  accessToken: string,
+  payment: AsaasPayment,
+  amountCents: number,
+): Promise<PixCharge> {
   if (payment.deleted) {
     throw new Error("A cobrança Pix desta reserva já foi cancelada.");
   }
+  assertPaymentAmount(payment, amountCents);
   const qr = await asaasFetch<AsaasPixQrCode>(
     `/payments/${encodeURIComponent(payment.id)}/pixQrCode`,
     { method: "GET" },
     accessToken,
   );
+  const payload = qr?.payload?.trim();
+  const encodedImage = qr?.encodedImage?.trim();
+  // Sem QR completo não há Pix utilizável; o retry reencontra a cobrança por externalReference.
+  if (!payload || !encodedImage) {
+    throw new Error("O código Pix ainda não está disponível. Tente novamente em instantes.");
+  }
   return {
     providerPaymentId: payment.id,
     status: payment.status,
-    qrCode: qr.payload ?? null,
-    qrCodeBase64: qr.encodedImage ?? null,
+    qrCode: payload,
+    qrCodeBase64: encodedImage,
     ticketUrl: payment.invoiceUrl ?? null,
     expiresAt: qr.expirationDate ?? null,
   };
@@ -204,9 +256,30 @@ export async function createPixCharge(input: {
   customerId: string;
   externalReference: string;
   commissionPercent?: number;
+  /** ID já persistido: consulta direto e nunca cria outra cobrança. */
+  knownPaymentId?: string | null;
+  allowCreate?: boolean;
+  /** Chamado só quando a busca não achou cobrança; false impede o POST. */
+  beforeCreate?: () => Promise<boolean>;
+  onPaymentLocated?: (payment: AsaasPayment) => Promise<void>;
 }): Promise<PixCharge> {
-  const existing = await findPaymentByExternalReference(input.accessToken, input.externalReference);
-  if (existing) return pixData(input.accessToken, existing);
+  const existing = input.knownPaymentId
+    ? await fetchPayment(input.accessToken, input.knownPaymentId)
+    : await findPaymentByExternalReference(input.accessToken, input.externalReference);
+  if (existing) {
+    if (existing.externalReference && existing.externalReference !== input.externalReference) {
+      console.error(`Cobrança Asaas ${existing.id} pertence a outra referência.`);
+      throw new Error("A cobrança Pix registrada não corresponde a esta reserva.");
+    }
+    assertPaymentAmount(existing, input.amountCents);
+    await input.onPaymentLocated?.(existing);
+    return pixData(input.accessToken, existing, input.amountCents);
+  }
+  if (input.allowCreate === false || (input.beforeCreate && !(await input.beforeCreate()))) {
+    throw new Error(
+      "A cobrança anterior ainda está sendo conciliada. Tente novamente em instantes.",
+    );
+  }
 
   const commissionPercent = input.commissionPercent ?? 0;
   if (commissionPercent < 0 || commissionPercent >= 100) {
@@ -240,6 +313,7 @@ export async function createPixCharge(input: {
       input.accessToken,
     );
   } catch (error) {
+    // Timeout ou 5xx não provam que o POST falhou: consulte antes de permitir retry.
     const created = await findPaymentByExternalReference(
       input.accessToken,
       input.externalReference,
@@ -248,7 +322,9 @@ export async function createPixCharge(input: {
     payment = created;
   }
 
-  return pixData(input.accessToken, payment);
+  assertPaymentAmount(payment, input.amountCents);
+  await input.onPaymentLocated?.(payment);
+  return pixData(input.accessToken, payment, input.amountCents);
 }
 
 export async function fetchPayment(
@@ -300,6 +376,7 @@ type CreateSubaccountInput = {
   email: string;
   cpfCnpj: string;
   mobilePhone: string;
+  birthDate: string;
   incomeValue: number;
   address: string;
   addressNumber: string;

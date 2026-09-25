@@ -18,12 +18,24 @@ export async function loadPanel1Config(
     .from(LOGO_BUCKET)
     .download(panel1SettingsPath(businessId));
 
-  if (error || !data) return defaultPanel1Config();
+  if (error) {
+    // A missing settings object is the only reason to use defaults. In particular,
+    // a missing bucket also returns HTTP 404 and must remain visible to the caller.
+    if (
+      error.statusCode === "NoSuchKey" ||
+      ((error.statusCode === "not_found" || error.statusCode === "404") &&
+        error.message === "Object not found")
+    ) {
+      return defaultPanel1Config();
+    }
+    throw error;
+  }
+  if (!data) throw new Error("Não foi possível ler as configurações do negócio.");
 
   try {
     return normalizePanel1Config(JSON.parse(await data.text()));
   } catch {
-    return defaultPanel1Config();
+    throw new Error("As configurações salvas estão inválidas.");
   }
 }
 

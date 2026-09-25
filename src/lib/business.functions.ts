@@ -28,12 +28,13 @@ export const updateBusinessProfile = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => updateBusinessProfileInput.parse(data))
   .handler(async ({ context, data }) => {
-    const { data: business } = await context.supabase
+    const { data: business, error: businessError } = await context.supabase
       .from("businesses")
       .select("id, owner_id")
       .eq("id", data.businessId)
       .eq("owner_id", context.userId)
       .maybeSingle();
+    if (businessError) throw new Error("Não foi possível validar o negócio.");
     assertBusinessOwner(business);
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

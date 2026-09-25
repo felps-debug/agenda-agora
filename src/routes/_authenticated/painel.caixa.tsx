@@ -16,7 +16,11 @@ export const Route = createFileRoute("/_authenticated/painel/caixa")({
       title="Caixa"
       subtitle="Controle as entradas e saídas do dia."
       icon={Calculator}
-      bullets={["Abertura e fechamento de caixa", "Sangrias e suprimentos", "Resumo por forma de pagamento"]}
+      bullets={[
+        "Abertura e fechamento de caixa",
+        "Sangrias e suprimentos",
+        "Resumo por forma de pagamento",
+      ]}
     />
   ),
 });

@@ -38,10 +38,7 @@ function PagamentosPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Pagamentos"
-        subtitle="Meses da assinatura mensal do seu painel."
-      />
+      <PageHeader title="Pagamentos" subtitle="Meses da assinatura mensal do seu painel." />
 
       {!payments?.length ? (
         <EmptyList text="Nenhum pagamento de assinatura registrado ainda." />

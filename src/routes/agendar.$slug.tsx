@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -19,10 +19,10 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { formatPrice } from "@/lib/format";
-import { getLogoUrl } from "@/lib/logo";
 import {
+  getPublicBookingCatalog,
+  getPublicBookingProfessionals,
   getAvailability,
   getOpenDays,
   reserveBooking,
@@ -30,7 +30,6 @@ import {
   cancelDepositBooking,
   getDepositStatus,
   getMyBookings,
-  shouldRequireDeposit,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/agendar/$slug")({
+  loader: ({ params }) => getPublicBookingCatalog({ data: { slug: params.slug } }),
   head: ({ params }) => ({
     meta: [
       { title: `Agendar horário — ${params.slug}` },
@@ -57,15 +57,20 @@ export const Route = createFileRoute("/agendar/$slug")({
   component: PublicBooking,
 });
 
+/** Mensagem de `reserveBooking` quando o sinal efetivo é positivo e falta CPF/CNPJ. */
+const DEPOSIT_DOCUMENT_REQUIRED = /CPF ou CNPJ válido para gerar o Pix/i;
+
 type Service = {
   id: string;
   name: string;
   duration_minutes: number;
   price_cents: number;
-  deposit_cents: number;
   requires_deposit: boolean;
+  /** Sinal efetivo calculado no servidor (fixo ou percentual). O navegador nunca recalcula. */
+  effectiveDepositCents: number;
   description: string | null;
   image_path: string | null;
+  image_url: string | null;
   show_price: boolean;
   show_duration: boolean;
 };
@@ -112,6 +117,11 @@ function PublicBooking() {
   const [pageStart, setPageStart] = useState(0);
   const [charges, setCharges] = useState<string[]>([]);
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
+  // Snapshot do sinal devolvido pela reserva, usado até o histórico trazer a cobrança.
+  const [reservedAmount, setReservedAmount] = useState<{
+    chargeId: string;
+    amountCents: number;
+  } | null>(null);
   const [confirmed, setConfirmed] = useState<{ serviceName: string; startsAt: string } | null>(
     null,
   );
@@ -120,6 +130,8 @@ function PublicBooking() {
   const openDaysFn = useServerFn(getOpenDays);
   const reserveFn = useServerFn(reserveBooking);
   const bookingsFn = useServerFn(getMyBookings);
+  const professionalsFn = useServerFn(getPublicBookingProfessionals);
+  const catalog = Route.useLoaderData();
 
   useEffect(() => {
     setCharges(readCharges(slug));
@@ -134,88 +146,14 @@ function PublicBooking() {
     [slug],
   );
 
-  const { data: business, isLoading } = useQuery({
-    queryKey: ["public-business", slug],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("id, name, category, phone, address, status, brand_primary, brand_background")
-        .eq("slug", slug)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Consulta separada: logo_url é uma coluna nova e opcional. Isolada da query
-  // principal pra uma eventual falha nela (ex.: coluna ainda não propagada em
-  // algum ambiente) não derrubar a página de agendamento inteira.
-  const { data: logoPath } = useQuery({
-    queryKey: ["public-business-logo-path", business?.id],
-    enabled: !!business?.id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("logo_url")
-        .eq("id", business!.id)
-        .maybeSingle();
-      if (error) return null;
-      return data?.logo_url ?? null;
-    },
-  });
-
-  const { data: logoUrl } = useQuery({
-    queryKey: ["public-business-logo", logoPath],
-    enabled: !!logoPath,
-    queryFn: () => getLogoUrl(logoPath!),
-  });
-
-  const { data: services } = useQuery({
-    queryKey: ["public-services", business?.id],
-    enabled: !!business?.id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("services")
-        .select(
-          "id, name, duration_minutes, price_cents, deposit_cents, requires_deposit, description, image_path, show_price, show_duration",
-        )
-        .eq("business_id", business!.id)
-        .eq("active", true)
-        .eq("show_service", true)
-        .order("name");
-      if (error) throw error;
-      return data as Service[];
-    },
-  });
+  const business = catalog?.business ?? null;
+  const services = (catalog?.services ?? []) as Service[];
 
   const { data: professionals } = useQuery({
     queryKey: ["public-professionals", service?.id],
     enabled: !!service,
-    queryFn: async () => {
-      const { data: linked, error } = await supabase
-        .from("service_professionals")
-        .select("professional_id")
-        .eq("service_id", service!.id);
-      if (error) throw error;
-      if (!linked.length) return [] as Professional[];
-      const { data, error: peopleError } = await supabase
-        .from("professionals")
-        .select("id,name,role")
-        .in(
-          "id",
-          linked.map((item) => item.professional_id),
-        )
-        .eq("active", true)
-        .order("name");
-      if (peopleError) throw peopleError;
-      return data as Professional[];
-    },
-  });
-
-  const { data: serviceImage } = useQuery({
-    queryKey: ["public-service-image", service?.image_path],
-    enabled: !!service?.image_path,
-    queryFn: () => getLogoUrl(service?.image_path),
+    queryFn: () =>
+      professionalsFn({ data: { slug, serviceId: service!.id } }) as Promise<Professional[]>,
   });
 
   const { data: openDays } = useQuery({
@@ -223,7 +161,11 @@ function PublicBooking() {
     queryFn: () => openDaysFn({ data: { slug } }),
   });
 
-  const { data: availability, isFetching: loadingSlots } = useQuery({
+  const {
+    data: availability,
+    isFetching: loadingSlots,
+    refetch: refetchAvailability,
+  } = useQuery({
     queryKey: ["public-slots", slug, service?.id, professional?.id, date],
     enabled: !!service && !!date && ((professionals?.length ?? 0) === 0 || !!professional),
     queryFn: () =>
@@ -244,8 +186,35 @@ function PublicBooking() {
     queryFn: () => bookingsFn({ data: { chargeIds: charges } }),
   });
 
+  // Valor do servidor: a disponibilidade traz o sinal atual; o catálogo cobre até ela chegar.
+  const selectedDepositCents = service
+    ? (availability?.depositCents ?? service.effectiveDepositCents)
+    : 0;
+  const needsDocument = selectedDepositCents > 0;
+
   const days = openDays?.days ?? [];
   const visibleDays = useMemo(() => days.slice(pageStart, pageStart + 7), [days, pageStart]);
+
+  /**
+   * O sinal mudou no servidor desde a última consulta: rebusca a disponibilidade
+   * (que traz o valor atual) sem fechar o formulário. O campo de CPF/CNPJ aparece
+   * ou some conforme o novo valor, e o cliente é orientado a tentar de novo.
+   */
+  const refreshChangedDeposit = async (options: { onlyIfZero?: boolean } = {}) => {
+    const { data: fresh, isError } = await refetchAvailability();
+    if (isError || !fresh) {
+      if (!options.onlyIfZero)
+        setFormError("Não foi possível atualizar o valor do sinal. Tente novamente.");
+      return;
+    }
+    if (options.onlyIfZero && fresh.depositCents > 0) return;
+    const message =
+      fresh.depositCents > 0
+        ? `O sinal deste serviço foi atualizado para ${formatPrice(fresh.depositCents)}. Informe seu CPF ou CNPJ e toque em Agendar novamente.`
+        : "O sinal deste serviço foi atualizado e não é mais cobrado. Toque em Agendar novamente.";
+    setFormError(message);
+    toast.info(message);
+  };
 
   const reserve = useMutation({
     mutationFn: () =>
@@ -257,7 +226,8 @@ function PublicBooking() {
           time: time!,
           customerName: name.trim(),
           customerPhone: phone.trim(),
-          customerCpfCnpj: cpfCnpj.trim(),
+          // Sem sinal, o documento não é pedido nem enviado.
+          ...(needsDocument ? { customerCpfCnpj: cpfCnpj.trim() } : {}),
           professionalId: professional?.id ?? null,
         },
       }),
@@ -269,6 +239,7 @@ function PublicBooking() {
       setPageStart(0);
       if (r.chargeId) {
         saveCharge(r.chargeId);
+        setReservedAmount({ chargeId: r.chargeId, amountCents: r.amountCents });
         setActiveCharge(r.chargeId);
         setTab("historico");
         void bookings.refetch();
@@ -277,6 +248,11 @@ function PublicBooking() {
       }
     },
     onError: (e: Error) => {
+      // O servidor passou a cobrar sinal e pediu o documento que a tela não exibia.
+      if (DEPOSIT_DOCUMENT_REQUIRED.test(e.message)) {
+        void refreshChangedDeposit();
+        return;
+      }
       setFormError(e.message);
       toast.error(e.message);
     },
@@ -286,8 +262,12 @@ function PublicBooking() {
     if (name.trim().length < 2) return setFormError("Informe o seu nome e sobrenome");
     if (phone.trim().length < 8) return setFormError("Informe o seu telefone");
     const cpfCnpjDigits = cpfCnpj.replace(/\D/g, "");
-    if (cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14)
-      return setFormError("Informe um CPF ou CNPJ válido (necessário pra gerar o Pix)");
+    if (needsDocument && cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14) {
+      setFormError("Informe um CPF ou CNPJ válido (necessário pra gerar o Pix)");
+      // O sinal pode ter sido zerado desde a consulta: se sim, a exigência some.
+      void refreshChangedDeposit({ onlyIfZero: true });
+      return;
+    }
     setFormError(null);
     reserve.mutate();
   };
@@ -337,12 +317,7 @@ function PublicBooking() {
       </header>
 
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
-        {isLoading ? (
-          <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
-            <Loader2 className="size-7 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Carregando...</p>
-          </div>
-        ) : !business ? (
+        {!business ? (
           <div className="flex min-h-[50vh] items-center justify-center py-10">
             <p className="text-sm text-muted-foreground">Negócio não encontrado</p>
           </div>
@@ -350,7 +325,7 @@ function PublicBooking() {
           <>
             <BusinessHeader
               name={business.name}
-              logoUrl={logoUrl ?? null}
+              logoUrl={business.logo_url ?? null}
               address={business.address}
             />
 
@@ -388,9 +363,9 @@ function PublicBooking() {
           {service && (
             <div className="space-y-6 p-5 text-center sm:p-6">
               <div>
-                {serviceImage && (
+                {service.image_url && (
                   <img
-                    src={serviceImage}
+                    src={service.image_url}
                     alt={service.name}
                     loading="lazy"
                     decoding="async"
@@ -579,19 +554,21 @@ function PublicBooking() {
                         onChange={(e) => setPhone(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-1.5 sm:col-span-2">
-                      <Label htmlFor="cpf">CPF ou CNPJ</Label>
-                      <Input
-                        id="cpf"
-                        inputMode="numeric"
-                        placeholder="000.000.000-00"
-                        value={cpfCnpj}
-                        onChange={(e) => setCpfCnpj(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Necessário pra emitir o Pix do sinal.
-                      </p>
-                    </div>
+                    {needsDocument && (
+                      <div className="space-y-1.5 sm:col-span-2">
+                        <Label htmlFor="cpf">CPF ou CNPJ</Label>
+                        <Input
+                          id="cpf"
+                          inputMode="numeric"
+                          placeholder="000.000.000-00"
+                          value={cpfCnpj}
+                          onChange={(e) => setCpfCnpj(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Necessário pra emitir o Pix do sinal.
+                        </p>
+                      </div>
+                    )}
                   </div>
 
                   <Button className="w-full" disabled={reserve.isPending} onClick={submit}>
@@ -604,8 +581,8 @@ function PublicBooking() {
                     )}
                   </Button>
                   <p className="text-xs text-muted-foreground">
-                    {shouldRequireDeposit(service)
-                      ? `Sinal de ${formatPrice(service.deposit_cents)} por Pix. O horário só é confirmado após o pagamento.`
+                    {needsDocument
+                      ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
                       : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
                   </p>
                 </div>
@@ -619,6 +596,9 @@ function PublicBooking() {
         <PaymentDialog
           chargeId={activeCharge}
           booking={bookings.data?.bookings.find((b) => b.chargeId === activeCharge) ?? null}
+          reservedAmountCents={
+            reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
+          }
           onClose={() => {
             setActiveCharge(null);
             void bookings.refetch();
@@ -716,10 +696,12 @@ function ServiceSection({
                 {s.show_duration ? `${s.duration_minutes}min` : null}
               </p>
             )}
-            {shouldRequireDeposit(s) && (
+            {s.effectiveDepositCents > 0 ? (
               <p className="mt-2 text-xs font-semibold text-primary">
-                Sinal de {formatPrice(s.deposit_cents)}
+                Sinal de {formatPrice(s.effectiveDepositCents)}
               </p>
+            ) : (
+              <p className="mt-2 text-xs text-muted-foreground">Sem sinal</p>
             )}
           </button>
         ))}
@@ -920,19 +902,25 @@ function ConfirmedDialog({
 function PaymentDialog({
   chargeId,
   booking,
+  reservedAmountCents,
   onClose,
 }: {
   chargeId: string;
   booking: Booking | null;
+  reservedAmountCents: number | null;
   onClose: () => void;
 }) {
+  // Snapshot gravado no servidor (deposit_payments.amount_cents); nada é recalculado aqui.
+  const amountCents = booking?.amountCents ?? reservedAmountCents;
   const pixFn = useServerFn(generateDepositPix);
   const statusFn = useServerFn(getDepositStatus);
   const cancelFn = useServerFn(cancelDepositBooking);
+  const generatingPix = useRef(false);
   const [pix, setPix] = useState<{
-    qrCode: string | null;
-    qrCodeBase64: string | null;
+    qrCode: string;
+    qrCodeBase64: string;
   } | null>(null);
+  const [pixError, setPixError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [paid, setPaid] = useState(false);
@@ -968,10 +956,45 @@ function PaymentDialog({
   }, [chargeId, paid, statusFn, onClose]);
 
   const generate = useMutation({
-    mutationFn: () => pixFn({ data: { chargeId } }),
-    onSuccess: (r) => setPix({ qrCode: r.qrCode, qrCodeBase64: r.qrCodeBase64 }),
-    onError: (e: Error) => toast.error(e.message),
+    mutationFn: async () => {
+      const result = await pixFn({ data: { chargeId } });
+      const qrCode = result.qrCode?.trim();
+      const qrCodeBase64 = result.qrCodeBase64?.trim();
+      if (
+        !qrCode ||
+        !qrCodeBase64 ||
+        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(qrCodeBase64)
+      ) {
+        throw new Error("O código Pix ainda não está disponível. Tente novamente.");
+      }
+      return { qrCode, qrCodeBase64 };
+    },
+    onSuccess: (result) => {
+      setPix(result);
+      setPixError(null);
+    },
+    onError: (error: Error) => {
+      setPix(null);
+      const message = error.message;
+      if (/prazo|expirad|não está mais ativa/i.test(message)) {
+        setPixError("O prazo desta reserva terminou. Faça um novo agendamento.");
+      } else if (/não está habilitado|subconta|análise/i.test(message)) {
+        setPixError("Este estabelecimento ainda não pode receber Pix. Entre em contato com ele.");
+      } else {
+        setPixError("Não foi possível gerar o Pix agora. Tente novamente.");
+      }
+    },
+    onSettled: () => {
+      generatingPix.current = false;
+    },
   });
+
+  const requestPix = () => {
+    if (generatingPix.current || generate.isPending || pix) return;
+    generatingPix.current = true;
+    setPixError(null);
+    generate.mutate();
+  };
 
   const cancel = useMutation({
     mutationFn: () => cancelFn({ data: { chargeId } }),
@@ -1007,36 +1030,53 @@ function PaymentDialog({
           Para confirmar seu agendamento, efetue o pagamento do sinal via Pix.
         </p>
         <p className="mx-auto w-fit rounded-md bg-muted px-4 py-1 text-sm font-semibold">
-          {formatPrice(booking?.amountCents ?? 0)}
+          {amountCents === null ? "Carregando valor do sinal..." : formatPrice(amountCents)}
         </p>
         <Button
           className="mx-auto w-fit"
           disabled={generate.isPending || !!pix}
-          onClick={() => generate.mutate()}
+          onClick={requestPix}
+          aria-busy={generate.isPending}
         >
           {generate.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-          Gerar código Pix
+          {generate.isPending
+            ? "Gerando código Pix..."
+            : pixError
+              ? "Tentar novamente"
+              : "Gerar código Pix"}
         </Button>
-
-        {pix?.qrCodeBase64 && (
-          <img
-            src={`data:image/png;base64,${pix.qrCodeBase64}`}
-            alt="QR Code do Pix para pagar o sinal"
-            decoding="async"
-            className="mx-auto size-56 rounded-lg bg-white p-2"
-          />
+        {pixError && (
+          <p role="alert" className="text-sm text-destructive">
+            {pixError}
+          </p>
         )}
-        {pix?.qrCode && (
-          <div className="space-y-2">
+
+        {pix && (
+          <div className="min-w-0 space-y-2">
+            <img
+              src={`data:image/png;base64,${pix.qrCodeBase64}`}
+              alt="QR Code do Pix para pagar o sinal"
+              decoding="async"
+              className="mx-auto size-56 rounded-lg bg-white p-2"
+              onError={() => {
+                setPix(null);
+                setPixError("O QR Code do Pix não pôde ser exibido. Tente novamente.");
+              }}
+            />
+            {amountCents !== null && (
+              <p className="text-sm font-medium">Valor do Pix: {formatPrice(amountCents)}</p>
+            )}
             <p className="text-xs text-muted-foreground">
               Use a função Pix copia e cola do seu banco para concluir o pagamento.
             </p>
-            <p className="truncate rounded-md bg-muted px-3 py-2 text-left text-xs">{pix.qrCode}</p>
+            <p className="min-w-0 truncate rounded-md bg-muted px-3 py-2 text-left text-xs">
+              {pix.qrCode}
+            </p>
             <Button
               variant="secondary"
               className="mx-auto w-fit"
               onClick={() => {
-                void navigator.clipboard.writeText(pix.qrCode!);
+                void navigator.clipboard.writeText(pix.qrCode);
                 setCopied(true);
                 toast.success("Código Pix copiado!");
               }}

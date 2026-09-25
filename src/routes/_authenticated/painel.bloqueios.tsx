@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { CalendarX2, Plus, Repeat2, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { WEEKDAYS, weekdayLabel, hhmm, toDateInput } from "@/lib/format";
@@ -54,7 +54,7 @@ function BloqueiosPage() {
     reason: "",
   });
 
-  const { data: blocks } = useQuery({
+  const blocksQuery = useQuery({
     queryKey: ["time_blocks", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -101,6 +101,7 @@ function BloqueiosPage() {
 
   if (!businessId) return <NoBusiness />;
 
+  const blocks = blocksQuery.data;
   const filtered = (blocks ?? []).filter((b) => (b.recurring ? showRecurring : showSpecific));
 
   return (
@@ -198,18 +199,36 @@ function BloqueiosPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-4 text-sm">
-        <label className="flex items-center gap-2">
-          <Checkbox checked={showRecurring} onCheckedChange={(v) => setShowRecurring(v === true)} />
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <label
+          className={`bloqueio-filter-chip focus-within:ring-2 focus-within:ring-ring ${showRecurring ? "is-selected" : ""}`}
+        >
+          <Checkbox
+            className="sr-only"
+            checked={showRecurring}
+            onCheckedChange={(v) => setShowRecurring(v === true)}
+          />
+          <Repeat2 className="size-3.5" />
           Recorrentes
         </label>
-        <label className="flex items-center gap-2">
-          <Checkbox checked={showSpecific} onCheckedChange={(v) => setShowSpecific(v === true)} />
+        <label
+          className={`bloqueio-filter-chip focus-within:ring-2 focus-within:ring-ring ${showSpecific ? "is-selected" : ""}`}
+        >
+          <Checkbox
+            className="sr-only"
+            checked={showSpecific}
+            onCheckedChange={(v) => setShowSpecific(v === true)}
+          />
+          <CalendarX2 className="size-3.5" />
           Específicos
         </label>
       </div>
 
-      {!filtered.length ? (
+      {blocksQuery.isError ? (
+        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
+          Não foi possível carregar os horários bloqueados. Atualize a página e tente novamente.
+        </p>
+      ) : !filtered.length ? (
         <EmptyList text="Nenhum horário bloqueado." />
       ) : (
         <div className="surface overflow-hidden">

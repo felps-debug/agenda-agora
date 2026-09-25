@@ -18,11 +18,7 @@ function ProdutosPage() {
       title="Produtos"
       subtitle="Organize os produtos e o catálogo do seu negócio."
       icon={Package}
-      bullets={[
-        "Cadastro de produtos",
-        "Preço e disponibilidade",
-        "Catálogo para o cliente",
-      ]}
+      bullets={["Cadastro de produtos", "Preço e disponibilidade", "Catálogo para o cliente"]}
     />
   );
 }

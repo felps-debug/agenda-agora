@@ -33,7 +33,10 @@ describe("assertSuperAdmin (autorização usada por saveOutreachTemplate/setOutr
       },
     }));
     const { assertSuperAdmin } = await import("./auth/require-super-admin");
-    await expect(assertSuperAdmin("user-comum")).rejects.toThrow("Acesso restrito ao painel master.");
+    // T053: a guarda recebe a sessão validada (role no banco + aal2).
+    await expect(
+      assertSuperAdmin({ userId: "user-comum", claims: { aal: "aal2" } }),
+    ).rejects.toThrow("Acesso restrito ao painel master.");
   });
 
   it("permite usuário super_admin", async () => {
@@ -51,7 +54,9 @@ describe("assertSuperAdmin (autorização usada por saveOutreachTemplate/setOutr
       },
     }));
     const { assertSuperAdmin } = await import("./auth/require-super-admin");
-    await expect(assertSuperAdmin("user-master")).resolves.toBeDefined();
+    await expect(
+      assertSuperAdmin({ userId: "user-master", claims: { aal: "aal2" } }),
+    ).resolves.toBeDefined();
   });
 });
 

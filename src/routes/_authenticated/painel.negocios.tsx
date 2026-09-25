@@ -55,7 +55,7 @@ const formFrom = (b: Business): Form => ({
 });
 
 function NegociosPage() {
-  const { businesses, refresh } = useBusiness();
+  const { businesses, applyUpdatedBusiness } = useBusiness();
   const queryClient = useQueryClient();
   const saveFn = useServerFn(updateBusinessProfile);
   const [open, setOpen] = useState(false);
@@ -63,11 +63,12 @@ function NegociosPage() {
 
   const save = useMutation({
     mutationFn: () => saveFn({ data: form! }),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       toast.success("Dados do negócio atualizados!");
       setOpen(false);
       setForm(null);
-      refresh();
+      // Usa a linha salva para o cartão do link público mudar sem esperar o refetch.
+      applyUpdatedBusiness(updated);
       void queryClient.invalidateQueries({ queryKey: ["public-business"] });
     },
     onError: (e: Error) => toast.error(e.message),

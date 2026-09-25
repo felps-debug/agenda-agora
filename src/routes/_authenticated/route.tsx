@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { useAuth } from "@/hooks/useAuth";
+import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { BusinessProvider } from "@/lib/business";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -8,6 +8,14 @@ export const Route = createFileRoute("/_authenticated")({
 });
 
 function AuthenticatedLayout() {
+  return (
+    <AuthProvider>
+      <AuthenticatedContent />
+    </AuthProvider>
+  );
+}
+
+function AuthenticatedContent() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
 

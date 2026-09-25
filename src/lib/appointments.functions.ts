@@ -10,7 +10,8 @@ export function permissionForStatusChange(
   currentStatus: string,
   nextStatus: string,
 ): "reopen_appointment" | "cancel_appointment" | "complete_appointment" | null {
-  if (reopenableFrom.has(currentStatus) && !reopenableFrom.has(nextStatus)) return "reopen_appointment";
+  if (reopenableFrom.has(currentStatus) && !reopenableFrom.has(nextStatus))
+    return "reopen_appointment";
   if (nextStatus === "cancelado") return "cancel_appointment";
   if (nextStatus === "concluido") return "complete_appointment";
   return null;

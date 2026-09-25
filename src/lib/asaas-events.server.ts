@@ -1,9 +1,4 @@
-import {
-  decryptAsaasApiKey,
-  deletePendingPayment,
-  fetchPaymentStatus,
-  findPaymentByExternalReference,
-} from "./asaas.server";
+import { decryptAsaasApiKey, deletePendingPayment, fetchPaymentStatus } from "./asaas.server";
 
 type WebhookPayload = {
   id?: string;
@@ -14,6 +9,42 @@ type WebhookPayload = {
 
 async function database() {
   return (await import("@/integrations/supabase/client.server")).supabaseAdmin;
+}
+
+type Database = Awaited<ReturnType<typeof database>>;
+
+type DepositPixClaim = {
+  acquired: boolean;
+  reason: string;
+  claim_token: string | null;
+  attempt_state: string | null;
+};
+
+// As RPCs e colunas de claim vêm da migration deposit_pix_retry; os tipos gerados
+// ainda refletem o banco vinculado até ela ser aplicada.
+function pixRpc(db: Database) {
+  return db.rpc.bind(db) as unknown as (
+    name: string,
+    args: Record<string, unknown>,
+  ) => PromiseLike<{ data: unknown; error: { message: string } | null }>;
+}
+
+type CancellableCharge = {
+  id: string;
+  business_id: string;
+  appointment_id: string | null;
+  status: string;
+  provider_payment_id: string | null;
+};
+
+async function readCancellableCharge(db: Database, chargeId: string) {
+  const { data, error } = await db
+    .from("deposit_payments")
+    .select("*")
+    .eq("id", chargeId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data as CancellableCharge | null;
 }
 
 export async function getBusinessAsaasAccessToken(businessId: string) {
@@ -147,9 +178,10 @@ async function expireLocalCharge(
   chargeId: string,
   appointmentId: string | null,
   providerStatus: string,
+  claimToken?: string,
 ) {
   const db = await database();
-  const { data, error } = await db
+  let query = db
     .from("deposit_payments")
     .update({
       status: "expirado",
@@ -161,58 +193,84 @@ async function expireLocalCharge(
       ticket_url: null,
     })
     .eq("id", chargeId)
-    .eq("status", "pendente")
-    .select("id")
-    .maybeSingle();
+    .eq("status", "pendente");
+  if (claimToken) query = query.filter("pix_claim_token", "eq", claimToken);
+  const { data, error } = await query.select("id").maybeSingle();
   if (error) throw new Error(error.message);
   if (data) await markAppointmentCancelled(appointmentId);
   return !!data;
 }
 
-export async function cancelPendingDeposit(chargeId: string) {
+/**
+ * Cancela/expira adquirindo o mesmo claim da geração Pix, para nunca expirar a
+ * reserva enquanto outra instância pode estar criando a cobrança no Asaas.
+ * `pendente` = adiado (claim ocupado ou POST incerto recente); tente de novo depois.
+ */
+export async function cancelPendingDeposit(chargeId: string): Promise<{ status: string }> {
   const db = await database();
-  const { data: charge, error } = await db
-    .from("deposit_payments")
-    .select("id, business_id, appointment_id, status, provider_payment_id")
-    .eq("id", chargeId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!charge) throw new Error("Cobrança não encontrada.");
-  if (charge.status === "pago") throw new Error("Esse sinal já foi pago.");
-  if (charge.status !== "pendente") return { status: charge.status };
+  const rpc = pixRpc(db);
+  const initial = await readCancellableCharge(db, chargeId);
+  if (!initial) throw new Error("Cobrança não encontrada.");
+  if (initial.status === "pago") throw new Error("Esse sinal já foi pago.");
+  if (initial.status !== "pendente") return { status: initial.status };
 
-  const accessToken = await getBusinessAsaasAccessToken(charge.business_id);
-  let providerPaymentId = charge.provider_payment_id;
-  if (!providerPaymentId) {
-    // O POST pode ter sido aceito antes de um timeout impedir a gravação local.
-    const recovered = await findPaymentByExternalReference(accessToken, charge.id);
-    if (!recovered) {
-      await expireLocalCharge(charge.id, charge.appointment_id, "NOT_CREATED");
-      return { status: "expirado" as const };
+  const { data: claimRows, error: claimError } = await rpc("claim_deposit_pix", {
+    _charge_id: chargeId,
+  });
+  if (claimError) throw new Error("Não foi possível reservar a cobrança para cancelamento.");
+  const claim = (claimRows as DepositPixClaim[] | null)?.[0];
+  if (!claim?.acquired || !claim.claim_token) {
+    if (claim?.reason === "ocupada") return { status: "pendente" };
+    const after = await readCancellableCharge(db, chargeId);
+    if (!after) throw new Error("Cobrança não encontrada.");
+    if (after.status === "pago") throw new Error("Esse sinal já foi pago.");
+    return { status: after.status };
+  }
+  const claimToken = claim.claim_token;
+  let paymentRecorded = false;
+
+  try {
+    const charge = await readCancellableCharge(db, chargeId);
+    if (!charge) throw new Error("Cobrança não encontrada.");
+    if (charge.status === "pago") throw new Error("Esse sinal já foi pago.");
+    if (charge.status !== "pendente") return { status: charge.status };
+    paymentRecorded = Boolean(charge.provider_payment_id);
+
+    // Sem ID de cobrança não há pagamento conhecido para reconciliar ou excluir.
+    // Cancelar localmente também evita exigir a credencial da subconta em negócios
+    // aprovados cuja credencial ainda não foi cadastrada.
+    if (!charge.provider_payment_id) {
+      await expireLocalCharge(charge.id, charge.appointment_id, "NOT_CREATED", claimToken);
+      return { status: "expirado" };
     }
-    providerPaymentId = recovered.id;
-    const { error: recoveryError } = await db
-      .from("deposit_payments")
-      .update({
-        provider_payment_id: recovered.id,
-        provider_status: recovered.status,
-      })
-      .eq("id", charge.id);
-    if (recoveryError) throw new Error(recoveryError.message);
-  }
 
-  const result = await deletePendingPayment(accessToken, providerPaymentId);
-  if (result === "received") {
-    await confirmDepositPayment(providerPaymentId);
-    return { status: "pago" as const };
-  }
-  if (result === "confirmed") {
-    await db.from("deposit_payments").update({ provider_status: "CONFIRMED" }).eq("id", charge.id);
-    return { status: "aguardando_recebimento" as const };
-  }
+    const accessToken = await getBusinessAsaasAccessToken(charge.business_id);
+    const providerPaymentId = charge.provider_payment_id;
+    const result = await deletePendingPayment(accessToken, providerPaymentId);
+    if (result === "received") {
+      await confirmDepositPayment(providerPaymentId);
+      return { status: "pago" };
+    }
+    if (result === "confirmed") {
+      await db
+        .from("deposit_payments")
+        .update({ provider_status: "CONFIRMED" })
+        .eq("id", charge.id);
+      return { status: "aguardando_recebimento" };
+    }
 
-  await expireLocalCharge(charge.id, charge.appointment_id, "DELETED");
-  return { status: "expirado" as const };
+    await expireLocalCharge(charge.id, charge.appointment_id, "DELETED", claimToken);
+    return { status: "expirado" };
+  } finally {
+    const { error: releaseError } = await Promise.resolve(
+      rpc("release_deposit_pix", {
+        _charge_id: chargeId,
+        _claim_token: claimToken,
+        _outcome: paymentRecorded ? "criado" : "falhou",
+      }),
+    ).catch((error: unknown) => ({ error: { message: String(error) } }));
+    if (releaseError) console.error("Claim de cancelamento não liberado", { chargeId });
+  }
 }
 
 export async function synchronizeDepositPayment(chargeId: string) {
@@ -229,9 +287,9 @@ export async function synchronizeDepositPayment(chargeId: string) {
 
   if (charge.expires_at && new Date(charge.expires_at).getTime() <= Date.now()) {
     const cancelled = await cancelPendingDeposit(charge.id);
-    return {
-      status: cancelled.status === "pago" ? ("pago" as const) : ("expirado" as const),
-    };
+    if (cancelled.status === "pago") return { status: "pago" as const };
+    if (cancelled.status === "pendente") return { status: "pendente" as const };
+    return { status: "expirado" as const };
   }
   if (!charge.provider_payment_id) return { status: "pendente" as const };
 
@@ -385,16 +443,18 @@ export async function expirePendingDeposits(limit = 25) {
 
   let expired = 0;
   let waitingReceipt = 0;
+  let deferred = 0;
   let failed = 0;
   for (const charge of charges ?? []) {
     try {
       const result = await cancelPendingDeposit(charge.id);
       if (result.status === "aguardando_recebimento") waitingReceipt++;
       else if (result.status === "expirado") expired++;
+      else if (result.status === "pendente") deferred++;
     } catch (expireError) {
       console.error(`Falha ao expirar cobrança ${charge.id}:`, expireError);
       failed++;
     }
   }
-  return { expired, waitingReceipt, failed };
+  return { expired, waitingReceipt, deferred, failed };
 }

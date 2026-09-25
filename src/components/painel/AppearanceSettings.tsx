@@ -4,7 +4,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { Instagram, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { LOGO_BUCKET, getLogoUrl } from "@/lib/logo";
+import {
+  LOGO_ACCEPT,
+  LOGO_BUCKET,
+  getLogoUrl,
+  logoStorageErrorMessage,
+  validateLogoFile,
+} from "@/lib/logo";
 import { getPanel1Config, savePanel1Config } from "@/lib/panel1-config.functions";
 import {
   DEFAULT_PANEL1_APPEARANCE,
@@ -19,6 +25,7 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
   const saveTimerRef = useRef<number | null>(null);
   const hydratedRef = useRef(false);
   const [busy, setBusy] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const [background, setBackground] = useState("#050607");
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_PANEL1_APPEARANCE);
 
@@ -37,7 +44,7 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
       const logoPath = business?.logo_url ?? null;
       return {
         logoPath,
-        logoUrl: await getLogoUrl(logoPath),
+        logoUrl: await getLogoUrl(logoPath, businessId),
         brand_background: business?.brand_background ?? null,
         appearance: config.appearance,
       };
@@ -62,11 +69,14 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
       nextBackground: string;
       nextAppearance: Appearance;
     }) => {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("businesses")
         .update({ brand_background: nextBackground })
-        .eq("id", businessId);
+        .eq("id", businessId)
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("O negócio não foi encontrado para atualizar.");
       await saveConfigFn({ data: { businessId, patch: { appearance: nextAppearance } } });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -90,29 +100,45 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
   }, [appearance, background]);
 
   const upload = useMutation({
-    mutationFn: async (file: File) => {
-      const ext = file.name.split(".").pop()?.toLowerCase() || "png";
-      const uploadPath = businessId + "/logo-" + Date.now() + "." + ext;
-      const { error } = await supabase.storage
-        .from(LOGO_BUCKET)
-        .upload(uploadPath, file, { upsert: true, contentType: file.type });
-      if (error) throw error;
+    mutationFn: async ({ file, extension }: { file: File; extension: string }) => {
+      const uploadPath = `${businessId}/logo-${crypto.randomUUID()}.${extension}`;
+      let uploadError;
+      try {
+        const result = await supabase.storage
+          .from(LOGO_BUCKET)
+          .upload(uploadPath, file, { upsert: false, contentType: file.type });
+        uploadError = result.error;
+      } catch {
+        throw new Error("Não foi possível enviar o logotipo. Tente novamente.");
+      }
+      if (uploadError) throw new Error(logoStorageErrorMessage(uploadError));
 
-      const { error: dbError } = await supabase
+      const { data: updatedBusiness, error: dbError } = await supabase
         .from("businesses")
         .update({ logo_url: uploadPath })
-        .eq("id", businessId);
-      if (dbError) throw dbError;
+        .eq("id", businessId)
+        .select("id")
+        .maybeSingle();
+      if (dbError || !updatedBusiness) {
+        throw new Error("A imagem foi enviada, mas não foi possível salvar o logotipo.");
+      }
 
       if (data?.logoPath) {
-        await supabase.storage.from(LOGO_BUCKET).remove([data.logoPath]);
+        try {
+          await supabase.storage.from(LOGO_BUCKET).remove([data.logoPath]);
+        } catch {
+          // A limpeza da imagem antiga não altera a atualização já concluída.
+        }
       }
     },
     onSuccess: () => {
       toast.success("Logotipo atualizado");
       void queryClient.invalidateQueries({ queryKey: ["panel1-appearance", businessId] });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => {
+      setLogoError(error.message);
+      toast.error(error.message);
+    },
     onSettled: () => setBusy(false),
   });
 
@@ -131,20 +157,24 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+        accept={LOGO_ACCEPT}
         className="hidden"
+        aria-label="Selecionar logotipo"
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = "";
-          if (!file) return;
+          if (!file || busy) return;
 
-          if (file.size > 5 * 1024 * 1024) {
-            toast.error("A imagem precisa ter no máximo 5 MB");
+          setLogoError(null);
+          const validation = validateLogoFile(file);
+          if (!validation.valid) {
+            setLogoError(validation.message);
+            toast.error(validation.message);
             return;
           }
 
           setBusy(true);
-          upload.mutate(file);
+          upload.mutate({ file, extension: validation.extension });
         }}
       />
 
@@ -160,6 +190,9 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
           onClick={() => !busy && inputRef.current?.click()}
           disabled={busy}
           title="Clique para trocar o logotipo"
+          aria-label="Trocar logotipo"
+          aria-busy={busy}
+          aria-describedby={logoError ? "logo-upload-help logo-upload-error" : "logo-upload-help"}
           className="mx-auto flex min-h-[78px] w-full max-w-[270px] items-center justify-center bg-transparent p-0 disabled:cursor-wait"
         >
           {data?.logoUrl ? (
@@ -176,6 +209,18 @@ export function AppearanceSettings({ businessId }: { businessId: string }) {
             </span>
           )}
         </button>
+        <p id="logo-upload-help" className="mt-2 text-center text-xs opacity-80">
+          PNG, JPEG ou WebP, até 5 MB.
+        </p>
+        {logoError && (
+          <p
+            id="logo-upload-error"
+            role="alert"
+            className="mt-2 rounded bg-red-950 px-3 py-2 text-center text-sm text-red-50"
+          >
+            {logoError}
+          </p>
+        )}
 
         <h3 className="mt-5 text-center text-[28px] font-medium leading-none">SERVIÇOS</h3>
 

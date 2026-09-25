@@ -39,7 +39,7 @@ function ClientesPage() {
   const [term, setTerm] = useState("");
   const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
 
-  const { data: customers } = useQuery({
+  const customersQuery = useQuery({
     queryKey: ["customers", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -53,7 +53,7 @@ function ClientesPage() {
     },
   });
 
-  const { data: visits } = useQuery({
+  const visitsQuery = useQuery({
     queryKey: ["customer-visits", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -69,7 +69,7 @@ function ClientesPage() {
   });
 
   const lastVisit: Record<string, string> = {};
-  for (const v of visits ?? []) {
+  for (const v of visitsQuery.data ?? []) {
     if (v.customer_id && !lastVisit[v.customer_id]) lastVisit[v.customer_id] = v.starts_at;
   }
 
@@ -108,6 +108,7 @@ function ClientesPage() {
 
   if (!businessId) return <NoBusiness />;
 
+  const customers = customersQuery.data;
   const filtered = (customers ?? []).filter((c) =>
     c.name.toLowerCase().includes(term.toLowerCase()),
   );
@@ -217,7 +218,17 @@ function ClientesPage() {
         />
       </div>
 
-      {!filtered.length ? (
+      {visitsQuery.isError && (
+        <p role="alert" className="mb-4 rounded-xl border border-destructive/40 p-4 text-sm">
+          Não foi possível carregar o histórico de visitas; os dias ausente podem estar incompletos.
+        </p>
+      )}
+
+      {customersQuery.isError ? (
+        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
+          Não foi possível carregar os clientes. Atualize a página e tente novamente.
+        </p>
+      ) : !filtered.length ? (
         <EmptyList text="Nenhum cliente encontrado." />
       ) : (
         <div className="surface overflow-hidden">

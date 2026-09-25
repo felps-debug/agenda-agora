@@ -12,9 +12,7 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
         const authError = await authenticateCronRequest(request);
         if (authError) return authError;
 
-        const { supabaseAdmin } = await import(
-          "@/integrations/supabase/client.server"
-        );
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
         const now = new Date();
         const { data: businesses, error: bizErr } = await supabaseAdmin

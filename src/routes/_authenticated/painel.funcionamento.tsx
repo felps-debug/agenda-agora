@@ -44,7 +44,7 @@ function FuncionamentoPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ weekday: "1", starts: "08:30", ends: "19:00" });
 
-  const { data: hours } = useQuery({
+  const hoursQuery = useQuery({
     queryKey: ["business_hours", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -91,6 +91,7 @@ function FuncionamentoPage() {
   });
 
   if (!businessId) return <NoBusiness />;
+  const hours = hoursQuery.data;
 
   return (
     <div>
@@ -158,7 +159,12 @@ function FuncionamentoPage() {
         }
       />
 
-      {!hours?.length ? (
+      {hoursQuery.isError ? (
+        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
+          Não foi possível carregar os horários de funcionamento. Atualize a página e tente
+          novamente.
+        </p>
+      ) : !hours?.length ? (
         <EmptyList text="Nenhum dia de funcionamento cadastrado." />
       ) : (
         <div className="surface overflow-hidden">

@@ -3,7 +3,11 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
-import type { Panel1Appearance, Panel1Preferences } from "@/lib/panel1-config";
+import {
+  DEFAULT_PANEL1_APPEARANCE,
+  type Panel1Appearance,
+  type Panel1Preferences,
+} from "@/lib/panel1-config";
 import {
   loadPanel1Config,
   savePanel1Config as savePanel1ConfigFile,
@@ -30,12 +34,39 @@ export const getPanel1Config = createServerFn({ method: "GET" })
     return loadPanel1Config(supabaseAdmin, data.businessId);
   });
 
+const appearanceKeys = new Set(Object.keys(DEFAULT_PANEL1_APPEARANCE));
+const appearancePatch = z
+  .record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/))
+  .refine((value) => Object.keys(value).every((key) => appearanceKeys.has(key)), {
+    message: "Campo de aparência desconhecido.",
+  });
+const preferencesPatch = z
+  .object({
+    minimum_notice_hours: z.number().finite().min(0).max(720),
+    listing_time_minutes: z.number().int().min(10).max(390),
+    notify_clients: z.boolean(),
+    reminder_hours_before: z.number().int().min(1).max(168),
+    extra_reminder_minutes: z.number().int().min(0).max(1440),
+    extra_reminder_template: z.string().max(800),
+    timezone: z.string().min(1).max(80),
+    list_dates_days: z.number().int().min(7).max(365),
+    cancellations_enabled: z.boolean(),
+    cancellation_notice_minutes: z.number().int().min(0).max(1440),
+    reschedule_enabled: z.boolean(),
+    reschedule_notice_minutes: z.number().int().min(0).max(1440),
+    greeting: z.string().max(80),
+  })
+  .partial()
+  .strict();
+
 const patchInput = z.object({
   businessId: z.string().uuid(),
-  patch: z.object({
-    appearance: z.record(z.string(), z.string()).optional(),
-    preferences: z.record(z.string(), z.unknown()).optional(),
-  }),
+  patch: z
+    .object({
+      appearance: appearancePatch.optional(),
+      preferences: preferencesPatch.optional(),
+    })
+    .strict(),
 });
 
 /** Atualiza (merge parcial) a configuração de Preferências/Aparência do Painel 1. */

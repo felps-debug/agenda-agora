@@ -1,6 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Database } from "@/integrations/supabase/types";
+import {
+  assertSuperAdmin,
+  hasSuperAdminRole,
+  type SuperAdminSession,
+} from "@/lib/auth/require-super-admin";
 
 const bizSchema = z.object({ businessId: z.string().uuid() });
 
@@ -11,31 +18,25 @@ type BizRow = {
   whatsapp_status: string;
 };
 
-async function isSuperAdmin(supabase: any, userId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .eq("user_id", userId)
-    .eq("role", "super_admin")
-    .maybeSingle();
-  return !!data;
-}
-
 async function loadOwnedBusiness(
-  supabase: any,
-  userId: string,
+  supabase: SupabaseClient<Database>,
+  session: SuperAdminSession,
   businessId: string,
 ): Promise<BizRow> {
-  const { data: allowed, error: permError } = await supabase.rpc(
-    "has_business_permission",
-    { _business_id: businessId, _permission: "generate_qrcode" },
-  );
+  const { data: allowed, error: permError } = await supabase.rpc("has_business_permission", {
+    _business_id: businessId,
+    _permission: "generate_qrcode",
+  });
   if (permError) throw new Error(permError.message);
   // has_business_permission só considera owner_id/professional; o Master
   // (super_admin) enxerga qualquer negócio via businesses_super_admin mas essa
-  // RPC não sabe disso, então precisa da checagem à parte aqui.
-  if (!allowed && !(await isSuperAdmin(supabase, userId)))
-    throw new Error("Você não tem permissão para gerenciar o WhatsApp deste negócio.");
+  // RPC não sabe disso, então precisa da checagem à parte aqui — pela guarda
+  // central.
+  if (!allowed) {
+    if (!(await hasSuperAdminRole(session.userId)))
+      throw new Error("Você não tem permissão para gerenciar o WhatsApp deste negócio.");
+    await assertSuperAdmin(session);
+  }
 
   const { data, error } = await supabase
     .from("businesses")
@@ -53,7 +54,7 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     const uazapi = await import("./uazapi.server");
-    const business = await loadOwnedBusiness(context.supabase, context.userId, data.businessId);
+    const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
 
     const connected = await uazapi.isConnected();
     if (connected) {
@@ -78,7 +79,7 @@ export const refreshWhatsappQr = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    await loadOwnedBusiness(context.supabase, context.userId, data.businessId);
+    await loadOwnedBusiness(context.supabase, context, data.businessId);
     const uazapi = await import("./uazapi.server");
     const qrCode = await uazapi.getQrCode();
     return { qrCode };
@@ -89,7 +90,7 @@ export const getWhatsappStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    const business = await loadOwnedBusiness(context.supabase, context.userId, data.businessId);
+    const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
     if (!business.whatsapp_instance) {
       return { status: "desconectado" as const, connected: false };
     }
@@ -115,7 +116,7 @@ export const disconnectWhatsapp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    const business = await loadOwnedBusiness(context.supabase, context.userId, data.businessId);
+    const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
     if (business.whatsapp_instance) {
       const uazapi = await import("./uazapi.server");
       await uazapi.disconnect();

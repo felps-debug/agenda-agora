@@ -53,8 +53,7 @@ async function loadContext(appointmentId: string) {
     )
     .eq("id", appt.business_id)
     .maybeSingle();
-  if (!business?.whatsapp_instance || business.whatsapp_status !== "conectado")
-    return null;
+  if (!business?.whatsapp_instance || business.whatsapp_status !== "conectado") return null;
 
   let serviceName = "serviço";
   if ((appt as AppointmentRow).service_id) {
@@ -86,12 +85,8 @@ export async function sendBookingConfirmation(appointmentId: string) {
   try {
     const ctx = await loadContext(appointmentId);
     if (!ctx) return;
-    const template =
-      ctx.business.confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
-    await sendTextMessage(
-      ctx.row.customer_phone!,
-      renderMessage(template, ctx.vars),
-    );
+    const template = ctx.business.confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
+    await sendTextMessage(ctx.row.customer_phone!, renderMessage(template, ctx.vars));
   } catch (err) {
     console.error("Falha ao enviar WhatsApp de confirmação:", err);
   }
@@ -105,8 +100,5 @@ export async function sendBookingReminder(appointmentId: string) {
   const ctx = await loadContext(appointmentId);
   if (!ctx) throw new Error("Agendamento sem telefone ou WhatsApp desconectado.");
   const template = ctx.business.reminder_template || DEFAULT_REMINDER_MESSAGE;
-  await sendTextMessage(
-    ctx.row.customer_phone!,
-    renderMessage(template, ctx.vars),
-  );
+  await sendTextMessage(ctx.row.customer_phone!, renderMessage(template, ctx.vars));
 }

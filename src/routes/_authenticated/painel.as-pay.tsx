@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { KeyRound, Wallet } from "lucide-react";
+import { CircleDollarSign, Clock3, History, KeyRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice, formatTime } from "@/lib/format";
@@ -109,90 +109,126 @@ function AsPayPage() {
         subtitle={`Sinais pagos pelos clientes de ${business?.name ?? "seu negócio"}.`}
       />
 
-      <div className="mx-auto max-w-2xl rounded-2xl border-2 border-primary/70 bg-card p-6 shadow-[0_0_24px_-8px_hsl(var(--primary))]">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-          <Wallet className="size-3.5" /> Saldo disponível
-        </p>
-        <p className="font-display text-3xl font-bold text-primary">{formatPrice(available)}</p>
-        <p className="mt-4 text-xs font-semibold uppercase text-muted-foreground">Saldo pendente</p>
-        <p className="font-display text-3xl font-bold">{formatPrice(pending)}</p>
+      <div className="report-luminous-card report-effect-strong mx-auto max-w-2xl p-6">
+        <div className="relative z-10 space-y-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.18)]">
+              <CircleDollarSign className="size-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">
+                Saldo disponível
+              </p>
+              <p className="font-display text-3xl font-bold text-primary">
+                {formatPrice(available)}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-px w-full bg-white/10" />
+
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-400 shadow-[0_0_18px_rgba(245,158,11,0.18)]">
+              <Clock3 className="size-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">
+                Saldo pendente
+              </p>
+              <p className="font-display text-3xl font-bold">{formatPrice(pending)}</p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <p className="mx-auto mt-5 max-w-2xl text-center text-sm text-muted-foreground">
         Todas as transações de sinal são intermediadas pelo Agenda Agora.
       </p>
 
-      <div className="surface mx-auto mt-8 max-w-2xl p-6">
-        <h2 className="flex items-center gap-2 text-lg font-bold">
-          <KeyRound className="size-5 text-primary" /> Chave PIX de saque
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Cadastre a chave para onde os saques do seu saldo devem ser enviados.
-        </p>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="pix-key-type">Tipo de chave</Label>
-            <select
-              id="pix-key-type"
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={pixKeyType}
-              onChange={(e) => setPixKeyType(e.target.value as WithdrawalPixKeyType)}
-            >
-              {withdrawalPixKeyTypes.map((type) => (
-                <option key={type} value={type}>
-                  {pixKeyTypeLabel[type]}
-                </option>
-              ))}
-            </select>
+      <section className="report-luminous-card report-effect-medium as-pay-card mx-auto mt-8 max-w-2xl p-4 sm:p-5">
+        <div className="relative z-10">
+          <div className="as-pay-section-title">
+            <KeyRound aria-hidden="true" />
+            <h2>Chave PIX de saque</h2>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="pix-key">Chave PIX</Label>
-            <Input
-              id="pix-key"
-              placeholder="Sua chave PIX"
-              value={pixKey}
-              onChange={(e) => setPixKey(e.target.value)}
-            />
-          </div>
-        </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Cadastre a chave para onde os saques do seu saldo devem ser enviados.
+          </p>
 
-        <Button
-          className="mt-4"
-          disabled={!pixKey.trim() || savePixKey.isPending}
-          onClick={() => savePixKey.mutate()}
-        >
-          Salvar chave PIX
-        </Button>
-      </div>
-
-      <h2 className="mt-8 mb-3 text-lg font-bold">Últimos sinais</h2>
-      {!list.length ? (
-        <EmptyList text="Nenhum sinal recebido ainda." />
-      ) : (
-        <ul className="space-y-3">
-          {list.map((r) => (
-            <li key={r.id} className="surface flex flex-wrap items-center gap-4 p-4">
-              <div className="flex-1">
-                <p className="font-semibold">{r.customer_name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {new Date(r.starts_at).toLocaleDateString("pt-BR")} · {formatTime(r.starts_at)}
-                </p>
-              </div>
-              <span className="font-semibold">{formatPrice(r.deposit_cents)}</span>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                  r.deposit_paid_at
-                    ? "bg-primary/15 text-primary"
-                    : "bg-muted text-muted-foreground"
-                }`}
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="pix-key-type">Tipo de chave</Label>
+              <select
+                id="pix-key-type"
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={pixKeyType}
+                onChange={(e) => setPixKeyType(e.target.value as WithdrawalPixKeyType)}
               >
-                {r.deposit_paid_at ? "Pago" : "Pendente"}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+                {withdrawalPixKeyTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {pixKeyTypeLabel[type]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="pix-key">Chave PIX</Label>
+              <Input
+                id="pix-key"
+                placeholder="Sua chave PIX"
+                value={pixKey}
+                onChange={(e) => setPixKey(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <Button
+            className="mt-4"
+            disabled={!pixKey.trim() || savePixKey.isPending}
+            onClick={() => savePixKey.mutate()}
+          >
+            Salvar chave PIX
+          </Button>
+        </div>
+      </section>
+
+      <section className="report-luminous-card report-effect-none as-pay-card as-pay-history-card mx-auto mt-3 max-w-2xl">
+        <div className="as-pay-history-header relative z-10">
+          <h2 className="flex items-center gap-2">
+            <History className="size-[0.9rem] text-[#5d6570]" aria-hidden="true" />
+            Últimos sinais
+          </h2>
+          <p>Sinais pagos e pendentes das reservas</p>
+        </div>
+        {!list.length ? (
+          <div className="relative z-10 p-4">
+            <EmptyList text="Nenhum sinal recebido ainda." />
+          </div>
+        ) : (
+          <ul className="relative z-10 divide-y divide-white/[0.065]">
+            {list.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
+                <div className="flex-1">
+                  <p className="font-semibold">{r.customer_name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {new Date(r.starts_at).toLocaleDateString("pt-BR")} · {formatTime(r.starts_at)}
+                  </p>
+                </div>
+                <span className="font-semibold">{formatPrice(r.deposit_cents)}</span>
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    r.deposit_paid_at
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {r.deposit_paid_at ? "Pago" : "Pendente"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

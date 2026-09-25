@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ImagePlus, Pencil, Plus, Trash2 } from "lucide-react";
+import { ImagePlus, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { LOGO_BUCKET } from "@/lib/logo";
+import { effectiveDepositCents, percentToBps, type DepositMode } from "@/lib/deposit-amount";
+import { saveService } from "@/lib/services.functions";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +26,13 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/painel/servicos")({
   head: () => ({
@@ -44,6 +54,8 @@ type Form = {
   duration: string;
   price: string;
   deposit: string;
+  depositMode: DepositMode;
+  depositPercent: string;
   requiresDeposit: boolean;
   description: string;
   isCombo: boolean;
@@ -59,6 +71,8 @@ const empty: Form = {
   duration: "30",
   price: "0",
   deposit: "0",
+  depositMode: "fixed",
+  depositPercent: "0",
   requiresDeposit: true,
   description: "",
   isCombo: false,
@@ -70,15 +84,98 @@ const empty: Form = {
 };
 
 const money = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
+const percentText = (bps: number) => String(bps / 100).replace(".", ",");
+
+// Confirmado no Sandbox real: o Asaas rejeita cobrança Pix abaixo de R$ 5,00.
+const MIN_PIX_DEPOSIT_CENTS = 500;
+
+function parseCents(value: string) {
+  const parsed = Number(value.trim().replace(",", ".") || "0");
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
+}
+
+type DepositDraft =
+  | { ok: true; priceCents: number; depositCents: number; bps: number; effectiveCents: number }
+  | { ok: false; error: string };
+
+/** Prévia do sinal no painel; o servidor valida e recalcula tudo ao salvar. */
+function depositDraft(form: Form): DepositDraft {
+  const priceCents = parseCents(form.price);
+  if (priceCents === null) return { ok: false, error: "Informe um valor do serviço válido." };
+  const depositCents = form.depositMode === "fixed" ? parseCents(form.deposit) : 0;
+  if (depositCents === null) return { ok: false, error: "Informe um sinal em R$ válido." };
+  let bps = 0;
+  if (form.depositMode === "percent") {
+    try {
+      bps = percentToBps(Number(form.depositPercent.trim().replace(",", ".") || "0"));
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof RangeError ? error.message : "Percentual inválido.",
+      };
+    }
+  }
+  const effectiveCents = effectiveDepositCents({
+    requires_deposit: true,
+    deposit_mode: form.depositMode,
+    deposit_percent_bps: bps,
+    price_cents: priceCents,
+    deposit_cents: depositCents,
+  });
+  return { ok: true, priceCents, depositCents, bps, effectiveCents };
+}
+
+// Mesmos tipos/limite do bucket business-logos; a extensão vem do tipo para casar com a política.
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function imageFileError(file: File) {
+  if (!IMAGE_EXTENSIONS[file.type]) return "Use uma imagem PNG, JPEG ou WebP.";
+  if (file.size > MAX_IMAGE_BYTES) return "A imagem deve ter no máximo 5 MB.";
+  return null;
+}
 
 function ServicosPage() {
   const { businessId } = useBusiness();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(empty);
+  const saveServiceFn = useServerFn(saveService);
+  const deposit = depositDraft(form);
   const [uploading, setUploading] = useState(false);
+  const [localPreview, setLocalPreview] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
-  const { data: services } = useQuery({
+  useEffect(() => {
+    return () => {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    };
+  }, [localPreview]);
+
+  const { data: storedPreview } = useQuery({
+    queryKey: ["service-image", form.imagePath],
+    enabled: open && !!form.imagePath && !localPreview,
+    staleTime: 50 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage
+        .from(LOGO_BUCKET)
+        .createSignedUrl(form.imagePath!, 60 * 60);
+      if (error) throw error;
+      return data.signedUrl;
+    },
+  });
+  const previewUrl = localPreview ?? (form.imagePath ? storedPreview : null) ?? null;
+
+  const resetImageState = () => {
+    setLocalPreview(null);
+    setImageError(null);
+  };
+
+  const servicesQuery = useQuery({
     queryKey: ["services", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -92,7 +189,7 @@ function ServicosPage() {
     },
   });
 
-  const { data: people } = useQuery({
+  const peopleQuery = useQuery({
     queryKey: ["professionals", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -107,7 +204,7 @@ function ServicosPage() {
     },
   });
 
-  const { data: links } = useQuery({
+  const linksQuery = useQuery({
     queryKey: ["service-links", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -120,6 +217,10 @@ function ServicosPage() {
     },
   });
 
+  const services = servicesQuery.data;
+  const people = peopleQuery.data;
+  const links = linksQuery.data;
+
   const refresh = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["services", businessId] }),
@@ -128,25 +229,27 @@ function ServicosPage() {
 
   const save = useMutation({
     mutationFn: async () => {
-      const payload = {
-        business_id: businessId!,
-        name: form.name.trim(),
-        duration_minutes: Number(form.duration) || 30,
-        price_cents: Math.round(Number(form.price.replace(",", ".")) * 100) || 0,
-        deposit_cents: Math.round(Number(form.deposit.replace(",", ".")) * 100) || 0,
-        requires_deposit: form.requiresDeposit,
-        description: form.description || null,
-        is_combo: form.isCombo,
-        show_price: form.showPrice,
-        show_duration: form.showDuration,
-        show_service: form.showService,
-        image_path: form.imagePath,
-      };
-      const result = form.id
-        ? await supabase.from("services").update(payload).eq("id", form.id).select("id").single()
-        : await supabase.from("services").insert(payload).select("id").single();
-      if (result.error) throw result.error;
-      const id = result.data.id;
+      if (!deposit.ok) throw new Error(deposit.error);
+      // Sinal, preço e imagem são validados e gravados no servidor (saveService).
+      const { id } = await saveServiceFn({
+        data: {
+          ...(form.id ? { id: form.id } : {}),
+          businessId: businessId!,
+          name: form.name.trim(),
+          durationMinutes: Number(form.duration) || 30,
+          priceCents: deposit.priceCents,
+          requiresDeposit: form.requiresDeposit,
+          depositMode: form.depositMode,
+          depositCents: deposit.depositCents,
+          depositPercentBps: deposit.bps,
+          description: form.description || null,
+          isCombo: form.isCombo,
+          showPrice: form.showPrice,
+          showDuration: form.showDuration,
+          showService: form.showService,
+          imagePath: form.imagePath,
+        },
+      });
       const removed = await supabase.from("service_professionals").delete().eq("service_id", id);
       if (removed.error) throw removed.error;
       if (form.professionalIds.length) {
@@ -164,6 +267,7 @@ function ServicosPage() {
       toast.success(form.id ? "Serviço atualizado!" : "Serviço cadastrado!");
       setOpen(false);
       setForm(empty);
+      resetImageState();
       void refresh();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -171,10 +275,18 @@ function ServicosPage() {
 
   const toggle = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      const { error } = await supabase.from("services").update({ active }).eq("id", id);
+      const { data, error } = await supabase
+        .from("services")
+        .update({ active })
+        .eq("id", id)
+        .eq("business_id", businessId!)
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("O serviço não foi encontrado para atualizar.");
     },
     onSuccess: () => void refresh(),
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const remove = useMutation({
@@ -189,38 +301,57 @@ function ServicosPage() {
   });
 
   const edit = (s: NonNullable<typeof services>[number]) => {
+    if (!links) {
+      toast.error("Não foi possível carregar os vínculos do serviço. Tente novamente.");
+      return;
+    }
+    // T034: deposit_mode/deposit_percent_bps ainda não estão no types.ts gerado; antes
+    // da migration service_deposit_percent o serviço é tratado como valor fixo.
+    const depositColumns = s as typeof s &
+      Partial<{ deposit_mode: DepositMode; deposit_percent_bps: number }>;
     setForm({
       id: s.id,
       name: s.name,
       duration: String(s.duration_minutes),
       price: money(s.price_cents),
       deposit: money(s.deposit_cents),
+      depositMode: depositColumns.deposit_mode === "percent" ? "percent" : "fixed",
+      depositPercent: percentText(depositColumns.deposit_percent_bps ?? 0),
       requiresDeposit: s.requires_deposit,
       description: s.description ?? "",
-      isCombo: s.is_combo,
+      isCombo: s.is_combo ?? false,
       showPrice: s.show_price,
       showDuration: s.show_duration,
       showService: s.show_service,
-      imagePath: s.image_path,
+      imagePath: s.image_path ?? null,
       professionalIds: (links ?? [])
         .filter((l) => l.service_id === s.id)
         .map((l) => l.professional_id),
     });
+    resetImageState();
     setOpen(true);
   };
 
+  // O caminho só entra no formulário (e em services.image_path ao salvar) após upload bem-sucedido.
   const upload = async (file?: File) => {
     if (!file || !businessId) return;
-    setUploading(true);
-    const path = `${businessId}/services/${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9.]/g, "-")}`;
-    const { error } = await supabase.storage
-      .from(LOGO_BUCKET)
-      .upload(path, file, { upsert: false });
-    setUploading(false);
-    if (error) {
-      toast.error(error.message);
+    const invalid = imageFileError(file);
+    if (invalid) {
+      setImageError(invalid);
       return;
     }
+    setImageError(null);
+    setUploading(true);
+    const path = `${businessId}/services/${crypto.randomUUID()}.${IMAGE_EXTENSIONS[file.type]}`;
+    const { error } = await supabase.storage
+      .from(LOGO_BUCKET)
+      .upload(path, file, { upsert: false, contentType: file.type });
+    setUploading(false);
+    if (error) {
+      setImageError("Não foi possível enviar a imagem. Tente novamente.");
+      return;
+    }
+    setLocalPreview(URL.createObjectURL(file));
     setForm((v) => ({ ...v, imagePath: path }));
   };
 
@@ -236,29 +367,40 @@ function ServicosPage() {
             open={open}
             onOpenChange={(v) => {
               setOpen(v);
-              if (!v) setForm(empty);
+              if (!v) {
+                setForm(empty);
+                resetImageState();
+              }
             }}
           >
             <DialogTrigger asChild>
-              <Button>
+              <Button className="professional-primary-button">
                 <Plus className="size-4" /> Novo serviço
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{form.id ? "Editar serviço" : "Cadastrar serviço"}</DialogTitle>
+            <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+              <DialogHeader className="professional-dialog-header">
+                <div className="flex items-start gap-3 text-left">
+                  <div className="professional-dialog-icon">
+                    <Scissors className="size-[1.05rem]" strokeWidth={1.8} />
+                  </div>
+                  <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[#f1f2f4]">
+                    {form.id ? "Editar serviço" : "Cadastrar serviço"}
+                  </DialogTitle>
+                </div>
               </DialogHeader>
-              <Tabs defaultValue="dados">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
+                <TabsList className="professional-tabs grid w-full grid-cols-3">
                   <TabsTrigger value="dados">Dados</TabsTrigger>
                   <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
                   <TabsTrigger value="imagem">Imagem</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="dados" className="space-y-4 pt-4">
+                <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
                   <div className="space-y-2">
-                    <Label>Nome do serviço</Label>
+                    <Label className="professional-section-label">Nome do serviço</Label>
                     <Input
+                      className="professional-input"
                       value={form.name}
                       onChange={(e) => setForm({ ...form, name: e.target.value })}
                       placeholder="Corte masculino"
@@ -276,11 +418,65 @@ function ServicosPage() {
                       type="number"
                       onChange={(duration) => setForm({ ...form, duration })}
                     />
-                    <Field
-                      label="Sinal (R$)"
-                      value={form.deposit}
-                      onChange={(deposit) => setForm({ ...form, deposit })}
-                    />
+                    {form.depositMode === "percent" ? (
+                      <Field
+                        label="Sinal (%)"
+                        value={form.depositPercent}
+                        onChange={(depositPercent) => setForm({ ...form, depositPercent })}
+                      />
+                    ) : (
+                      <Field
+                        label="Sinal (R$)"
+                        value={form.deposit}
+                        onChange={(value) => setForm({ ...form, deposit: value })}
+                      />
+                    )}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,14rem)_1fr] sm:items-end sm:gap-4">
+                    <div className="space-y-2">
+                      <Label className="professional-section-label" htmlFor="deposit-mode">
+                        Tipo de sinal
+                      </Label>
+                      <Select
+                        value={form.depositMode}
+                        onValueChange={(depositMode) =>
+                          setForm({ ...form, depositMode: depositMode as DepositMode })
+                        }
+                      >
+                        <SelectTrigger id="deposit-mode">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fixed">Valor fixo (R$)</SelectItem>
+                          <SelectItem value="percent">Percentual (%)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p
+                      aria-live="polite"
+                      className={
+                        deposit.ok &&
+                        (!form.requiresDeposit ||
+                          deposit.effectiveCents === 0 ||
+                          deposit.effectiveCents >= MIN_PIX_DEPOSIT_CENTS)
+                          ? "text-sm text-muted-foreground"
+                          : "text-sm text-destructive"
+                      }
+                    >
+                      {!deposit.ok
+                        ? deposit.error
+                        : !form.requiresDeposit
+                          ? "Sem sinal: a reserva é confirmada sem Pix."
+                          : deposit.effectiveCents === 0
+                            ? "Sinal efetivo de R$ 0,00: nenhum Pix será gerado e a reserva é confirmada sem pagamento."
+                            : deposit.effectiveCents < MIN_PIX_DEPOSIT_CENTS
+                              ? `Sinal efetivo de ${formatPrice(deposit.effectiveCents)}: o Asaas não aceita cobrança Pix abaixo de R$ 5,00, então o pagamento sempre vai falhar. Ajuste o sinal para R$ 0,00 ou para R$ 5,00 ou mais.`
+                              : `Sinal cobrado: ${formatPrice(deposit.effectiveCents)}${
+                                  form.depositMode === "percent"
+                                    ? " (calculado sobre o valor atual)"
+                                    : ""
+                                }.`}
+                    </p>
                   </div>
                   <Toggle
                     label="Não exigir sinal"
@@ -288,9 +484,9 @@ function ServicosPage() {
                     onChange={(notRequired) => setForm({ ...form, requiresDeposit: !notRequired })}
                   />
                   <div className="space-y-2">
-                    <Label>Descrição</Label>
+                    <Label className="professional-section-label">Descrição</Label>
                     <Textarea
-                      className="min-h-28"
+                      className="professional-input service-description-input min-h-28"
                       value={form.description}
                       onChange={(e) => setForm({ ...form, description: e.target.value })}
                     />
@@ -319,15 +515,10 @@ function ServicosPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="vinculos" className="space-y-3 pt-4">
-                  <p className="text-sm text-muted-foreground">
-                    Escolha quem pode realizar este serviço.
-                  </p>
+                <TabsContent value="vinculos" className="professional-form-section space-y-3 pt-5">
+                  <p className="professional-info-box">Escolha quem pode realizar este serviço.</p>
                   {people?.map((p) => (
-                    <label
-                      key={p.id}
-                      className="flex items-center gap-3 rounded-md border border-border p-3"
-                    >
+                    <label key={p.id} className="professional-choice-row">
                       <Checkbox
                         checked={form.professionalIds.includes(p.id)}
                         onCheckedChange={(v) =>
@@ -342,35 +533,66 @@ function ServicosPage() {
                       <span>{p.name}</span>
                     </label>
                   ))}
-                  {!people?.length && (
+                  {peopleQuery.isError ? (
+                    <p role="alert" className="py-4 text-sm text-destructive">
+                      Não foi possível carregar os profissionais. Atualize a página e tente
+                      novamente.
+                    </p>
+                  ) : !people?.length ? (
                     <p className="py-8 text-center text-sm text-muted-foreground">
                       Cadastre profissionais para criar vínculos.
                     </p>
-                  )}
+                  ) : null}
                 </TabsContent>
 
-                <TabsContent value="imagem" className="pt-4">
-                  <label className="flex min-h-48 cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 p-6 text-center">
-                    <ImagePlus className="mb-3 size-8 text-primary" />
+                <TabsContent value="imagem" className="professional-form-section space-y-3 pt-5">
+                  <label className="service-image-dropzone text-center focus-within:ring-2 focus-within:ring-ring">
+                    {previewUrl ? (
+                      <img
+                        src={previewUrl}
+                        alt="Prévia da imagem do serviço"
+                        className="mb-3 max-h-40 rounded-md object-contain"
+                      />
+                    ) : (
+                      <ImagePlus className="mb-3 size-8 text-primary" />
+                    )}
                     <span className="font-semibold">
-                      {form.imagePath ? "Imagem selecionada" : "Adicionar imagem do serviço"}
+                      {uploading
+                        ? "Enviando imagem..."
+                        : form.imagePath
+                          ? "Trocar imagem do serviço"
+                          : "Adicionar imagem do serviço"}
                     </span>
-                    <span className="mt-1 text-xs text-muted-foreground">
-                      Ela aparece somente nos detalhes do serviço.
+                    <span id="service-image-hint" className="mt-1 text-xs text-muted-foreground">
+                      PNG, JPEG ou WebP, até 5 MB. Ela aparece somente nos detalhes do serviço.
                     </span>
                     <input
                       className="sr-only"
                       type="file"
-                      accept="image/*"
-                      onChange={(e) => void upload(e.target.files?.[0])}
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={uploading}
+                      aria-describedby={
+                        imageError ? "service-image-hint service-image-error" : "service-image-hint"
+                      }
+                      aria-invalid={!!imageError}
+                      onChange={(e) => {
+                        void upload(e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
                     />
                   </label>
+                  {imageError && (
+                    <p id="service-image-error" role="alert" className="text-sm text-destructive">
+                      {imageError}
+                    </p>
+                  )}
                 </TabsContent>
               </Tabs>
-              <DialogFooter>
+              <DialogFooter className="professional-dialog-footer">
                 <Button
+                  className="professional-primary-button"
                   onClick={() => save.mutate()}
-                  disabled={!form.name.trim() || save.isPending || uploading}
+                  disabled={!form.name.trim() || !deposit.ok || save.isPending || uploading}
                 >
                   {uploading ? "Enviando..." : "Salvar serviço"}
                 </Button>
@@ -380,17 +602,26 @@ function ServicosPage() {
         }
       />
 
-      {!services?.length ? (
+      {servicesQuery.isError ? (
+        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
+          Não foi possível carregar os serviços. Atualize a página e tente novamente.
+        </p>
+      ) : !services?.length ? (
         <EmptyList text="Nenhum serviço cadastrado." />
       ) : (
-        <ul className="space-y-3">
+        <ul className="professional-list-panel divide-y divide-white/[0.05]">
           {services.map((s) => (
-            <li key={s.id} className="surface flex flex-wrap items-center gap-4 p-4">
-              <div className="flex-1">
-                <p className="font-semibold">{s.name}</p>
-                <p className="text-sm text-muted-foreground">
+            <li key={s.id} className="professional-person-row relative z-10">
+              <div className="professional-avatar">
+                <Scissors className="size-4" strokeWidth={1.8} aria-hidden="true" />
+              </div>
+              <div className="min-w-40 flex-1">
+                <p className="flex flex-wrap items-center gap-2 font-semibold text-[#eef0f4]">
+                  {s.name}
+                  {s.is_combo && <span className="professional-badge">Combo</span>}
+                </p>
+                <p className="text-sm text-[#777d87]">
                   {s.duration_minutes} min · {formatPrice(s.price_cents)}
-                  {s.is_combo ? " · combo" : ""}
                   {!s.requires_deposit ? " · sem sinal" : ""}
                 </p>
               </div>
@@ -404,6 +635,7 @@ function ServicosPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="professional-icon-action"
                 onClick={() => edit(s)}
                 aria-label={`Editar ${s.name}`}
               >
@@ -412,6 +644,7 @@ function ServicosPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="professional-icon-action hover:!text-red-400"
                 onClick={() => remove.mutate(s.id)}
                 aria-label={`Remover ${s.name}`}
               >
@@ -438,8 +671,13 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
-      <Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Label className="professional-section-label">{label}</Label>
+      <Input
+        className="professional-input"
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
     </div>
   );
 }
@@ -454,7 +692,7 @@ function Toggle({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-3 rounded-md border border-border p-3 text-sm">
+    <label className="professional-choice-row justify-between text-sm">
       <span>{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </label>

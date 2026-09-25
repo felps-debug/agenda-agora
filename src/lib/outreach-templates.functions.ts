@@ -8,7 +8,7 @@ import { applyOutreachPlaceholders } from "@/lib/outreach-templates.placeholders
 export const listOutreachTemplatesAdmin = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const supabaseAdmin = await assertSuperAdmin(context.userId);
+    const supabaseAdmin = await assertSuperAdmin(context);
     const { data, error } = await supabaseAdmin
       .from("outreach_templates")
       .select("id, title, usage_type, body, active, created_by, created_at, updated_at")
@@ -30,7 +30,7 @@ export const saveOutreachTemplate = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => saveOutreachTemplateInput.parse(data))
   .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context.userId);
+    const supabaseAdmin = await assertSuperAdmin(context);
     const payload = {
       title: data.title,
       usage_type: data.usageType,
@@ -56,7 +56,7 @@ export const setOutreachTemplateActive = createServerFn({ method: "POST" })
     z.object({ id: z.string().uuid(), active: z.boolean() }).parse(data),
   )
   .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context.userId);
+    const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin
       .from("outreach_templates")
       .update({ active: data.active })

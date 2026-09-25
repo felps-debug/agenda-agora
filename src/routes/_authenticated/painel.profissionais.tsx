@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Pencil, Plus, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { deleteProfessional, saveProfessional } from "@/lib/professionals.functions";
@@ -56,6 +56,9 @@ type Form = {
   phone: string;
   email: string;
   password: string;
+  avatarPath: string | null;
+  hasAccess: boolean;
+  createAccess: boolean;
   workingDays: number[];
   serviceIds: string[];
   permissions: Record<string, boolean>;
@@ -67,6 +70,9 @@ const empty: Form = {
   phone: "",
   email: "",
   password: "",
+  avatarPath: null,
+  hasAccess: false,
+  createAccess: false,
   workingDays: [1, 2, 3, 4, 5, 6],
   serviceIds: [],
   permissions: { view_agenda: true, create_appointment: true },
@@ -80,7 +86,7 @@ function ProfissionaisPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(empty);
 
-  const { data: people } = useQuery({
+  const peopleQuery = useQuery({
     queryKey: ["professionals", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -94,7 +100,7 @@ function ProfissionaisPage() {
     },
   });
 
-  const { data: services } = useQuery({
+  const servicesQuery = useQuery({
     queryKey: ["services", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -108,7 +114,7 @@ function ProfissionaisPage() {
     },
   });
 
-  const { data: links } = useQuery({
+  const linksQuery = useQuery({
     queryKey: ["service-links", businessId],
     enabled: !!businessId,
     queryFn: async () => {
@@ -121,6 +127,10 @@ function ProfissionaisPage() {
     },
   });
 
+  const people = peopleQuery.data;
+  const services = servicesQuery.data;
+  const links = linksQuery.data;
+
   const refresh = () =>
     Promise.all([
       qc.invalidateQueries({ queryKey: ["professionals", businessId] }),
@@ -128,9 +138,17 @@ function ProfissionaisPage() {
     ]);
 
   const save = useMutation({
-    mutationFn: () => saveFn({ data: { ...form, businessId: businessId!, avatarPath: null } }),
+    mutationFn: () => saveFn({ data: { ...form, businessId: businessId! } }),
     onSuccess: () => {
-      toast.success(form.id ? "Profissional atualizado!" : "Profissional e acesso criados!");
+      toast.success(
+        form.id
+          ? form.createAccess
+            ? "Profissional atualizado e acesso criado!"
+            : "Profissional atualizado!"
+          : form.createAccess
+            ? "Profissional e acesso criados!"
+            : "Profissional cadastrado!",
+      );
       setOpen(false);
       setForm(empty);
       void refresh();
@@ -140,10 +158,18 @@ function ProfissionaisPage() {
 
   const toggle = useMutation({
     mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      const { error } = await supabase.from("professionals").update({ active }).eq("id", id);
+      const { data, error } = await supabase
+        .from("professionals")
+        .update({ active })
+        .eq("id", id)
+        .eq("business_id", businessId!)
+        .select("id")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("O profissional não foi encontrado para atualizar.");
     },
     onSuccess: () => void refresh(),
+    onError: (error: Error) => toast.error(error.message),
   });
 
   const remove = useMutation({
@@ -156,6 +182,10 @@ function ProfissionaisPage() {
   });
 
   const edit = (p: NonNullable<typeof people>[number]) => {
+    if (!links) {
+      toast.error("Não foi possível carregar os vínculos da equipe. Tente novamente.");
+      return;
+    }
     const permissions =
       typeof p.permissions === "object" && p.permissions && !Array.isArray(p.permissions)
         ? (p.permissions as Record<string, boolean>)
@@ -167,6 +197,9 @@ function ProfissionaisPage() {
       phone: p.phone ?? "",
       email: p.email ?? "",
       password: "",
+      avatarPath: p.avatar_path ?? null,
+      hasAccess: !!p.user_id,
+      createAccess: false,
       workingDays: p.working_days,
       permissions,
       serviceIds: (links ?? []).filter((l) => l.professional_id === p.id).map((l) => l.service_id),
@@ -190,24 +223,29 @@ function ProfissionaisPage() {
             }}
           >
             <DialogTrigger asChild>
-              <Button>
+              <Button className="professional-primary-button">
                 <Plus className="size-4" /> Novo profissional
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>
-                  {form.id ? "Editar profissional" : "Cadastrar profissional"}
-                </DialogTitle>
+            <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+              <DialogHeader className="professional-dialog-header">
+                <div className="flex items-start gap-3 text-left">
+                  <div className="professional-dialog-icon">
+                    <UserRound className="size-[1.05rem]" strokeWidth={1.8} />
+                  </div>
+                  <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[#f1f2f4]">
+                    {form.id ? "Editar profissional" : "Cadastrar profissional"}
+                  </DialogTitle>
+                </div>
               </DialogHeader>
-              <Tabs defaultValue="dados">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
+                <TabsList className="professional-tabs grid w-full grid-cols-3">
                   <TabsTrigger value="dados">Dados</TabsTrigger>
                   <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
                   <TabsTrigger value="permissoes">Permissões</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="dados" className="space-y-4 pt-4">
+                <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                       label="Nome completo"
@@ -230,26 +268,43 @@ function ProfissionaisPage() {
                       type="email"
                       onChange={(email) => setForm({ ...form, email })}
                     />
-                    <Field
-                      label={form.id ? "Nova senha de 4 dígitos (opcional)" : "Senha de 4 dígitos"}
-                      value={form.password}
-                      type="password"
-                      maxLength={4}
-                      onChange={(password) =>
-                        setForm({ ...form, password: password.replace(/\D/g, "").slice(0, 4) })
-                      }
-                    />
+                    {!form.hasAccess && (
+                      <label className="professional-choice-row sm:col-span-2">
+                        <Switch
+                          checked={form.createAccess}
+                          onCheckedChange={(createAccess) =>
+                            setForm({ ...form, createAccess, password: "" })
+                          }
+                        />
+                        <span className="text-sm">
+                          Criar acesso de login para este profissional
+                        </span>
+                      </label>
+                    )}
+                    {(form.hasAccess || form.createAccess) && (
+                      <Field
+                        label={
+                          form.hasAccess
+                            ? "Nova senha de 4 dígitos (opcional)"
+                            : "Senha de 4 dígitos para criar acesso"
+                        }
+                        value={form.password}
+                        type="password"
+                        maxLength={4}
+                        onChange={(password) =>
+                          setForm({ ...form, password: password.replace(/\D/g, "").slice(0, 4) })
+                        }
+                      />
+                    )}
                   </div>
                   <div>
-                    <Label className="mb-2 block">Dias de trabalho</Label>
+                    <Label className="professional-section-label mb-2">Dias de trabalho</Label>
                     <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
                       {DAYS.map((day, i) => (
                         <label
                           key={day}
-                          className={`cursor-pointer rounded-md border p-2 text-center text-xs ${
-                            form.workingDays.includes(i)
-                              ? "border-primary bg-primary/10 text-primary"
-                              : "border-border"
+                          className={`professional-day-option cursor-pointer focus-within:ring-2 focus-within:ring-ring ${
+                            form.workingDays.includes(i) ? "is-selected" : ""
                           }`}
                         >
                           <Checkbox
@@ -271,41 +326,44 @@ function ProfissionaisPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="vinculos" className="space-y-3 pt-4">
-                  <p className="text-sm text-muted-foreground">
+                <TabsContent value="vinculos" className="professional-form-section space-y-3 pt-5">
+                  <p className="professional-info-box">
                     Selecione os serviços realizados por este profissional.
                   </p>
-                  {services?.map((s) => (
-                    <label
-                      key={s.id}
-                      className="flex items-center gap-3 rounded-md border border-border p-3"
-                    >
-                      <Checkbox
-                        checked={form.serviceIds.includes(s.id)}
-                        onCheckedChange={(v) =>
-                          setForm({
-                            ...form,
-                            serviceIds: v
-                              ? [...form.serviceIds, s.id]
-                              : form.serviceIds.filter((id) => id !== s.id),
-                          })
-                        }
-                      />
-                      <span>{s.name}</span>
-                    </label>
-                  ))}
+                  {servicesQuery.isError ? (
+                    <p role="alert" className="py-4 text-sm text-destructive">
+                      Não foi possível carregar os serviços. Atualize a página e tente novamente.
+                    </p>
+                  ) : (
+                    services?.map((s) => (
+                      <label key={s.id} className="professional-choice-row">
+                        <Checkbox
+                          checked={form.serviceIds.includes(s.id)}
+                          onCheckedChange={(v) =>
+                            setForm({
+                              ...form,
+                              serviceIds: v
+                                ? [...form.serviceIds, s.id]
+                                : form.serviceIds.filter((id) => id !== s.id),
+                            })
+                          }
+                        />
+                        <span>{s.name}</span>
+                      </label>
+                    ))
+                  )}
                 </TabsContent>
 
-                <TabsContent value="permissoes" className="space-y-3 pt-4">
-                  <div className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+                <TabsContent
+                  value="permissoes"
+                  className="professional-form-section space-y-3 pt-5"
+                >
+                  <div className="professional-info-box flex items-center gap-2">
                     <ShieldCheck className="size-5 text-primary" /> Estas permissões controlam o que
                     aparece e o que pode ser alterado no acesso do profissional.
                   </div>
                   {PERMISSIONS.map(([key, label]) => (
-                    <label
-                      key={key}
-                      className="flex items-center justify-between gap-4 rounded-md border border-border p-3 text-sm"
-                    >
+                    <label key={key} className="professional-choice-row justify-between">
                       <span>{label}</span>
                       <Switch
                         checked={!!form.permissions[key]}
@@ -317,12 +375,14 @@ function ProfissionaisPage() {
                   ))}
                 </TabsContent>
               </Tabs>
-              <DialogFooter>
+              <DialogFooter className="professional-dialog-footer">
                 <Button
+                  className="professional-primary-button"
                   onClick={() => save.mutate()}
                   disabled={
                     !form.name.trim() ||
-                    (!form.id && form.password.length !== 4) ||
+                    (form.createAccess && form.password.length !== 4) ||
+                    (form.hasAccess && !!form.password && form.password.length !== 4) ||
                     (!form.email && form.phone.replace(/\D/g, "").length < 8) ||
                     save.isPending
                   }
@@ -335,21 +395,23 @@ function ProfissionaisPage() {
         }
       />
 
-      {!people?.length ? (
+      {peopleQuery.isError ? (
+        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
+          Não foi possível carregar os profissionais. Atualize a página e tente novamente.
+        </p>
+      ) : !people?.length ? (
         <EmptyList text="Nenhum profissional cadastrado." />
       ) : (
-        <ul className="space-y-3">
+        <ul className="professional-list-panel divide-y divide-white/[0.05]">
           {people.map((p) => (
-            <li key={p.id} className="surface flex flex-wrap items-center gap-4 p-4">
-              <div className="flex size-10 items-center justify-center rounded-full bg-accent font-bold text-accent-foreground">
-                {p.name.charAt(0).toUpperCase()}
-              </div>
+            <li key={p.id} className="professional-person-row relative z-10">
+              <div className="professional-avatar">{p.name.charAt(0).toUpperCase()}</div>
               <div className="min-w-40 flex-1">
-                <p className="font-semibold">{p.name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {p.role || "Profissional"}
-                  {p.user_id ? " · acesso ativo" : ""}
+                <p className="flex flex-wrap items-center gap-2 font-semibold text-[#eef0f4]">
+                  {p.name}
+                  {p.user_id && <span className="professional-badge">Acesso ativo</span>}
                 </p>
+                <p className="text-sm text-[#777d87]">{p.role || "Profissional"}</p>
               </div>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 Ativo{" "}
@@ -361,6 +423,7 @@ function ProfissionaisPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="professional-icon-action"
                 onClick={() => edit(p)}
                 aria-label={`Editar ${p.name}`}
               >
@@ -369,6 +432,7 @@ function ProfissionaisPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="professional-icon-action hover:!text-red-400"
                 onClick={() => remove.mutate(p.id)}
                 aria-label={`Remover ${p.name}`}
               >
@@ -397,8 +461,9 @@ function Field({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label className="professional-section-label">{label}</Label>
       <Input
+        className="professional-input"
         type={type}
         value={value}
         maxLength={maxLength}

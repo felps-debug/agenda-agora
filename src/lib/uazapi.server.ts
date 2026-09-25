@@ -12,9 +12,7 @@ function config() {
   const baseUrl = process.env["UAZAPI_BASE_URL"];
   const token = process.env["UAZAPI_TOKEN"];
   if (!baseUrl || !token)
-    throw new Error(
-      "A integração de WhatsApp ainda não foi configurada pela plataforma.",
-    );
+    throw new Error("A integração de WhatsApp ainda não foi configurada pela plataforma.");
   return { baseUrl: baseUrl.replace(/\/$/, ""), token };
 }
 
@@ -77,10 +75,7 @@ export function phoneToWhatsapp(phone: string): string {
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
 
-export async function sendTextMessage(
-  phone: string,
-  message: string,
-): Promise<void> {
+export async function sendTextMessage(phone: string, message: string): Promise<void> {
   await call("/send/text", {
     method: "POST",
     body: JSON.stringify({

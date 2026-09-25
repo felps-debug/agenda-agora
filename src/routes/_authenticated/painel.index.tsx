@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { ChevronLeft, ChevronRight, Eye, CalendarX2, Trash2 } from "lucide-react";
+import { CalendarX2, ChevronLeft, ChevronRight, Clock3, Eye, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { setAppointmentStatus } from "@/lib/appointments.functions";
 import { useBusiness } from "@/lib/business";
@@ -15,7 +15,7 @@ import {
   addMinutesIso,
   formatPrice,
 } from "@/lib/format";
-import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
+import { NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -237,53 +237,63 @@ function AgendaPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Agenda"
-        subtitle={`${weekday} · ${business?.name ?? ""}`}
-        action={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => shiftDay(-1)}
-              aria-label="Dia anterior"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Input
-              type="date"
-              className="w-44"
-              value={day}
-              onChange={(e) => setDay(e.target.value)}
-              aria-label="Data da agenda"
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => shiftDay(1)}
-              aria-label="Próximo dia"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-            <Button variant="secondary" size="icon" aria-label="Visualizar">
-              <Eye className="size-4" />
-            </Button>
-            <Button variant="secondary" size="icon" aria-label="Bloquear dia">
-              <CalendarX2 className="size-4" />
-            </Button>
-          </div>
-        }
-      />
+      <h1 className="sr-only">Agenda · {weekday}</h1>
+      <div className="flex h-[50.4px] w-full items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => shiftDay(-1)}
+          aria-label="Dia anterior"
+          className="h-[50.4px] w-[50.4px] shrink-0"
+        >
+          <ChevronLeft className="size-4" />
+        </Button>
+        <div className="relative h-[50.4px] min-w-0 flex-1 rounded-md">
+          <span
+            aria-hidden="true"
+            className="date-border-beam pointer-events-none absolute inset-[-1px] z-20 rounded-[7px]"
+          />
+          <Input
+            type="date"
+            className="relative z-10 h-[50.4px] min-h-[50.4px] w-full border-[#262626] bg-[#06090d] px-3 py-0 text-[0.82rem] shadow-none"
+            value={day}
+            onChange={(e) => setDay(e.target.value)}
+            aria-label="Data da agenda"
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => shiftDay(1)}
+          aria-label="Próximo dia"
+          className="h-[50.4px] w-[50.4px] shrink-0"
+        >
+          <ChevronRight className="size-4" />
+        </Button>
+      </div>
 
       <button
         type="button"
         onClick={() => openNewAt("09:00")}
-        className="w-44 rounded-md bg-warning/70 px-4 py-2.5 text-[0.82rem] font-medium text-warning-foreground transition-opacity hover:opacity-90"
+        className="group relative isolate mt-2 flex h-[50.4px] w-full items-center justify-center rounded-[15px] border-[0.75px] border-[#6d5519]/70 bg-[radial-gradient(circle_at_22%_28%,rgba(224,175,45,0.18)_0%,rgba(128,92,20,0.08)_34%,transparent_66%),linear-gradient(100deg,#0c0b08_0%,#0b0b0a_60%,#0d0c09_100%)] px-4 text-[0.82rem] font-medium tracking-[-0.01em] text-[#f5f5f5] shadow-[inset_0_1px_0_rgba(255,222,129,0.035),0_0_18px_rgba(210,157,32,0.025)] transition-all duration-200 hover:border-[#8b6a1d]/75 hover:bg-[radial-gradient(circle_at_22%_28%,rgba(224,175,45,0.22)_0%,rgba(128,92,20,0.10)_34%,transparent_66%),linear-gradient(100deg,#0d0c09_0%,#0b0b0a_60%,#0d0c09_100%)] hover:shadow-[inset_0_1px_0_rgba(255,222,129,0.05),0_0_20px_rgba(210,157,32,0.035)] disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Encaixe
+        <span
+          aria-hidden="true"
+          className="encaixe-border-beam pointer-events-none absolute inset-[-1px] z-20 rounded-[15px]"
+        />
+        <span className="relative z-10">Encaixe</span>
       </button>
 
-      <div className="mt-4 overflow-hidden rounded-md border border-border">
+      <div className="mt-3 flex justify-end gap-2">
+        <Button variant="secondary" size="icon" aria-label="Visualizar">
+          <Eye className="size-4" />
+        </Button>
+        <Button variant="secondary" size="icon" aria-label="Bloquear dia">
+          <CalendarX2 className="size-4" />
+        </Button>
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-md border border-border">
         <div className="h-8 bg-secondary" />
         <ul>
           {SLOTS.map((slot) => {
@@ -360,87 +370,114 @@ function AgendaPage() {
       </p>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Novo agendamento</DialogTitle>
+        <DialogContent className="agenda-booking-dialog overflow-y-auto p-0">
+          <DialogHeader className="agenda-booking-dialog-header">
+            <div className="flex items-start gap-3 text-left">
+              <div className="agenda-booking-dialog-icon">
+                <Clock3 className="size-[1.05rem]" strokeWidth={1.8} />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[#f1f2f4]">
+                  Novo agendamento
+                </DialogTitle>
+                <p className="mt-1 text-xs leading-relaxed text-[#686b74]">
+                  Confirme o horário e preencha os dados do agendamento.
+                </p>
+              </div>
+            </div>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="aname">Cliente</Label>
-                <Input
-                  id="aname"
-                  value={form.customer_name}
-                  onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
-                />
+          <div className="agenda-booking-dialog-body">
+            <div className="agenda-booking-form-section space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="agenda-booking-label" htmlFor="aname">
+                    Cliente
+                  </Label>
+                  <Input
+                    id="aname"
+                    className="agenda-booking-input"
+                    value={form.customer_name}
+                    onChange={(e) => setForm({ ...form, customer_name: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="agenda-booking-label" htmlFor="aphone">
+                    Telefone
+                  </Label>
+                  <Input
+                    id="aphone"
+                    className="agenda-booking-input"
+                    value={form.customer_phone}
+                    onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="aphone">Telefone</Label>
-                <Input
-                  id="aphone"
-                  value={form.customer_phone}
-                  onChange={(e) => setForm({ ...form, customer_phone: e.target.value })}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Serviço</Label>
-              <Select
-                value={form.service_id}
-                onValueChange={(v) => setForm({ ...form, service_id: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione um serviço" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(services ?? []).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name} · {s.duration_minutes} min
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Profissional</Label>
+                <Label className="agenda-booking-label">Serviço</Label>
                 <Select
-                  value={form.professional_id}
-                  onValueChange={(v) => setForm({ ...form, professional_id: v })}
+                  value={form.service_id}
+                  onValueChange={(v) => setForm({ ...form, service_id: v })}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Qualquer um" />
+                  <SelectTrigger className="agenda-booking-input w-full">
+                    <SelectValue placeholder="Selecione um serviço" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(professionals ?? []).map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
+                    {(services ?? []).map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name} · {s.duration_minutes} min
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="agenda-booking-label">Profissional</Label>
+                  <Select
+                    value={form.professional_id}
+                    onValueChange={(v) => setForm({ ...form, professional_id: v })}
+                  >
+                    <SelectTrigger className="agenda-booking-input w-full">
+                      <SelectValue placeholder="Qualquer um" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(professionals ?? []).map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="agenda-booking-label" htmlFor="atime">
+                    Horário
+                  </Label>
+                  <Input
+                    id="atime"
+                    className="agenda-booking-input"
+                    type="time"
+                    value={form.time}
+                    onChange={(e) => setForm({ ...form, time: e.target.value })}
+                  />
+                </div>
+              </div>
               <div className="space-y-2">
-                <Label htmlFor="atime">Horário</Label>
-                <Input
-                  id="atime"
-                  type="time"
-                  value={form.time}
-                  onChange={(e) => setForm({ ...form, time: e.target.value })}
+                <Label className="agenda-booking-label" htmlFor="anotes">
+                  Observações
+                </Label>
+                <Textarea
+                  id="anotes"
+                  className="agenda-booking-input h-auto min-h-20 py-2"
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="anotes">Observações</Label>
-              <Textarea
-                id="anotes"
-                value={form.notes}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-              />
-            </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="agenda-booking-dialog-footer">
             <Button
+              className="agenda-booking-primary-button"
               onClick={() => create.mutate()}
               disabled={!form.customer_name.trim() || create.isPending}
             >
@@ -451,12 +488,14 @@ function AgendaPage() {
       </Dialog>
 
       <Dialog open={!!selected} onOpenChange={(v) => !v && setDetail(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{selected?.customer_name}</DialogTitle>
+        <DialogContent className="agenda-booking-dialog overflow-y-auto p-0">
+          <DialogHeader className="agenda-booking-dialog-header">
+            <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[#f1f2f4]">
+              {selected?.customer_name}
+            </DialogTitle>
           </DialogHeader>
           {selected && (
-            <div className="space-y-4 text-sm">
+            <div className="agenda-booking-dialog-body space-y-4 text-sm">
               <p className="text-muted-foreground">
                 {(selected.services as { name: string } | null)?.name ?? "Sem serviço"} ·{" "}
                 {slotOf(selected.starts_at)}
@@ -466,12 +505,12 @@ function AgendaPage() {
               </p>
               {selected.notes && <p className="text-muted-foreground">{selected.notes}</p>}
               <div className="space-y-2">
-                <Label>Situação</Label>
+                <Label className="agenda-booking-label">Situação</Label>
                 <Select
                   value={selected.status}
                   onValueChange={(status) => setStatus.mutate({ id: selected.id, status })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="agenda-booking-input w-full">
                     <SelectValue>{statusLabel(selected.status)}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -485,7 +524,7 @@ function AgendaPage() {
               </div>
             </div>
           )}
-          <DialogFooter>
+          <DialogFooter className="agenda-booking-dialog-footer">
             <Button
               variant="destructive"
               onClick={() => selected && remove.mutate(selected.id)}
