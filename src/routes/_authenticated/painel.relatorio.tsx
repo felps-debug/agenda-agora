@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,6 +7,7 @@ import { formatPrice } from "@/lib/format";
 import { completedReportMetrics } from "@/lib/report-metrics";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+import { ReportChart } from "@/components/painel/ReportChart";
 import {
   CalendarCheck2,
   ChartNoAxesColumnIncreasing,
@@ -18,13 +19,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-// recharts é pesado (~90kB gzip) e só é usado nesta tela; lazy-load pra não
-// entrar no bundle das rotas de agendamento/agenda.
-const ReportChart = lazy(() =>
-  import("@/components/painel/ReportChart").then((module) => ({
-    default: module.ReportChart,
-  })),
-);
+// Antes usava React.lazy() aqui pra manter a recharts fora do bundle das rotas
+// de agendamento/agenda, mas isso duplicava o code-splitting que o TanStack
+// Start já faz por rota (esta tela já é seu próprio chunk) e causava um bug
+// de produção: "TypeError: le is not a function" no chunk minificado da
+// recharts, por causa de uma corrida no carregamento dos chunks aninhados.
+// Import direto resolve sem perder o isolamento do bundle.
 
 export const Route = createFileRoute("/_authenticated/painel/relatorio")({
   head: () => ({
@@ -172,15 +172,7 @@ function RelatorioPage() {
         <ReportCardTitle icon={ChartNoAxesColumnIncreasing} title="Atendimentos por dia" />
         {report.chart.length ? (
           <div className="relative z-10 mt-5 h-64">
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  Carregando gráfico...
-                </div>
-              }
-            >
-              <ReportChart chart={report.chart} />
-            </Suspense>
+            <ReportChart chart={report.chart} />
           </div>
         ) : (
           <p className="relative z-10 flex min-h-36 items-center justify-center text-center text-sm text-muted-foreground">

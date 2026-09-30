@@ -49,9 +49,14 @@ export default defineConfig(({ mode }) => {
                 priority: 15,
               },
               {
+                // Precisa incluir as dependências (d3-scale, d3-shape etc.) no
+                // mesmo chunk: separá-las causa corrida no carregamento dos
+                // módulos em produção ("TypeError: X is not a function"),
+                // porque o código de topo da recharts roda antes das
+                // dependências terminarem de carregar num chunk à parte.
                 name: "recharts",
                 test: /node_modules[\\/]recharts[\\/]/,
-                includeDependenciesRecursively: false,
+                includeDependenciesRecursively: true,
                 priority: 15,
               },
             ],
