@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,6 +9,16 @@ import { useBusiness } from "@/lib/business";
 import { WEEKDAYS, weekdayLabel, hhmm } from "@/lib/format";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -42,6 +53,7 @@ function FuncionamentoPage() {
   const { businessId } = useBusiness();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [hoursToRemove, setHoursToRemove] = useState<string | null>(null);
   const [form, setForm] = useState({ weekday: "1", starts: "08:30", ends: "19:00" });
 
   const hoursQuery = useQuery({
@@ -79,7 +91,7 @@ function FuncionamentoPage() {
       setOpen(false);
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const remove = useMutation({
@@ -187,7 +199,7 @@ function FuncionamentoPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => remove.mutate(h.id)}
+                      onClick={() => setHoursToRemove(h.id)}
                       aria-label={`Remover ${weekdayLabel(h.weekday)}`}
                     >
                       <Trash2 className="size-4 text-destructive" />
@@ -199,6 +211,32 @@ function FuncionamentoPage() {
           </table>
         </div>
       )}
+      <AlertDialog
+        open={hoursToRemove !== null}
+        onOpenChange={(open) => !open && setHoursToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover horário de funcionamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esse horário deixará de ser oferecido para novos agendamentos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (hoursToRemove)
+                  remove.mutate(hoursToRemove, { onSettled: () => setHoursToRemove(null) });
+              }}
+              disabled={remove.isPending}
+            >
+              Remover horário
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

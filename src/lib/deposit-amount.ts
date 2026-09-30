@@ -39,6 +39,15 @@ export function effectiveDepositCents(service: ServiceDepositConfig): number {
   return Math.round((service.price_cents * service.deposit_percent_bps) / MAX_BPS);
 }
 
+/** Exigir sinal sem um valor positivo é uma configuração inválida do serviço. */
+export function assertRequiredDepositAmount(requiresDeposit: boolean, amountCents: number): void {
+  if (requiresDeposit && amountCents <= 0) {
+    throw new RangeError(
+      "Informe um valor de sinal maior que R$ 0,00 ou desative a exigência de sinal.",
+    );
+  }
+}
+
 /**
  * Converte o percentual digitado na UI (0–100, até duas casas) em pontos-base.
  * Arredonda o produto para absorver o erro binário (12.34 * 100 = 1233.999…) e

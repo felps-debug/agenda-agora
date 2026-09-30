@@ -2,6 +2,11 @@
 @source "../src";
 @import "tw-animate-css";
 
+:root {
+  color-scheme: dark;
+  scrollbar-color: #343a46 #090a0c;
+}
+
 @font-face {
   font-family: "General Sans";
   src: url("/fonts/general-sans-400.woff2") format("woff2");
@@ -428,13 +433,475 @@ body:has(.owner-panel) {
  * também atingiria o menu lateral de Configurações.
  */
 .owner-panel > aside {
-  width: 15.5rem;
+  width: 18.5rem;
+  background-color: #07090d;
 }
 
 @media (min-width: 1024px) {
   .owner-panel > aside {
-    width: 15.5rem;
+    width: 18.5rem;
     max-width: none;
+  }
+
+  .owner-panel > aside[data-collapsed="true"] {
+    width: 4.5rem;
+  }
+
+  .owner-panel > aside[data-collapsed="true"] nav a {
+    justify-content: center;
+    padding-inline: 0;
+    padding-block: 0.4rem;
+  }
+
+  .owner-panel > aside[data-collapsed="true"] nav a > svg {
+    margin-inline: auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1535px) {
+  .master-business-table {
+    border: 0;
+  }
+
+  .master-business-table thead {
+    display: none;
+  }
+
+  .master-business-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .master-business-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--card);
+  }
+
+  .master-business-table tbody td {
+    min-width: 0;
+    padding: 0.75rem;
+    overflow-wrap: anywhere;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+
+  .master-business-table tbody td::before {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--muted-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .master-business-table tbody td:nth-child(1)::before {
+    content: "Estabelecimento";
+  }
+  .master-business-table tbody td:nth-child(2)::before {
+    content: "Dono";
+  }
+  .master-business-table tbody td:nth-child(3)::before {
+    content: "Pagamentos";
+  }
+  .master-business-table tbody td:nth-child(4)::before {
+    content: "Mensalidade";
+  }
+  .master-business-table tbody td:nth-child(5)::before {
+    content: "Mês atual";
+  }
+  .master-business-table tbody td:nth-child(6)::before {
+    content: "Situação";
+  }
+  .master-business-table tbody td:nth-child(7)::before {
+    content: "Link do cliente";
+  }
+  .master-business-table tbody td:nth-child(8)::before {
+    content: "Acesso do dono";
+  }
+  .master-business-table tbody td:nth-child(9)::before {
+    content: "Ações";
+  }
+
+  .master-business-table tbody td:nth-child(1),
+  .master-business-table tbody td:nth-child(3),
+  .master-business-table tbody td:nth-child(7),
+  .master-business-table tbody td:nth-child(8),
+  .master-business-table tbody td:nth-child(9) {
+    grid-column: 1 / -1;
+  }
+
+  .master-business-table tbody td:nth-child(9) {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .master-business-table tbody td:nth-child(9)::before {
+    margin-right: auto;
+  }
+
+  .master-business-table a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
+.master-business-table {
+  container-type: inline-size;
+  min-width: 0;
+}
+
+@container (min-width: 700px) {
+  .master-business-table {
+    border: 1px solid var(--border);
+  }
+
+  .master-business-table table {
+    width: 100%;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .master-business-table thead {
+    display: table-header-group;
+  }
+
+  .master-business-table tbody {
+    display: table-row-group;
+  }
+
+  .master-business-table tbody tr {
+    display: table-row;
+    overflow: visible;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .master-business-table tbody td {
+    min-width: 0;
+    padding: 0.5rem 0.4rem;
+    overflow-wrap: anywhere;
+    border-top: 0;
+    vertical-align: top;
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .master-business-table tbody td::before {
+    display: none;
+  }
+
+  .master-business-table th {
+    padding: 0.5rem 0.4rem;
+    font-size: 0.625rem;
+    line-height: 1.25;
+    letter-spacing: 0.03em;
+  }
+
+  .master-business-table th:nth-child(1),
+  .master-business-table td:nth-child(1) {
+    width: 18%;
+  }
+  .master-business-table th:nth-child(2),
+  .master-business-table td:nth-child(2) {
+    width: 14%;
+  }
+  .master-business-table th:nth-child(3),
+  .master-business-table td:nth-child(3) {
+    width: 15%;
+  }
+  .master-business-table th:nth-child(4),
+  .master-business-table td:nth-child(4) {
+    width: 9%;
+  }
+  .master-business-table th:nth-child(5),
+  .master-business-table td:nth-child(5) {
+    width: 10%;
+  }
+  .master-business-table th:nth-child(6),
+  .master-business-table td:nth-child(6) {
+    width: 12%;
+  }
+  .master-business-table th:nth-child(7),
+  .master-business-table td:nth-child(7) {
+    width: 8%;
+  }
+  .master-business-table th:nth-child(8),
+  .master-business-table td:nth-child(8) {
+    width: 8%;
+  }
+  .master-business-table th:nth-child(9),
+  .master-business-table td:nth-child(9) {
+    width: 6%;
+  }
+
+  .master-business-table td:nth-child(9) {
+    display: table-cell;
+    padding-inline: 0.25rem;
+    text-align: center;
+  }
+
+  .master-business-table td:nth-child(9) .master-business-remove {
+    position: relative;
+  }
+
+  .master-business-table td:nth-child(9) .master-business-remove::before {
+    position: absolute;
+    inset: -4px;
+    content: "";
+  }
+
+  .master-business-table td:nth-child(6) button {
+    max-width: 100%;
+    justify-content: center;
+    padding-inline: 0.4rem;
+    white-space: normal;
+  }
+
+  .master-business-table td:nth-child(7) a {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 767px) {
+  .public-booking button,
+  body [role="dialog"] button:not([role="switch"]) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .public-booking header a {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  body [role="dialog"] {
+    width: calc(100vw - 2rem);
+  }
+
+  body:has(#identifier) form button[type="submit"],
+  body:has(#identifier) button[aria-label="Mostrar senha"],
+  body:has(#identifier) button[aria-label="Ocultar senha"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  body:has(#identifier) button[aria-label="Mostrar senha"],
+  body:has(#identifier) button[aria-label="Ocultar senha"] {
+    display: grid;
+    place-items: center;
+  }
+
+  .owner-panel button:not([role="switch"]) {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .owner-panel .owner-nav-item,
+  .owner-panel [aria-label="Seções de configurações"] > a,
+  .owner-panel [role="tab"] {
+    min-height: 44px;
+  }
+
+  body:has(.owner-panel) [data-slot="dialog-close"] {
+    min-width: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    border-radius: 0.5rem;
+    background: #202630;
+    color: #fff;
+    opacity: 1;
+  }
+
+  .master-business-table {
+    border: 0;
+  }
+
+  .master-business-table thead {
+    display: none;
+  }
+
+  .master-business-table tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .master-business-table tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--card);
+  }
+
+  .master-business-table tbody td {
+    min-width: 0;
+    padding: 0.75rem;
+    overflow-wrap: anywhere;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+
+  .master-business-table tbody td::before {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--muted-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .master-business-table tbody td:nth-child(1)::before {
+    content: "Estabelecimento";
+  }
+  .master-business-table tbody td:nth-child(2)::before {
+    content: "Dono";
+  }
+  .master-business-table tbody td:nth-child(3)::before {
+    content: "Pagamentos";
+  }
+  .master-business-table tbody td:nth-child(4)::before {
+    content: "Mensalidade";
+  }
+  .master-business-table tbody td:nth-child(5)::before {
+    content: "Mês atual";
+  }
+  .master-business-table tbody td:nth-child(6)::before {
+    content: "Situação";
+  }
+  .master-business-table tbody td:nth-child(7)::before {
+    content: "Link do cliente";
+  }
+  .master-business-table tbody td:nth-child(8)::before {
+    content: "Acesso do dono";
+  }
+
+  .master-business-table tbody td:nth-child(1),
+  .master-business-table tbody td:nth-child(3),
+  .master-business-table tbody td:nth-child(7),
+  .master-business-table tbody td:nth-child(8),
+  .master-business-table tbody td:nth-child(9) {
+    grid-column: 1 / -1;
+  }
+
+  .master-business-table tbody td:nth-child(9) {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .master-business-table tbody td:nth-child(9)::before {
+    content: "Ações";
+    margin-right: auto;
+  }
+
+  .master-business-table a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+
+  .master-withdrawals .overflow-x-auto {
+    overflow: visible;
+    border: 0;
+  }
+
+  .master-withdrawals table,
+  .master-withdrawals tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .master-withdrawals thead {
+    display: none;
+  }
+
+  .master-withdrawals tbody {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .master-withdrawals tbody tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    background: var(--card);
+  }
+
+  .master-withdrawals tbody td {
+    min-width: 0;
+    max-width: none;
+    padding: 0.75rem;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    border-top: 1px solid var(--border);
+    font-size: 0.8125rem;
+  }
+
+  .master-withdrawals tbody td::before {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: var(--muted-foreground);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .master-withdrawals tbody td:nth-child(1)::before {
+    content: "Negócio";
+  }
+  .master-withdrawals tbody td:nth-child(2)::before {
+    content: "Valor";
+  }
+  .master-withdrawals tbody td:nth-child(3)::before {
+    content: "Chave Pix";
+  }
+  .master-withdrawals tbody td:nth-child(4)::before {
+    content: "Solicitado";
+  }
+  .master-withdrawals tbody td:nth-child(5)::before {
+    content: "Status";
+  }
+  .master-withdrawals tbody td:nth-child(6)::before {
+    content: "Ação manual";
+  }
+
+  .master-withdrawals tbody td:nth-child(1),
+  .master-withdrawals tbody td:nth-child(3),
+  .master-withdrawals tbody td:nth-child(4),
+  .master-withdrawals tbody td:nth-child(6) {
+    grid-column: 1 / -1;
+  }
+
+  .master-withdrawals tbody td:nth-child(6) > div {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1023px) {
+  .owner-panel .fixed.blur-3xl {
+    display: none;
+  }
+
+  .owner-panel [class*="backdrop-blur"] {
+    backdrop-filter: none !important;
   }
 }
 
@@ -605,6 +1072,15 @@ body:has(.owner-panel) {
   .preferences-mini-sidebar-open {
     animation: preferences-sidebar-enter 380ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+}
+
+.preferences-mini-sidebar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.preferences-mini-sidebar::-webkit-scrollbar {
+  display: none;
 }
 
 .owner-panel main,
@@ -1601,7 +2077,7 @@ body .agenda-booking-dialog::before {
 }
 
 body .agenda-booking-dialog [data-slot="dialog-close"] {
-  z-index: 40;
+  z-index: 50;
   top: 1rem;
   right: 1rem;
   color: #6c7079;
@@ -2018,12 +2494,27 @@ body:has(.owner-panel) .professional-dialog {
     0 16px 42px -30px rgba(22, 119, 255, 0.72);
 }
 
+body:has(.owner-panel) .professional-dialog[data-state="closed"],
+body:has(.owner-panel) [data-radix-dialog-overlay][data-state="closed"] {
+  animation-duration: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+}
+
 body:has(.owner-panel) .professional-dialog [data-slot="dialog-close"] {
-  color: #6c7079;
+  z-index: 50;
+  width: 2.75rem;
+  height: 2.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 0.5rem;
+  background-color: #202630;
+  color: #fff;
+  opacity: 1;
 }
 
 body:has(.owner-panel) .professional-dialog [data-slot="dialog-close"]:hover {
-  color: #dfe2e8;
+  background-color: #343b48;
+  color: #fff;
 }
 
 body:has(.owner-panel) .professional-dialog-header {

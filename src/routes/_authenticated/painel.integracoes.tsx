@@ -1,10 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { friendlyError } from "@/lib/error-page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Loader2, MessageCircle, QrCode, RefreshCw, Unplug } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { useBusiness } from "@/lib/business";
 import {
@@ -31,6 +42,7 @@ function IntegracoesPage() {
   const business = businesses.find((b) => b.id === businessId);
   const queryClient = useQueryClient();
   const [qrCode, setQrCode] = useState<string | null>(null);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const connectFn = useServerFn(connectWhatsapp);
   const refreshFn = useServerFn(refreshWhatsappQr);
@@ -41,7 +53,8 @@ function IntegracoesPage() {
     queryKey: ["whatsapp-status", businessId],
     queryFn: () => statusFn({ data: { businessId: businessId! } }),
     enabled: !!businessId,
-    refetchInterval: 5000,
+    refetchInterval: (query) => (query.state.data?.status === "conectado" ? false : 15_000),
+    refetchIntervalInBackground: false,
   });
   const status = statusQuery.data?.status ?? "desconectado";
 
@@ -52,7 +65,7 @@ function IntegracoesPage() {
       void queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] });
       if (!data.qrCode) toast.info("Instância criada. Gere o QR Code.");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(friendlyError(e)),
   });
 
   const refreshQr = useMutation({
@@ -61,7 +74,7 @@ function IntegracoesPage() {
       if (data.qrCode) setQrCode(data.qrCode);
       else toast.info("QR Code indisponível no momento. Tente de novo.");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(friendlyError(e)),
   });
 
   const disconnect = useMutation({
@@ -71,7 +84,7 @@ function IntegracoesPage() {
       void queryClient.invalidateQueries({ queryKey: ["whatsapp-status"] });
       toast.success("WhatsApp desconectado.");
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toast.error(friendlyError(e)),
   });
 
   if (!businessId) {
@@ -133,7 +146,7 @@ function IntegracoesPage() {
                 </p>
                 <Button
                   variant="destructive"
-                  onClick={() => disconnect.mutate()}
+                  onClick={() => setConfirmDisconnect(true)}
                   disabled={disconnect.isPending}
                 >
                   {disconnect.isPending ? (
@@ -175,7 +188,7 @@ function IntegracoesPage() {
                   </Button>
                   <Button
                     variant="ghost"
-                    onClick={() => disconnect.mutate()}
+                    onClick={() => setConfirmDisconnect(true)}
                     disabled={disconnect.isPending}
                   >
                     Cancelar
@@ -216,6 +229,28 @@ function IntegracoesPage() {
           </div>
         </div>
       </section>
+      <AlertDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Desconectar WhatsApp?</AlertDialogTitle>
+            <AlertDialogDescription>
+              As mensagens automáticas deixarão de ser enviadas até conectar novamente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                disconnect.mutate(undefined, { onSettled: () => setConfirmDisconnect(false) });
+              }}
+              disabled={disconnect.isPending}
+            >
+              Desconectar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

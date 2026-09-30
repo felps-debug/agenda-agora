@@ -1,5 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { sendBookingReminder } from "@/lib/whatsapp-notify.server";
+import {
+  isReminderDue,
+  sendBookingReminder,
+  sendExtraBookingReminder,
+} from "@/lib/whatsapp-notify.server";
+import { loadPanel1Config } from "@/lib/panel1-config.storage";
 import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
 
 // Agendador de lembretes de WhatsApp: chamado pelo cron da infraestrutura a cada hora.
@@ -19,8 +24,6 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
           .from("businesses")
           .select("id, reminder_hours_before")
           .eq("reminder_enabled", true)
-          .eq("whatsapp_status", "conectado")
-          .not("whatsapp_instance", "is", null)
           .eq("status", "ativo");
         if (bizErr) {
           return Response.json({ error: bizErr.message }, { status: 500 });
@@ -30,12 +33,16 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
         let failed = 0;
 
         for (const biz of businesses ?? []) {
+          const { preferences } = await loadPanel1Config(supabaseAdmin, biz.id);
           const hoursBefore = biz.reminder_hours_before ?? 24;
-          const windowEnd = new Date(now.getTime() + hoursBefore * 3_600_000);
+          const extraMinutes = preferences.extra_reminder_minutes;
+          const windowEnd = new Date(
+            now.getTime() + Math.max(hoursBefore * 60, extraMinutes) * 60_000,
+          );
 
           const { data: appts } = await supabaseAdmin
             .from("appointments")
-            .select("id")
+            .select("id, starts_at")
             .eq("business_id", biz.id)
             .in("status", ["agendado", "confirmado"])
             .gt("starts_at", now.toISOString())
@@ -45,31 +52,48 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
           const ids = appts.map((a) => a.id);
           const { data: logs } = await supabaseAdmin
             .from("reminder_logs")
-            .select("appointment_id")
-            .eq("channel", "whatsapp")
+            .select("appointment_id, channel")
+            .in("channel", ["whatsapp", "whatsapp-extra"])
             .in("appointment_id", ids);
-          const alreadySent = new Set((logs ?? []).map((l) => l.appointment_id));
+          const alreadySent = new Set((logs ?? []).map((l) => `${l.appointment_id}:${l.channel}`));
 
           for (const appt of appts) {
-            if (alreadySent.has(appt.id)) continue;
-            try {
-              await sendBookingReminder(appt.id);
-              await supabaseAdmin.from("reminder_logs").insert({
-                business_id: biz.id,
-                appointment_id: appt.id,
+            const appointment = appt as { id: string; starts_at: string };
+            const due = [
+              {
                 channel: "whatsapp",
-                status: "enviado",
-              });
-              sent++;
-            } catch (err) {
-              failed++;
-              await supabaseAdmin.from("reminder_logs").insert({
-                business_id: biz.id,
-                appointment_id: appt.id,
-                channel: "whatsapp",
-                status: "erro",
-                error: err instanceof Error ? err.message : String(err),
-              });
+                shouldSend: isReminderDue(appointment.starts_at, now, hoursBefore * 60),
+                send: () => sendBookingReminder(appt.id),
+              },
+              {
+                channel: "whatsapp-extra",
+                shouldSend:
+                  extraMinutes > 0 && isReminderDue(appointment.starts_at, now, extraMinutes),
+                send: () => sendExtraBookingReminder(appt.id, preferences.extra_reminder_template),
+              },
+            ];
+            for (const reminder of due) {
+              if (!reminder.shouldSend || alreadySent.has(`${appt.id}:${reminder.channel}`))
+                continue;
+              try {
+                await reminder.send();
+                await supabaseAdmin.from("reminder_logs").insert({
+                  business_id: biz.id,
+                  appointment_id: appt.id,
+                  channel: reminder.channel,
+                  status: "enviado",
+                });
+                sent++;
+              } catch (err) {
+                failed++;
+                await supabaseAdmin.from("reminder_logs").insert({
+                  business_id: biz.id,
+                  appointment_id: appt.id,
+                  channel: reminder.channel,
+                  status: "erro",
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              }
             }
           }
         }

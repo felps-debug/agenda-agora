@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -7,7 +8,13 @@ import { CircleDollarSign, Clock3, History, KeyRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice, formatTime } from "@/lib/format";
-import { saveWithdrawalPixKey, withdrawalPixKeyTypes } from "@/lib/withdrawal.functions";
+import { getLedgerStatement } from "@/lib/ledger.functions";
+import {
+  getWithdrawalPixKeyValidationError,
+  requestWithdrawal,
+  saveWithdrawalPixKey,
+  withdrawalPixKeyTypes,
+} from "@/lib/withdrawal.functions";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +29,44 @@ const pixKeyTypeLabel: Record<WithdrawalPixKeyType, string> = {
   telefone: "Telefone",
   aleatoria: "Chave aleatória",
 };
+
+type StatementEntry = Awaited<ReturnType<typeof getLedgerStatement>>["entries"][number];
+
+function entryTitle(entry: StatementEntry) {
+  switch (entry.type) {
+    case "payment_credit":
+      return entry.description || "Sinal recebido";
+    case "withdrawal_debit":
+      return "Saque Pix";
+    case "withdrawal_reversal":
+      return "Saque devolvido ao saldo";
+    case "refund_debit":
+      return entry.description || "Estorno de sinal";
+    default:
+      return entry.description || "Ajuste";
+  }
+}
+
+function entryBadge(entry: StatementEntry) {
+  const paid = "bg-primary/15 text-primary";
+  const neutral = "bg-muted text-muted-foreground";
+  switch (entry.type) {
+    case "payment_credit":
+      return { label: "Pago", className: paid };
+    case "withdrawal_debit":
+      return entry.withdrawalStatus === "paid"
+        ? { label: "Pago", className: paid }
+        : entry.withdrawalStatus === "failed" || entry.withdrawalStatus === "canceled"
+          ? { label: "Falhou", className: neutral }
+          : { label: "Em processamento", className: neutral };
+    case "withdrawal_reversal":
+      return { label: "Devolvido", className: neutral };
+    case "refund_debit":
+      return { label: "Estornado", className: neutral };
+    default:
+      return { label: "Ajuste", className: neutral };
+  }
+}
 
 export const Route = createFileRoute("/_authenticated/painel/as-pay")({
   head: () => ({
@@ -39,21 +84,37 @@ function AsPayPage() {
   const { businessId, business } = useBusiness();
   const queryClient = useQueryClient();
   const saveWithdrawalPixKeyFn = useServerFn(saveWithdrawalPixKey);
+  const getLedgerStatementFn = useServerFn(getLedgerStatement);
+  const requestWithdrawalFn = useServerFn(requestWithdrawal);
+  const [withdrawalAmount, setWithdrawalAmount] = useState("");
 
-  const { data: rows } = useQuery({
-    queryKey: ["as-pay", businessId],
+  const {
+    data: statement,
+    isLoading: statementLoading,
+    error: statementError,
+  } = useQuery({
+    queryKey: ["wallet-statement", businessId],
     enabled: !!businessId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("appointments")
-        .select("id, customer_name, starts_at, deposit_cents, deposit_paid_at, status")
-        .eq("business_id", businessId!)
-        .gt("deposit_cents", 0)
-        .order("starts_at", { ascending: false })
-        .limit(100);
-      if (error) throw error;
-      return data;
+    queryFn: () => getLedgerStatementFn({ data: { businessId: businessId! } }),
+  });
+
+  const withdraw = useMutation({
+    mutationFn: () =>
+      requestWithdrawalFn({
+        data: {
+          businessId: businessId!,
+          amountCents: Math.round(Number(withdrawalAmount.replace(",", ".")) * 100),
+          idempotencyKey: crypto.randomUUID(),
+        },
+      }),
+    onSuccess: () => {
+      setWithdrawalAmount("");
+      toast.success(
+        "Solicitação de saque registrada. O valor ficará em processamento até a confirmação.",
+      );
+      void queryClient.invalidateQueries({ queryKey: ["wallet-statement", businessId] });
     },
+    onError: (error: Error) => toast.error(friendlyError(error)),
   });
 
   const { data: withdrawalPixKey } = useQuery({
@@ -72,6 +133,7 @@ function AsPayPage() {
 
   const [pixKey, setPixKey] = useState("");
   const [pixKeyType, setPixKeyType] = useState<WithdrawalPixKeyType>("telefone");
+  const pixKeyError = pixKey.trim() ? getWithdrawalPixKeyValidationError(pixKeyType, pixKey) : null;
 
   useEffect(() => {
     setPixKey(withdrawalPixKey?.withdrawal_pix_key ?? "");
@@ -89,18 +151,14 @@ function AsPayPage() {
       toast.success("Chave PIX de saque salva.");
       void queryClient.invalidateQueries({ queryKey: ["withdrawal-pix-key", businessId] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   if (!businessId) return <NoBusiness />;
 
-  const list = rows ?? [];
-  const available = list
-    .filter((r) => r.deposit_paid_at && r.status !== "cancelado")
-    .reduce((sum, r) => sum + r.deposit_cents, 0);
-  const pending = list
-    .filter((r) => !r.deposit_paid_at && r.status !== "cancelado")
-    .reduce((sum, r) => sum + r.deposit_cents, 0);
+  const available = statement?.availableCents ?? 0;
+  const pending = statement?.pendingChargesCents ?? 0;
+  const locked = statement?.lockedCents ?? 0;
 
   return (
     <div>
@@ -120,10 +178,36 @@ function AsPayPage() {
                 Saldo disponível
               </p>
               <p className="font-display text-3xl font-bold text-primary">
-                {formatPrice(available)}
+                {statementLoading ? "Carregando…" : formatPrice(available)}
               </p>
             </div>
           </div>
+
+          <div className="flex items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-500/25 bg-sky-500/10 text-sky-400">
+              <History className="size-4" aria-hidden="true" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-muted-foreground">
+                Total recebido
+              </p>
+              <p className="font-display text-2xl font-bold">
+                {statementLoading ? "Carregando…" : formatPrice(statement?.totalReceivedCents ?? 0)}
+              </p>
+            </div>
+          </div>
+
+          {locked > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Em saque (aguardando confirmação do Pix): {formatPrice(locked)}
+            </p>
+          )}
+          {statement?.withdrawalsBlocked && (
+            <p role="alert" className="text-sm text-amber-300">
+              Seu saldo está negativo por um estorno. Novos saques ficam bloqueados até a revisão do
+              administrador.
+            </p>
+          )}
 
           <div className="h-px w-full bg-white/10" />
 
@@ -178,17 +262,66 @@ function AsPayPage() {
                 placeholder="Sua chave PIX"
                 value={pixKey}
                 onChange={(e) => setPixKey(e.target.value)}
+                aria-invalid={!!pixKeyError}
+                aria-describedby={pixKeyError ? "pix-key-error" : undefined}
               />
+              {pixKeyError && (
+                <p id="pix-key-error" role="alert" className="text-sm text-destructive">
+                  {pixKeyError}
+                </p>
+              )}
             </div>
           </div>
 
           <Button
             className="mt-4"
-            disabled={!pixKey.trim() || savePixKey.isPending}
+            disabled={!pixKey.trim() || !!pixKeyError || savePixKey.isPending}
             onClick={() => savePixKey.mutate()}
           >
             Salvar chave PIX
           </Button>
+        </div>
+      </section>
+
+      <section className="report-luminous-card report-effect-medium as-pay-card mx-auto mt-3 max-w-2xl p-4 sm:p-5">
+        <div className="relative z-10">
+          <h2 className="font-semibold">Solicitar saque</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Mínimo de R$ 10,00. A taxa do envio é coberta pela plataforma.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <div className="flex-1 space-y-2">
+              <Label htmlFor="withdrawal-amount">Valor em reais</Label>
+              <Input
+                id="withdrawal-amount"
+                inputMode="decimal"
+                placeholder="10,00"
+                value={withdrawalAmount}
+                onChange={(event) => setWithdrawalAmount(event.target.value)}
+              />
+            </div>
+            <Button
+              className="self-end"
+              disabled={
+                withdraw.isPending ||
+                !withdrawalPixKey?.withdrawal_pix_key ||
+                Number(withdrawalAmount.replace(",", ".")) < 10
+              }
+              onClick={() => withdraw.mutate()}
+            >
+              {withdraw.isPending ? "Solicitando…" : "Sacar via Pix"}
+            </Button>
+          </div>
+          {!withdrawalPixKey?.withdrawal_pix_key && (
+            <p className="mt-2 text-sm text-amber-300">
+              Cadastre uma chave Pix para solicitar saques.
+            </p>
+          )}
+          {statementError && (
+            <p role="alert" className="mt-2 text-sm text-destructive">
+              Não foi possível carregar o extrato. Tente novamente.
+            </p>
+          )}
         </div>
       </section>
 
@@ -198,34 +331,52 @@ function AsPayPage() {
             <History className="size-[0.9rem] text-[#5d6570]" aria-hidden="true" />
             Últimos sinais
           </h2>
-          <p>Sinais pagos e pendentes das reservas</p>
+          <p>Entradas e saques, ordenados por data</p>
         </div>
-        {!list.length ? (
+        {statementLoading ? (
+          <p className="relative z-10 p-4 text-sm text-muted-foreground">Carregando extrato…</p>
+        ) : !statement?.entries.length ? (
           <div className="relative z-10 p-4">
             <EmptyList text="Nenhum sinal recebido ainda." />
           </div>
         ) : (
           <ul className="relative z-10 divide-y divide-white/[0.065]">
-            {list.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
-                <div className="flex-1">
-                  <p className="font-semibold">{r.customer_name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {new Date(r.starts_at).toLocaleDateString("pt-BR")} · {formatTime(r.starts_at)}
-                  </p>
-                </div>
-                <span className="font-semibold">{formatPrice(r.deposit_cents)}</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    r.deposit_paid_at
-                      ? "bg-primary/15 text-primary"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {r.deposit_paid_at ? "Pago" : "Pendente"}
-                </span>
-              </li>
-            ))}
+            {statement?.entries.map((entry) => {
+              const badge = entryBadge(entry);
+              return (
+                <li key={entry.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
+                  <div className="flex-1">
+                    <p className="font-semibold">{entryTitle(entry)}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(entry.date).toLocaleDateString("pt-BR")} · {formatTime(entry.date)}
+                    </p>
+                    {entry.type === "payment_credit" && entry.grossCents !== null && (
+                      <p className="text-xs text-muted-foreground">
+                        Sinal {formatPrice(entry.grossCents)} − taxa do Pix{" "}
+                        {formatPrice(entry.gatewayFeeCents ?? 0)} − comissão{" "}
+                        {formatPrice(entry.platformCommissionCents ?? 0)}
+                      </p>
+                    )}
+                    {entry.type === "withdrawal_debit" && entry.withdrawalFeeCents ? (
+                      <p className="text-xs text-muted-foreground">
+                        Taxa de envio {formatPrice(entry.withdrawalFeeCents)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <span
+                    className={`font-semibold ${entry.amountCents < 0 ? "text-muted-foreground" : ""}`}
+                  >
+                    {entry.amountCents < 0 ? "−" : "+"}
+                    {formatPrice(Math.abs(entry.amountCents))}
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
+                  >
+                    {badge.label}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
+import { completedReportMetrics } from "@/lib/report-metrics";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,32 +77,16 @@ function RelatorioPage() {
 
   const report = useMemo(() => {
     const appts = (data?.appointments ?? []).filter((a) => a.status !== "bloqueado");
-    const priceOf = (serviceId: string | null) =>
-      data?.services.find((s) => s.id === serviceId)?.price_cents ?? 0;
-
-    const done = appts.filter((a) => a.status === "concluido" || a.status === "confirmado");
+    const metrics = completedReportMetrics(appts, data?.services ?? [], data?.professionals ?? []);
+    const done = appts.filter((a) => a.status === "concluido");
     const canceled = appts.filter((a) => a.status === "cancelado");
-    const revenue = done.reduce((sum, a) => sum + priceOf(a.service_id), 0);
+    const revenue = metrics.revenue;
+    // Sinal pago é dinheiro que já entrou, independente do atendimento já ter sido
+    // marcado como concluído — por isso não filtra por `done` como o faturamento.
     const deposits = appts
       .filter((a) => a.deposit_paid_at)
       .reduce((sum, a) => sum + (a.deposit_cents ?? 0), 0);
-
-    const byService = (data?.services ?? [])
-      .map((s) => ({
-        name: s.name,
-        total: appts.filter((a) => a.service_id === s.id).length,
-        valor: appts.filter((a) => a.service_id === s.id).length * s.price_cents,
-      }))
-      .filter((s) => s.total > 0)
-      .sort((a, b) => b.total - a.total);
-
-    const byProfessional = (data?.professionals ?? [])
-      .map((p) => ({
-        name: p.name,
-        total: appts.filter((a) => a.professional_id === p.id).length,
-      }))
-      .filter((p) => p.total > 0)
-      .sort((a, b) => b.total - a.total);
+    const { byService, byProfessional } = metrics;
 
     const perDay = new Map<string, number>();
     for (const a of appts) {
@@ -117,7 +102,7 @@ function RelatorioPage() {
 
     return {
       total: appts.length,
-      done: done.length,
+      done: metrics.done,
       canceled: canceled.length,
       revenue,
       deposits,
@@ -125,7 +110,7 @@ function RelatorioPage() {
       byProfessional,
       chart,
       clients: clients.size,
-      ticket: done.length ? Math.round(revenue / done.length) : 0,
+      ticket: metrics.done ? Math.round(revenue / metrics.done) : 0,
     };
   }, [data]);
 

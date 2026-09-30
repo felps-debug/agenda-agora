@@ -23,11 +23,28 @@ export const listAllBusinesses = createServerFn({ method: "GET" })
     const { data, error } = await supabaseAdmin
       .from("businesses")
       .select(
-        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, asaas_wallet_id, asaas_subaccount_status, asaas_commission_percent",
+        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, agpay_split_email, agpay_split_status, agpay_commission_percent",
       )
       .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    const businesses = data ?? [];
+    let businesses = (data ?? []).map((business) => ({ ...business, agpay_schema_ready: true }));
+    if (error) {
+      // Durante a troca do gateway, a agenda e a lista Master continuam utilizáveis
+      // mesmo que a migração das colunas AgPay ainda não tenha sido aplicada.
+      if (error.code !== "42703" || !error.message.includes("agpay_"))
+        throw new Error(error.message);
+      const legacy = await supabaseAdmin
+        .from("businesses")
+        .select("id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents")
+        .order("created_at", { ascending: false });
+      if (legacy.error) throw new Error(legacy.error.message);
+      businesses = (legacy.data ?? []).map((business) => ({
+        ...business,
+        agpay_split_email: null,
+        agpay_split_status: "pendente",
+        agpay_commission_percent: 0,
+        agpay_schema_ready: false,
+      }));
+    }
     const { data: owners } = await supabaseAdmin.from("profiles").select("id, full_name, email");
     const { data: appts } = await supabaseAdmin.from("appointments").select("business_id");
     const counts = new Map<string, number>();
@@ -112,15 +129,52 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
     return { businessId: business.id, slug: business.slug, phone: digits };
   });
 
+/** T033: estabelecimentos com saldo disponível negativo (revisão manual, FR-014). */
+export const listNegativeBalanceBusinesses = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: wallets, error } = await supabaseAdmin
+      .from("wallets")
+      .select("business_id, available_cents");
+    if (error) throw new Error("Não foi possível carregar os saldos.");
+    const negative = (wallets ?? []).filter(
+      (wallet: { available_cents: number | null }) => (wallet.available_cents ?? 0) < 0,
+    );
+    const businessIds: string[] = negative.map(
+      (wallet: { business_id: string }) => wallet.business_id,
+    );
+    const { data: businesses } = businessIds.length
+      ? await supabaseAdmin.from("businesses").select("id, name").in("id", businessIds)
+      : { data: [] };
+    const names = new Map((businesses ?? []).map((b) => [b.id, b.name]));
+    return negative
+      .map((wallet: { business_id: string; available_cents: number | null }) => ({
+        id: wallet.business_id,
+        name: names.get(wallet.business_id) ?? "Negócio",
+        available_cents: wallet.available_cents ?? 0,
+      }))
+      .sort((a, b) => a.available_cents - b.available_cents);
+  });
+
+/** T042: FK de ledger_entries é ON DELETE RESTRICT — traduz o erro cru do Postgres. */
+const FOREIGN_KEY_VIOLATION = "23503";
+const LEDGER_HISTORY_MESSAGE = "Este negócio tem histórico financeiro e não pode ser excluído.";
+
 export const deleteBusiness = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin.from("businesses").delete().eq("id", data.id);
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.code === FOREIGN_KEY_VIOLATION && error.message.includes("ledger_entries"))
+        throw new Error(LEDGER_HISTORY_MESSAGE);
+      throw new Error(error.message);
+    }
     return { ok: true };
   });
+
 export const setBusinessStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
@@ -150,89 +204,37 @@ export const setMonthlyFee = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-const provisionAsaasInput = z.object({
-  businessId: z.string().uuid(),
-  name: z.string().min(2).max(100),
-  email: z.string().email(),
-  cpfCnpj: z
-    .string()
-    .transform(onlyDigits)
-    .refine((value) => value.length === 11 || value.length === 14, "CPF/CNPJ inválido"),
-  mobilePhone: z
-    .string()
-    .transform(onlyDigits)
-    .refine((value) => value.length >= 10 && value.length <= 11, "Telefone inválido"),
-  birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data de nascimento inválida"),
-  incomeValue: z.number().positive(),
-  address: z.string().min(2).max(100),
-  addressNumber: z.string().min(1).max(20),
-  province: z.string().min(2).max(60),
-  postalCode: z
-    .string()
-    .transform(onlyDigits)
-    .refine((value) => value.length === 8, "CEP inválido"),
-  companyType: z.enum(["MEI", "LIMITED", "INDIVIDUAL", "ASSOCIATION"]).optional(),
-  commissionPercent: z.number().min(0).max(99.99).default(0),
-});
-
-/** Cria a subconta com Webhook e guarda a API key somente em formato criptografado. */
-export const provisionAsaasSubaccount = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => provisionAsaasInput.parse(data))
-  .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const { data: existing, error: existingError } = await supabaseAdmin
-      .from("asaas_business_credentials")
-      .select("business_id")
-      .eq("business_id", data.businessId)
-      .maybeSingle();
-    if (existingError) throw new Error(existingError.message);
-    if (existing) throw new Error("Este estabelecimento já possui uma subconta Asaas.");
-
-    const { createSubaccount, encryptAsaasApiKey } = await import("./asaas.server");
-    const account = await createSubaccount({
-      name: data.name,
-      email: data.email,
-      cpfCnpj: data.cpfCnpj,
-      mobilePhone: data.mobilePhone,
-      birthDate: data.birthDate,
-      incomeValue: data.incomeValue,
-      address: data.address,
-      addressNumber: data.addressNumber,
-      province: data.province,
-      postalCode: data.postalCode,
-      ...(data.companyType ? { companyType: data.companyType } : {}),
-    });
-
-    const { error: credentialError } = await supabaseAdmin
-      .from("asaas_business_credentials")
-      .insert({
-        business_id: data.businessId,
-        asaas_account_id: account.accountId,
-        api_key_encrypted: encryptAsaasApiKey(account.apiKey),
-      });
-    if (credentialError) throw new Error(credentialError.message);
-
-    const { error: businessError } = await supabaseAdmin
-      .from("businesses")
-      .update({
-        asaas_wallet_id: account.walletId,
-        asaas_subaccount_status: "em_analise",
-        asaas_commission_percent: data.commissionPercent,
-      })
-      .eq("id", data.businessId);
-    if (businessError) throw new Error(businessError.message);
-
-    return { walletId: account.walletId, status: "em_analise" as const };
-  });
-
-export const setAsaasSubaccountStatus = createServerFn({ method: "POST" })
+export const setBusinessAgpaySplit = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
     z
       .object({
         businessId: z.string().uuid(),
-        status: z.enum(["em_analise", "aprovada", "bloqueada"]),
+        splitEmail: z.string().email(),
+        commissionPercent: z.number().min(0).max(99.99),
+      })
+      .parse(data),
+  )
+  .handler(async ({ context, data }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { error: businessError } = await supabaseAdmin
+      .from("businesses")
+      .update({
+        agpay_split_email: data.splitEmail,
+        agpay_commission_percent: data.commissionPercent,
+      })
+      .eq("id", data.businessId);
+    if (businessError) throw new Error(businessError.message);
+    return { ok: true };
+  });
+
+export const setAgpaySplitStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        businessId: z.string().uuid(),
+        status: z.enum(["pendente", "aprovada", "bloqueada"]),
       })
       .parse(data),
   )
@@ -240,9 +242,9 @@ export const setAsaasSubaccountStatus = createServerFn({ method: "POST" })
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin
       .from("businesses")
-      .update({ asaas_subaccount_status: data.status })
+      .update({ agpay_split_status: data.status })
       .eq("id", data.businessId)
-      .not("asaas_wallet_id", "is", null);
+      .not("agpay_split_email", "is", null);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -329,4 +331,157 @@ export const getPlatformMetrics = createServerFn({ method: "GET" })
       depositsTotalCents: depositsTotal,
       appointments: appointmentsCount ?? 0,
     };
+  });
+
+export const getDepositPaymentDiagnostics = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ chargeId: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: charge, error: chargeError } = await supabaseAdmin
+      .from("deposit_payments")
+      .select(
+        "id, status, provider_status, provider_payment_id, amount_cents, business_id, created_at, paid_at",
+      )
+      .eq("id", data.chargeId)
+      .maybeSingle();
+    if (chargeError) throw new Error(chargeError.message);
+    if (!charge) throw new Error("Cobrança não encontrada.");
+
+    let events: Array<{
+      id: string;
+      dedupe_hash: string;
+      event_type: string;
+      transaction_uuid: string | null;
+      status: string;
+      last_error: string | null;
+      received_at: string;
+    }> = [];
+    if (charge.provider_payment_id) {
+      const { data: relatedEvents, error: eventsError } = await supabaseAdmin
+        .from("agpay_webhook_events")
+        .select("id, dedupe_hash, event_type, transaction_uuid, status, last_error, received_at")
+        .eq("transaction_uuid", charge.provider_payment_id)
+        .order("received_at", { ascending: false });
+      if (eventsError) throw new Error(eventsError.message);
+      events = relatedEvents ?? [];
+    }
+
+    return { charge, events };
+  });
+
+export const listAdminWithdrawals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: rows, error } = await supabaseAdmin
+      .from("withdrawals")
+      .select(
+        "id, business_id, amount_cents, status, pix_key_snapshot, provider_ref, created_at, updated_at",
+      )
+      .in("status", ["requested", "processing", "failed", "paid"])
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error("Não foi possível carregar os saques.");
+    const businessIds: string[] = [
+      ...new Set<string>((rows ?? []).map((row: { business_id: string }) => row.business_id)),
+    ];
+    const { data: businesses } = businessIds.length
+      ? await supabaseAdmin.from("businesses").select("id, name").in("id", businessIds)
+      : { data: [] };
+    const names = new Map((businesses ?? []).map((business) => [business.id, business.name]));
+    return (rows ?? []).map(
+      (row: {
+        id: string;
+        business_id: string;
+        amount_cents: number;
+        status: string;
+        pix_key_snapshot: string;
+        provider_ref: string | null;
+        created_at: string;
+        updated_at: string;
+      }) => ({
+        ...row,
+        business_name: names.get(row.business_id) ?? "Negócio",
+      }),
+    );
+  });
+
+export const updateAdminWithdrawalStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z.object({ withdrawalId: z.string().uuid(), status: z.enum(["paid", "failed"]) }).parse(data),
+  )
+  .handler(async ({ context, data }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    // Passa pelo ledger: paid libera o valor bloqueado; failed devolve ao saldo disponível.
+    const { settleWithdrawal } = await import("./ledger.server");
+    try {
+      await settleWithdrawal(supabaseAdmin, {
+        withdrawalId: data.withdrawalId,
+        outcome: data.status,
+      });
+    } catch {
+      throw new Error("Não foi possível atualizar o saque.");
+    }
+    return { ok: true };
+  });
+
+/** T036: totais agregados em centavos para a conciliação manual do Master (FR-015). */
+export const getLedgerReconciliation = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: wallets, error: walletsError } = await supabaseAdmin
+      .from("wallets")
+      .select("available_cents, pending_cents, locked_cents");
+    if (walletsError) throw new Error("Não foi possível carregar os saldos.");
+    const totals = (wallets ?? []).reduce(
+      (
+        acc,
+        wallet: {
+          available_cents: number | null;
+          pending_cents: number | null;
+          locked_cents: number | null;
+        },
+      ) => ({
+        availableCents: acc.availableCents + (wallet.available_cents ?? 0),
+        pendingCents: acc.pendingCents + (wallet.pending_cents ?? 0),
+        lockedCents: acc.lockedCents + (wallet.locked_cents ?? 0),
+      }),
+      { availableCents: 0, pendingCents: 0, lockedCents: 0 },
+    );
+    const { data: payments, error: paymentsError } = await supabaseAdmin
+      .from("deposit_payments")
+      .select("status, paid_at, platform_commission_cents");
+    if (paymentsError) throw new Error("Não foi possível carregar os pagamentos.");
+    const platformRevenueCents = (payments ?? [])
+      .filter(
+        (payment: { status: string; paid_at: string | null }) =>
+          payment.status === "pago" || payment.status === "paid" || !!payment.paid_at,
+      )
+      .reduce(
+        (sum: number, payment: { platform_commission_cents: number | null }) =>
+          sum + (payment.platform_commission_cents ?? 0),
+        0,
+      );
+    return { ...totals, platformRevenueCents };
+  });
+
+/** FR-013: saque em `processing` sem movimento há mais de 24h. */
+const STUCK_WITHDRAWAL_HOURS = 24;
+
+export const listStuckWithdrawals = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const threshold = new Date(Date.now() - STUCK_WITHDRAWAL_HOURS * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabaseAdmin
+      .from("withdrawals")
+      .select("id, business_id, amount_cents, status, updated_at")
+      .eq("status", "processing")
+      .lt("updated_at", threshold)
+      .order("updated_at", { ascending: true });
+    if (error) throw new Error("Não foi possível carregar os saques.");
+    return data ?? [];
   });

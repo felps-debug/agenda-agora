@@ -5,8 +5,7 @@ import { Eye, EyeOff, UserRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import {
-  ADMIN_PASSWORD_MIN_LENGTH,
-  looksLikeEmail,
+  loginInputMode,
   onlyDigits,
   postLoginDestination,
   resolveLoginCredentials,
@@ -16,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { friendlyError } from "@/lib/error-page";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -67,7 +67,8 @@ function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const emailMode = looksLikeEmail(identifier);
+  const passwordMode = loginInputMode(identifier);
+  const emailMode = passwordMode.email;
 
   const goTo = (destination: PostLoginDestination) =>
     void navigate({ to: destination as "/painel" });
@@ -87,15 +88,25 @@ function AuthPage() {
     try {
       credentials = resolveLoginCredentials(identifier, password);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Dados de acesso inválidos.");
+      toast.error(friendlyError(error, "validar os dados de acesso"));
       return;
     }
     setBusy(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      let { data, error } = await supabase.auth.signInWithPassword({
         email: credentials.email,
         password: credentials.password,
       });
+      // Contas de equipe (profissionais com e-mail próprio) usam o mesmo padrão de senha
+      // de 4 dígitos dos donos (prefixo "agendaagora:"), mas entram pelo campo de e-mail.
+      // Se a tentativa direta falhar e a senha digitada for um PIN de 4 dígitos, tenta de
+      // novo com o prefixo antes de desistir.
+      if ((error || !data.user) && credentials.kind === "admin" && /^\d{4}$/.test(password)) {
+        ({ data, error } = await supabase.auth.signInWithPassword({
+          email: credentials.email,
+          password: `agendaagora:${password}`,
+        }));
+      }
       if (error || !data.user) {
         throw new Error(
           credentials.kind === "admin"
@@ -111,7 +122,7 @@ function AuthPage() {
       toast.success("Bem-vindo de volta!");
       goTo(destination);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Não foi possível entrar.");
+      toast.error(friendlyError(error, "entrar"));
     } finally {
       setBusy(false);
     }
@@ -120,9 +131,12 @@ function AuthPage() {
   return (
     <div className="flex min-h-screen items-center justify-center hero-wash px-6 py-12">
       <div className="w-full max-w-md">
-        <div className="mb-6 text-center font-display text-2xl font-extrabold">
-          Agenda<span className="text-primary">Agora</span>
-        </div>
+        <img
+          src="/agenda-agora-logo.svg"
+          alt="Agenda Agora"
+          decoding="async"
+          className="mx-auto mb-6 block h-auto w-full max-w-[10rem]"
+        />
         <div className="surface p-7">
           <h1 className="text-2xl font-bold">Entrar no painel</h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -152,7 +166,7 @@ function AuthPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">{emailMode ? "Senha" : "Senha de 4 dígitos"}</Label>
+              <Label htmlFor="password">{passwordMode.label}</Label>
               <div className="relative">
                 <Input
                   id="password"
@@ -164,9 +178,8 @@ function AuthPage() {
                     setPassword(emailMode ? e.target.value : onlyDigits(e.target.value).slice(0, 4))
                   }
                   placeholder={emailMode ? "Sua senha" : "1234"}
-                  minLength={emailMode ? ADMIN_PASSWORD_MIN_LENGTH : 4}
-                  maxLength={emailMode ? undefined : 4}
-                  pattern={emailMode ? undefined : "\\d{4}"}
+                  maxLength={passwordMode.maxLength}
+                  pattern={passwordMode.pattern}
                   required
                   className="pr-10"
                 />

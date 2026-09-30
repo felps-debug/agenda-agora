@@ -42,6 +42,20 @@ describe("buildServiceRow", () => {
     });
   });
 
+  it("aceita payload sem opções de exibição e assume todas como verdadeiras", () => {
+    const {
+      showPrice: _price,
+      showDuration: _duration,
+      showService: _service,
+      ...payload
+    } = input();
+    expect(saveServiceInput.parse(payload)).toMatchObject({
+      showPrice: true,
+      showDuration: true,
+      showService: true,
+    });
+  });
+
   it("arredonda a sombra para centavos inteiros", () => {
     const row = buildServiceRow(
       input({ priceCents: 40_006, depositMode: "percent", depositPercentBps: 1_250 }),
@@ -55,7 +69,9 @@ describe("buildServiceRow", () => {
 
   it("0% gera sombra zero", () => {
     expect(
-      buildServiceRow(input({ depositMode: "percent", depositPercentBps: 0 })).deposit_cents,
+      buildServiceRow(
+        input({ requiresDeposit: false, depositMode: "percent", depositPercentBps: 0 }),
+      ).deposit_cents,
     ).toBe(0);
   });
 
@@ -68,7 +84,7 @@ describe("buildServiceRow", () => {
     );
   });
 
-  it("recusa sinal fixo abaixo de R$ 5,00 (mínimo Pix do Asaas)", () => {
+  it("recusa sinal fixo abaixo do mínimo Pix de R$ 5,00", () => {
     expect(() => buildServiceRow(input({ depositMode: "fixed", depositCents: 499 }))).toThrow(
       /R\$ 5,00/,
     );
@@ -85,8 +101,16 @@ describe("buildServiceRow", () => {
     ).toThrow(/R\$ 5,00/);
   });
 
-  it("aceita sinal zero (sem sinal) mesmo com requiresDeposit=true", () => {
-    expect(() => buildServiceRow(input({ depositMode: "fixed", depositCents: 0 }))).not.toThrow();
+  it("aceita sinal zero quando o serviço não exige sinal", () => {
+    expect(() =>
+      buildServiceRow(input({ requiresDeposit: false, depositMode: "fixed", depositCents: 0 })),
+    ).not.toThrow();
+  });
+
+  it("recusa sinal zero quando o serviço exige sinal com mensagem clara", () => {
+    expect(() => buildServiceRow(input({ depositMode: "fixed", depositCents: 0 }))).toThrow(
+      "Informe um valor de sinal maior que R$ 0,00 ou desative a exigência de sinal.",
+    );
   });
 
   it("não bloqueia sinal baixo quando requiresDeposit=false", () => {
@@ -122,7 +146,11 @@ describe("saveServiceInput (validação no servidor)", () => {
   });
 });
 
-function fakeSupabase(options: { owner: boolean; serviceFound?: boolean }) {
+function fakeSupabase(options: {
+  owner: boolean;
+  serviceFound?: boolean;
+  imageBytes?: Uint8Array;
+}) {
   const writes: Array<{ op: string; row: Record<string, unknown>; filters: unknown[][] }> = [];
   const from = vi.fn((table: string) => {
     const filters: unknown[][] = [];
@@ -146,10 +174,42 @@ function fakeSupabase(options: { owner: boolean; serviceFound?: boolean }) {
     };
     return query;
   });
-  return { client: { from } as never, writes };
+  const download = vi.fn(async () => ({
+    data: options.imageBytes ? new Blob([new Uint8Array(options.imageBytes).buffer]) : null,
+    error: options.imageBytes ? null : new Error("Imagem não encontrada"),
+  }));
+  return {
+    client: { from, storage: { from: () => ({ download }) } } as never,
+    writes,
+    download,
+  };
 }
 
 describe("saveServiceForOwner", () => {
+  it("confere no servidor a assinatura da imagem do serviço antes de gravar", async () => {
+    const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const db = fakeSupabase({ owner: true, imageBytes: png });
+    await saveServiceForOwner(
+      db.client,
+      "user-dono",
+      input({ imagePath: BUSINESS + "/services/photo.png" }),
+    );
+    expect(db.download).toHaveBeenCalledWith(BUSINESS + "/services/photo.png");
+    expect(db.writes).toHaveLength(1);
+  });
+
+  it("recusa no servidor imagem de serviço com bytes inválidos", async () => {
+    const db = fakeSupabase({ owner: true, imageBytes: new Uint8Array(500) });
+    await expect(
+      saveServiceForOwner(
+        db.client,
+        "user-dono",
+        input({ imagePath: BUSINESS + "/services/photo.png" }),
+      ),
+    ).rejects.toThrow(/imagem PNG, JPEG ou WebP válida/);
+    expect(db.writes).toEqual([]);
+  });
+
   it("recusa quem não é dono antes de gravar", async () => {
     const db = fakeSupabase({ owner: false });
     await expect(saveServiceForOwner(db.client, "user-x", input())).rejects.toThrow(

@@ -10,13 +10,47 @@ import {
   type Panel1Preferences,
 } from "@/lib/panel1-config";
 
+const configSaveQueues = new WeakMap<SupabaseClient<Database>, Map<string, Promise<void>>>();
+
+async function withBusinessSaveLock<T>(
+  supabase: SupabaseClient<Database>,
+  businessId: string,
+  save: () => Promise<T>,
+): Promise<T> {
+  let businessQueues = configSaveQueues.get(supabase);
+  if (!businessQueues) {
+    businessQueues = new Map();
+    configSaveQueues.set(supabase, businessQueues);
+  }
+
+  const previous = businessQueues.get(businessId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  businessQueues.set(businessId, current);
+
+  await previous;
+  try {
+    return await save();
+  } finally {
+    release();
+    if (businessQueues.get(businessId) === current) businessQueues.delete(businessId);
+    if (businessQueues.size === 0) configSaveQueues.delete(supabase);
+  }
+}
+
 export async function loadPanel1Config(
   supabase: SupabaseClient<Database>,
   businessId: string,
 ): Promise<Panel1Config> {
   const { data, error } = await supabase.storage
     .from(LOGO_BUCKET)
-    .download(panel1SettingsPath(businessId));
+    .download(
+      panel1SettingsPath(businessId),
+      { cacheNonce: crypto.randomUUID() },
+      { cache: "no-store" },
+    );
 
   if (error) {
     // A missing settings object is the only reason to use defaults. In particular,
@@ -44,29 +78,31 @@ export async function savePanel1Config(
   businessId: string,
   patch: { appearance?: Partial<Panel1Appearance>; preferences?: Partial<Panel1Preferences> },
 ): Promise<Panel1Config> {
-  const current = await loadPanel1Config(supabase, businessId);
-  const next = normalizePanel1Config({
-    ...current,
-    appearance: {
-      ...current.appearance,
-      ...(patch.appearance ?? {}),
-    },
-    preferences: {
-      ...current.preferences,
-      ...(patch.preferences ?? {}),
-    },
-    updated_at: new Date().toISOString(),
-  });
-
-  const body = new Blob([JSON.stringify(next)], { type: "application/json" });
-  const { error } = await supabase.storage
-    .from(LOGO_BUCKET)
-    .upload(panel1SettingsPath(businessId), body, {
-      upsert: true,
-      contentType: "application/json",
-      cacheControl: "60",
+  return withBusinessSaveLock(supabase, businessId, async () => {
+    const current = await loadPanel1Config(supabase, businessId);
+    const next = normalizePanel1Config({
+      ...current,
+      appearance: {
+        ...current.appearance,
+        ...(patch.appearance ?? {}),
+      },
+      preferences: {
+        ...current.preferences,
+        ...(patch.preferences ?? {}),
+      },
+      updated_at: new Date().toISOString(),
     });
 
-  if (error) throw error;
-  return next;
+    const body = new Blob([JSON.stringify(next)], { type: "application/json" });
+    const { error } = await supabase.storage
+      .from(LOGO_BUCKET)
+      .upload(panel1SettingsPath(businessId), body, {
+        upsert: true,
+        contentType: "application/json",
+        cacheControl: "0",
+      });
+
+    if (error) throw error;
+    return next;
+  });
 }

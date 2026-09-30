@@ -17,12 +17,12 @@ function storageFailure(status: number, statusCode: string, message: string): St
 
 function fakeStorage(initialDocument: string | null = null, failure: StorageFailure | null = null) {
   let document = initialDocument;
-  const download = vi.fn(async (_path: string) => ({
+  const download = vi.fn(async (_path: string, _options?: unknown, _fetchOptions?: unknown) => ({
     data: failure || document === null ? null : new Blob([document], { type: "application/json" }),
     error:
       failure ?? (document === null ? storageFailure(404, "NoSuchKey", "Object not found") : null),
   }));
-  const upload = vi.fn(async (_path: string, body: Blob) => {
+  const upload = vi.fn(async (_path: string, body: Blob, _options?: { cacheControl?: string }) => {
     document = await body.text();
     return { data: { path: _path }, error: null };
   });
@@ -32,41 +32,45 @@ function fakeStorage(initialDocument: string | null = null, failure: StorageFail
   return { client, from, download, upload };
 }
 
-describe("panel1-config no Storage", () => {
+describe("panel1-config storage", () => {
   it.each([
     ["NoSuchKey", storageFailure(404, "NoSuchKey", "Object not found")],
-    ["resposta atual 404", storageFailure(404, "404", "Object not found")],
-  ])("retorna defaults quando o objeto de configuração não existe (%s)", async (_case, failure) => {
+    ["legacy 404", storageFailure(404, "404", "Object not found")],
+  ] as const)("returns defaults when the config object is missing (%s)", async (_case, failure) => {
     const storage = fakeStorage(null, failure);
 
     await expect(loadPanel1Config(storage.client, businessId)).resolves.toEqual(
       defaultPanel1Config(),
     );
     expect(storage.from).toHaveBeenCalledWith("business-logos");
-    expect(storage.download).toHaveBeenCalledWith(panel1SettingsPath(businessId));
+    expect(storage.download).toHaveBeenCalledWith(
+      panel1SettingsPath(businessId),
+      expect.objectContaining({ cacheNonce: expect.any(String) }),
+      { cache: "no-store" },
+    );
   });
 
   it.each([
-    ["bucket ausente", storageFailure(404, "NoSuchBucket", "Bucket not found")],
-    ["permissão negada", storageFailure(403, "AccessDenied", "Access denied")],
-  ])("propaga erro de %s ao carregar, sem substituir por defaults", async (_case, failure) => {
+    ["missing bucket", storageFailure(404, "NoSuchBucket", "Bucket not found")],
+    ["permission denied", storageFailure(403, "AccessDenied", "Access denied")],
+  ] as const)("propagates %s instead of replacing it with defaults", async (_case, failure) => {
     const storage = fakeStorage(null, failure);
 
     await expect(loadPanel1Config(storage.client, businessId)).rejects.toMatchObject(failure);
     expect(storage.upload).not.toHaveBeenCalled();
   });
 
-  it("não sobrescreve configuração quando a leitura falha por bucket ausente", async () => {
+  it("does not overwrite config when bucket read fails", async () => {
     const failure = storageFailure(404, "NoSuchBucket", "Bucket not found");
     const storage = fakeStorage(null, failure);
 
     await expect(
-      savePanel1Config(storage.client, businessId, { preferences: { greeting: "Nova saudação" } }),
+      savePanel1Config(storage.client, businessId, { preferences: { greeting: "New greeting" } }),
     ).rejects.toMatchObject(failure);
     expect(storage.upload).not.toHaveBeenCalled();
   });
 
-  it("faz merge parcial e recarrega o JSON persistido sem perder campos omitidos", async () => {
+  it("merges a partial patch and reloads persisted fields", async () => {
     const existing = defaultPanel1Config();
     existing.appearance.page_text = "#123456";
     existing.preferences.cancellations_enabled = false;
@@ -76,7 +80,7 @@ describe("panel1-config no Storage", () => {
 
     const saved = await savePanel1Config(storage.client, businessId, {
       appearance: { service_border: "#abcdef" },
-      preferences: { greeting: "Bem-vindo ao agendamento" },
+      preferences: { greeting: "Welcome to booking" },
     });
     const reloaded = await loadPanel1Config(storage.client, businessId);
 
@@ -84,7 +88,7 @@ describe("panel1-config no Storage", () => {
       version: 1,
       appearance: { page_text: "#123456", service_border: "#abcdef" },
       preferences: {
-        greeting: "Bem-vindo ao agendamento",
+        greeting: "Welcome to booking",
         cancellations_enabled: false,
         reschedule_enabled: true,
         timezone: "America/Fortaleza",
@@ -98,5 +102,63 @@ describe("panel1-config no Storage", () => {
       expect.objectContaining({ upsert: true, contentType: "application/json" }),
     );
     expect(storage.download).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["preferences-first", "appearance-first"] as const)(
+    "preserves preferences and appearance across sequential saves (%s)",
+    async (order) => {
+      const storage = fakeStorage(JSON.stringify(defaultPanel1Config()));
+      const savePreferences = () =>
+        savePanel1Config(storage.client, businessId, {
+          preferences: { minimum_notice_hours: 12 },
+        });
+      const saveAppearance = () =>
+        savePanel1Config(storage.client, businessId, {
+          appearance: { service_border: "#abcdef" },
+        });
+
+      if (order === "preferences-first") {
+        await savePreferences();
+        await saveAppearance();
+      } else {
+        await saveAppearance();
+        await savePreferences();
+      }
+
+      const saved = await loadPanel1Config(storage.client, businessId);
+      expect(saved.preferences.minimum_notice_hours).toBe(12);
+      expect(saved.appearance.service_border).toBe("#abcdef");
+    },
+  );
+
+  it("serializes concurrent writes and preserves both patches", async () => {
+    const storage = fakeStorage(JSON.stringify(defaultPanel1Config()));
+
+    await Promise.all([
+      savePanel1Config(storage.client, businessId, {
+        preferences: { minimum_notice_hours: 4 },
+      }),
+      savePanel1Config(storage.client, businessId, {
+        appearance: { service_border: "#abcdef" },
+      }),
+    ]);
+
+    const saved = await loadPanel1Config(storage.client, businessId);
+    expect(saved.preferences.minimum_notice_hours).toBe(4);
+    expect(saved.appearance.service_border).toBe("#abcdef");
+  });
+
+  it("writes the config object without a cache TTL", async () => {
+    const storage = fakeStorage(JSON.stringify(defaultPanel1Config()));
+
+    await savePanel1Config(storage.client, businessId, {
+      preferences: { minimum_notice_hours: 4 },
+    });
+
+    expect(storage.upload).toHaveBeenCalledWith(
+      panel1SettingsPath(businessId),
+      expect.any(Blob),
+      expect.objectContaining({ cacheControl: "0" }),
+    );
   });
 });

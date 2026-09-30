@@ -4,10 +4,15 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database, TablesInsert } from "@/integrations/supabase/types";
 import { isBusinessImagePath } from "@/lib/business-image-path";
-import { effectiveDepositCents, type DepositMode } from "@/lib/deposit-amount";
+import { assertStoredBusinessImage } from "@/lib/logo";
+import {
+  assertRequiredDepositAmount,
+  effectiveDepositCents,
+  type DepositMode,
+} from "@/lib/deposit-amount";
 
 const MAX_CENTS = 100_000_000;
-// Confirmado no Sandbox real: o Asaas rejeita cobrança Pix abaixo de R$ 5,00.
+// O provedor Pix exige cobrança mínima de R$ 5,00.
 const MIN_PIX_DEPOSIT_CENTS = 500;
 
 export const saveServiceInput = z.object({
@@ -26,9 +31,9 @@ export const saveServiceInput = z.object({
   depositPercentBps: z.number().int().min(0).max(10_000),
   description: z.string().max(2000).nullable(),
   isCombo: z.boolean().default(false),
-  showPrice: z.boolean(),
-  showDuration: z.boolean(),
-  showService: z.boolean(),
+  showPrice: z.boolean().default(true),
+  showDuration: z.boolean().default(true),
+  showService: z.boolean().default(true),
   imagePath: z.string().max(512).nullable().default(null),
 });
 
@@ -60,15 +65,15 @@ export function buildServiceRow(input: SaveServiceInput): ServiceRow {
         })
       : input.depositCents;
 
-  // O Asaas rejeita cobrança Pix abaixo de R$ 5,00: um sinal nessa faixa sempre falharia.
+  assertRequiredDepositAmount(input.requiresDeposit, shadowDepositCents);
+
+  // Um sinal abaixo do mínimo Pix sempre falharia.
   if (
     input.requiresDeposit &&
     shadowDepositCents > 0 &&
     shadowDepositCents < MIN_PIX_DEPOSIT_CENTS
   ) {
-    throw new Error(
-      "O sinal deve ser R$ 0,00 (sem sinal) ou pelo menos R$ 5,00: o Asaas não aceita cobrança Pix abaixo desse valor.",
-    );
+    throw new Error("O sinal deve ser R$ 0,00 (sem sinal) ou pelo menos R$ 5,00.");
   }
 
   return {
@@ -106,6 +111,10 @@ export async function saveServiceForOwner(
 
   // Sem `as unknown`: a linha só é alargada para o tipo gerado; as duas colunas extras
   // seguem no payload até T034 incluí-las em TablesInsert<"services">.
+  if (input.imagePath) {
+    await assertStoredBusinessImage(supabase, input.imagePath, input.businessId, "service");
+  }
+
   const row: TablesInsert<"services"> = buildServiceRow(input);
   const result = input.id
     ? await supabase

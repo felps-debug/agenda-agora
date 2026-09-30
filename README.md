@@ -1,13 +1,13 @@
 # Agenda Agora
 
 SaaS de agendamento para comercios e prestadores de servicos, com painel de
-agenda, profissionais, servicos, clientes, cobranca via Asaas e notificacoes.
+agenda, profissionais, servicos, clientes, cobranca Pix e notificacoes.
 
 ## Stack
 
 - TanStack Start e React
 - Supabase (PostgreSQL, Auth e Cron)
-- Asaas
+- Pagamentos Pix
 - UAZAPI
 - Nitro
 

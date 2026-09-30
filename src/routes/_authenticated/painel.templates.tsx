@@ -1,211 +1,216 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Check, Copy, Download, MessageSquareText, Share2 } from "lucide-react";
+import { Download, ExternalLink, Share2 } from "lucide-react";
 import { useBusiness } from "@/lib/business";
-import { listOutreachTemplatesForBusiness } from "@/lib/outreach-templates.functions";
-import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
+import type { OutreachDesign } from "@/lib/outreach-design";
+import {
+  getOutreachBusinessSettings,
+  listVisualOutreachTemplates,
+  saveOutreachBusinessSettings,
+} from "@/lib/outreach-templates.functions";
+import { downloadOutreachPng, shareOutreachPng } from "@/components/template-editor/export";
+import { TemplateCanvas } from "@/components/template-editor/TemplateCanvas";
+import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { outreachArts } from "@/lib/outreach-art";
-
-const usageTypeLabel: Record<string, string> = {
-  story: "Story",
-  whatsapp: "WhatsApp",
-  outro: "Outro",
-};
 
 export const Route = createFileRoute("/_authenticated/painel/templates")({
   head: () => ({
     meta: [
       { title: "Templates — Agenda Agora" },
-      {
-        name: "description",
-        content: "Textos prontos de divulgação personalizados com os dados do seu negócio.",
-      },
-      { property: "og:title", content: "Templates — Agenda Agora" },
-      {
-        property: "og:description",
-        content: "Textos prontos de divulgação personalizados com os dados do seu negócio.",
-      },
+      { name: "description", content: "Edite suas artes de divulgação." },
     ],
   }),
   component: TemplatesPage,
 });
 
+// As mensagens automáticas (confirmação/lembrete) moraram aqui antes; agora ficam
+// em /painel/lembretes. Essa página só edita a arte usada, mas precisa continuar
+// mandando o objeto completo pro save (a server function grava tudo de uma vez).
+type Settings = {
+  selectedTemplateIds: string[];
+  confirmationTemplate: string;
+  paymentConfirmationTemplate: string;
+  reminderTemplate: string;
+  reminderHoursBefore: number;
+};
+type VisualTemplate = {
+  id: string;
+  title: string;
+  design: OutreachDesign;
+  isDefault: boolean;
+  isCustomized: boolean;
+};
+
 function TemplatesPage() {
   const { businessId } = useBusiness();
-  const listFn = useServerFn(listOutreachTemplatesForBusiness);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [availableArts, setAvailableArts] = useState<string[]>([]);
-  const [unavailableArts, setUnavailableArts] = useState<string[]>([]);
-  const [sharingArtId, setSharingArtId] = useState<string | null>(null);
-  const [messageDrafts, setMessageDrafts] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  const listFn = useServerFn(listVisualOutreachTemplates);
+  const getSettingsFn = useServerFn(getOutreachBusinessSettings);
+  const saveSettingsFn = useServerFn(saveOutreachBusinessSettings);
+  const [draft, setDraft] = useState<Settings | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   const templates = useQuery({
-    queryKey: ["outreach-templates", businessId],
+    queryKey: ["visual-outreach-templates", businessId],
     enabled: !!businessId,
     queryFn: () => listFn({ data: { businessId: businessId! } }),
   });
+  const settings = useQuery({
+    queryKey: ["outreach-business-settings", businessId],
+    enabled: !!businessId,
+    queryFn: async () => {
+      const value = await getSettingsFn({ data: { businessId: businessId! } });
+      return {
+        selectedTemplateIds: value.selectedTemplateIds,
+        confirmationTemplate: value.confirmationTemplate,
+        paymentConfirmationTemplate: value.paymentConfirmationTemplate,
+        reminderTemplate: value.reminderTemplate,
+        reminderHoursBefore: value.reminderHoursBefore,
+      } satisfies Settings;
+    },
+  });
+
+  useEffect(() => {
+    if (settings.data) setDraft(settings.data);
+  }, [settings.data]);
+
+  const save = useMutation({
+    mutationFn: (value: Settings) =>
+      saveSettingsFn({ data: { businessId: businessId!, ...value } }),
+    onSuccess: async () => {
+      toast.success("Configurações salvas.");
+      await queryClient.invalidateQueries({ queryKey: ["outreach-business-settings", businessId] });
+    },
+    onError: () => toast.error("Não foi possível salvar as configurações. Tente novamente."),
+  });
 
   if (!businessId) return <NoBusiness />;
+  if (!draft && settings.isLoading) return <p role="status">Carregando templates...</p>;
+  if (settings.isError || templates.isError) {
+    return (
+      <p role="alert">
+        Não foi possível carregar os templates. Atualize a página e tente novamente.
+      </p>
+    );
+  }
+  if (!draft) return <p role="status">Carregando configurações...</p>;
 
-  const copyText = (id: string, text: string) => {
-    void navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    toast.success("Texto copiado!");
+  const toggleTemplate = (templateId: string, checked: boolean) => {
+    setDraft((current) =>
+      current
+        ? {
+            ...current,
+            selectedTemplateIds: checked
+              ? [...current.selectedTemplateIds, templateId]
+              : current.selectedTemplateIds.filter((id) => id !== templateId),
+          }
+        : current,
+    );
   };
 
-  const rows = templates.data ?? [];
-
-  const shareOrDownloadArt = async (art: (typeof outreachArts)[number]) => {
-    const url = new URL(art.file, window.location.origin);
+  const share = async (id: string, title: string, design: OutreachDesign) => {
+    setSharingId(id);
     try {
-      if (navigator.share && navigator.canShare) {
-        setSharingArtId(art.id);
-        const response = await fetch(url);
-        if (!response.ok) throw new Error("A arte não está disponível.");
-        const file = new File([await response.blob()], art.file.split("/").at(-1)!, {
-          type: art.file.endsWith(".png") ? "image/png" : "image/webp",
-        });
-        if (navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: art.name, text: art.description });
-          return;
-        }
+      const result = await shareOutreachPng(
+        design,
+        `${title.toLocaleLowerCase("pt-BR").replace(/[^a-z0-9]+/g, "-")}.png`,
+      );
+      if (result === "downloaded") {
+        toast.success("Não deu pra abrir o compartilhamento, mas a arte foi baixada.");
       }
-      const link = document.createElement("a");
-      link.href = url.href;
-      link.download = art.file.split("/").at(-1)!;
-      document.body.append(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      const link = document.createElement("a");
-      link.href = url.href;
-      link.download = art.file.split("/").at(-1)!;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      toast.message("Compartilhamento indisponível; iniciando o download.");
+    } catch {
+      toast.error("Não foi possível compartilhar esta arte.");
     } finally {
-      setSharingArtId(null);
+      setSharingId(null);
     }
   };
 
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
-        title="Templates de Divulgação"
-        subtitle="Textos prontos pra postar no story, mandar no WhatsApp ou usar como quiser — já com os dados do seu negócio preenchidos."
+        title="Templates de divulgação"
+        subtitle="Personalize as artes que o seu negócio usa pra divulgar."
       />
 
-      <section className="mb-6" aria-labelledby="outreach-arts-heading">
-        <h2 id="outreach-arts-heading" tabIndex={-1} className="mb-3 text-lg font-bold">
-          Artes de divulgação
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {outreachArts.map((art) => (
-            <article key={art.id} className="surface flex flex-col gap-3 p-5">
-              <h3 className="font-bold">{art.name}</h3>
-              <p className="text-sm text-muted-foreground">{art.description}</p>
-              {!unavailableArts.includes(art.id) ? (
-                <img
-                  src={art.file}
-                  alt={art.description}
-                  className="max-h-[28rem] w-full rounded-lg object-contain"
-                  onLoad={() => {
-                    setUnavailableArts((current) => current.filter((id) => id !== art.id));
-                    setAvailableArts((current) =>
-                      current.includes(art.id) ? current : [...current, art.id],
-                    );
-                  }}
-                  onError={() => {
-                    setAvailableArts((current) => current.filter((id) => id !== art.id));
-                    setUnavailableArts((current) =>
-                      current.includes(art.id) ? current : [...current, art.id],
-                    );
-                  }}
-                />
-              ) : (
-                <p role="status" className="text-sm text-muted-foreground">
-                  Não foi possível carregar esta arte.
-                </p>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!availableArts.includes(art.id)}
-                  onClick={() => void shareOrDownloadArt(art)}
-                >
-                  <Download className="size-4" />
-                  Baixar arte
-                </Button>
-                {typeof navigator !== "undefined" && !!navigator.share && (
+      <section aria-labelledby="outreach-designs-title" className="space-y-4">
+        <div>
+          <h2 id="outreach-designs-title" className="text-lg font-bold">
+            Artes de divulgação
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Escolha as artes que quer usar. Cada edição fica salva na sua conta.
+          </p>
+        </div>
+        {templates.isLoading ? (
+          <p role="status">Carregando artes...</p>
+        ) : !templates.data?.length ? (
+          <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+            Nenhuma arte disponível no momento.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {templates.data.map((template: VisualTemplate) => (
+              <article key={template.id} className="surface flex flex-col gap-3 p-4">
+                <h3 className="font-semibold">{template.title}</h3>
+                <div className="overflow-hidden rounded-lg border border-border bg-muted">
+                  <TemplateCanvas
+                    design={template.design}
+                    className="mx-auto max-h-[360px] w-full object-contain"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={draft.selectedTemplateIds.includes(template.id)}
+                    onChange={(event) => toggleTemplate(template.id, event.target.checked)}
+                  />
+                  Usar este template
+                </label>
+                <div className="mt-auto flex flex-wrap gap-2">
+                  <Button asChild type="button" variant="secondary" size="sm">
+                    <a href={`/editor-template/${template.id}`} target="_blank" rel="noopener">
+                      <ExternalLink className="size-4" />
+                      Editar
+                    </a>
+                  </Button>
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={!availableArts.includes(art.id) || sharingArtId === art.id}
-                    onClick={() => void shareOrDownloadArt(art)}
+                    size="sm"
+                    onClick={() =>
+                      void downloadOutreachPng(template.design, `${template.title}.png`).then(
+                        () => toast.success("Arte baixada."),
+                        () => toast.error("Não foi possível baixar a arte."),
+                      )
+                    }
+                  >
+                    <Download className="size-4" />
+                    Baixar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={sharingId === template.id}
+                    onClick={() => void share(template.id, template.title, template.design)}
                   >
                     <Share2 className="size-4" />
-                    {sharingArtId === art.id ? "Compartilhando..." : "Compartilhar"}
+                    {sharingId === template.id ? "Compartilhando..." : "Compartilhar"}
                   </Button>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      {templates.isLoading ? (
-        <p className="text-sm text-muted-foreground">Carregando...</p>
-      ) : !rows.length ? (
-        <EmptyList text="Nenhum texto de divulgação disponível no momento." />
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {rows.map((template) => {
-            const message = messageDrafts[template.id] ?? template.personalizedBody;
-            return (
-              <div key={template.id} className="surface flex flex-col gap-3 p-5">
-                <div className="flex items-center gap-2">
-                  <MessageSquareText className="size-4 text-primary" />
-                  <h3 className="font-bold">{template.title}</h3>
-                  <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                    {usageTypeLabel[template.usage_type] ?? template.usage_type}
-                  </span>
                 </div>
-                <Textarea
-                  aria-label={`Texto de ${template.title}`}
-                  value={message}
-                  onChange={(event) =>
-                    setMessageDrafts((current) => ({
-                      ...current,
-                      [template.id]: event.target.value,
-                    }))
-                  }
-                  rows={8}
-                />
-                <Button
-                  variant="secondary"
-                  className="mt-auto w-fit"
-                  onClick={() => copyText(template.id, message)}
-                >
-                  {copiedId === template.id ? (
-                    <Check className="size-4" />
-                  ) : (
-                    <Copy className="size-4" />
-                  )}
-                  Copiar texto
-                </Button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              </article>
+            ))}
+          </div>
+        )}
+        {!!templates.data?.length && (
+          <Button type="button" disabled={save.isPending} onClick={() => save.mutate(draft)}>
+            {save.isPending ? "Salvando..." : "Salvar seleção"}
+          </Button>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { friendlyError } from "@/lib/error-page";
+import {
+  canRenderRescheduleForm,
+  formatAppointmentDateTime,
+  shouldRenderDepositStep,
+} from "@/lib/booking-history";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -8,36 +14,45 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  Copy,
   DollarSign,
   History,
   Info,
   Loader2,
-  MapPin,
   Phone,
   User,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/format";
+import { accessibleTextColor } from "@/lib/contrast";
+import {
+  DEFAULT_PANEL1_APPEARANCE,
+  type Panel1Appearance,
+  type Panel1Preferences,
+} from "@/lib/panel1-config";
+import { loadOutreachFont, outreachFontFamily } from "@/components/template-editor/fonts";
 import {
   getPublicBookingCatalog,
   getPublicBookingProfessionals,
   getAvailability,
   getOpenDays,
   reserveBooking,
-  generateDepositPix,
-  cancelDepositBooking,
-  getDepositStatus,
   getMyBookings,
+  cancelAppointmentPublic,
+  rescheduleAppointmentPublic,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { BusinessHeader, ServiceSection } from "@/components/public-booking/appearance-preview";
+
+const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
 
 export const Route = createFileRoute("/agendar/$slug")({
   loader: ({ params }) => getPublicBookingCatalog({ data: { slug: params.slug } }),
+  staleTime: 0,
+  preloadStaleTime: 0,
   head: ({ params }) => ({
     meta: [
       { title: `Agendar horário — ${params.slug}` },
@@ -93,6 +108,23 @@ function storageKey(slug: string) {
   return `agenda-servico:${slug}:charges`;
 }
 
+function publicCodesStorageKey(slug: string) {
+  return `agenda-servico:${slug}:booking-codes`;
+}
+
+function readPublicCodes(slug: string): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(publicCodesStorageKey(slug));
+    const value: unknown = raw ? JSON.parse(raw) : [];
+    return Array.isArray(value)
+      ? value.filter((code): code is string => typeof code === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function readCharges(slug: string): string[] {
   if (typeof window === "undefined") return [];
   try {
@@ -112,10 +144,12 @@ function PublicBooking() {
   const [time, setTime] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [pageStart, setPageStart] = useState(0);
   const [charges, setCharges] = useState<string[]>([]);
+  const [publicCodes, setPublicCodes] = useState<string[]>([]);
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
   // Snapshot do sinal devolvido pela reserva, usado até o histórico trazer a cobrança.
   const [reservedAmount, setReservedAmount] = useState<{
@@ -130,11 +164,14 @@ function PublicBooking() {
   const openDaysFn = useServerFn(getOpenDays);
   const reserveFn = useServerFn(reserveBooking);
   const bookingsFn = useServerFn(getMyBookings);
+  const cancelAppointmentFn = useServerFn(cancelAppointmentPublic);
+  const rescheduleAppointmentFn = useServerFn(rescheduleAppointmentPublic);
   const professionalsFn = useServerFn(getPublicBookingProfessionals);
   const catalog = Route.useLoaderData();
 
   useEffect(() => {
     setCharges(readCharges(slug));
+    setPublicCodes(readPublicCodes(slug));
   }, [slug]);
 
   const saveCharge = useCallback(
@@ -146,7 +183,39 @@ function PublicBooking() {
     [slug],
   );
 
+  const savePublicCode = useCallback(
+    (publicCode: string) => {
+      try {
+        const next = [
+          publicCode,
+          ...readPublicCodes(slug).filter((code) => code !== publicCode),
+        ].slice(0, 30);
+        window.localStorage.setItem(publicCodesStorageKey(slug), JSON.stringify(next));
+        setPublicCodes(next);
+      } catch {
+        toast.error("Não foi possível salvar este agendamento neste aparelho.");
+      }
+    },
+    [slug],
+  );
+
   const business = catalog?.business ?? null;
+  const appearance: Panel1Appearance = {
+    ...DEFAULT_PANEL1_APPEARANCE,
+    ...(catalog?.appearance ?? {}),
+  };
+  const pageBackground = business?.brand_background ?? "#ffffff";
+  const pageBackgroundImage = business?.brand_background_image ?? null;
+  const pageText = accessibleTextColor(pageBackground);
+  const pageFontFamily = outreachFontFamily(appearance.font_family);
+
+  useEffect(() => {
+    loadOutreachFont(appearance.font_family);
+  }, [appearance.font_family]);
+  const agendaText = accessibleTextColor(appearance.agenda_background);
+  const modalText = accessibleTextColor(appearance.modal_background);
+  const modalHoverText = accessibleTextColor(appearance.modal_hover_background);
+  const modalActiveText = accessibleTextColor(appearance.modal_active_background);
   const services = (catalog?.services ?? []) as Service[];
 
   const { data: professionals } = useQuery({
@@ -164,6 +233,7 @@ function PublicBooking() {
   const {
     data: availability,
     isFetching: loadingSlots,
+    isError: slotsError,
     refetch: refetchAvailability,
   } = useQuery({
     queryKey: ["public-slots", slug, service?.id, professional?.id, date],
@@ -180,10 +250,34 @@ function PublicBooking() {
   });
 
   const bookings = useQuery({
-    queryKey: ["public-bookings", slug, charges.join(",")],
-    enabled: charges.length > 0,
-    refetchInterval: 8000,
-    queryFn: () => bookingsFn({ data: { chargeIds: charges } }),
+    queryKey: ["public-bookings", slug, charges.join(","), publicCodes.join(",")],
+    enabled: charges.length > 0 || publicCodes.length > 0,
+    refetchInterval: (query) => {
+      const rows = query.state.data?.bookings;
+      return !rows?.length || rows.some((booking) => booking.chargeStatus === "pendente")
+        ? 15_000
+        : false;
+    },
+    refetchIntervalInBackground: false,
+    queryFn: () => bookingsFn({ data: { chargeIds: charges, publicCodes } }),
+  });
+
+  const cancelAppointment = useMutation({
+    mutationFn: (publicCode: string) => cancelAppointmentFn({ data: { publicCode } }),
+    onSuccess: () => {
+      toast.success("Agendamento cancelado.");
+      void bookings.refetch();
+    },
+    onError: (error: Error) => toast.error(friendlyError(error)),
+  });
+  const rescheduleAppointment = useMutation({
+    mutationFn: (input: { publicCode: string; date: string; time: string }) =>
+      rescheduleAppointmentFn({ data: input }),
+    onSuccess: () => {
+      toast.success("Agendamento remarcado.");
+      void bookings.refetch();
+    },
+    onError: (error: Error) => toast.error(friendlyError(error)),
   });
 
   // Valor do servidor: a disponibilidade traz o sinal atual; o catálogo cobre até ela chegar.
@@ -226,12 +320,15 @@ function PublicBooking() {
           time: time!,
           customerName: name.trim(),
           customerPhone: phone.trim(),
-          // Sem sinal, o documento não é pedido nem enviado.
-          ...(needsDocument ? { customerCpfCnpj: cpfCnpj.trim() } : {}),
+          // Sem sinal, documento e e-mail do pagador não são pedidos nem enviados.
+          ...(needsDocument
+            ? { customerEmail: email.trim(), customerCpfCnpj: cpfCnpj.trim() }
+            : {}),
           professionalId: professional?.id ?? null,
         },
       }),
     onSuccess: (r) => {
+      savePublicCode(r.publicCode);
       setService(null);
       setProfessional(null);
       setDate(null);
@@ -253,14 +350,19 @@ function PublicBooking() {
         void refreshChangedDeposit();
         return;
       }
-      setFormError(e.message);
-      toast.error(e.message);
+      const message = friendlyError(e, "salvar o agendamento");
+      setFormError(message);
+      toast.error(message);
     },
   });
 
   const submit = () => {
     if (name.trim().length < 2) return setFormError("Informe o seu nome e sobrenome");
     if (phone.trim().length < 8) return setFormError("Informe o seu telefone");
+    if (needsDocument && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setFormError("Informe um e-mail válido (necessário pra gerar o Pix)");
+      return;
+    }
     const cpfCnpjDigits = cpfCnpj.replace(/\D/g, "");
     if (needsDocument && cpfCnpjDigits.length !== 11 && cpfCnpjDigits.length !== 14) {
       setFormError("Informe um CPF ou CNPJ válido (necessário pra gerar o Pix)");
@@ -292,24 +394,43 @@ function PublicBooking() {
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-background pb-28 text-foreground"
+      className="public-booking flex min-h-screen flex-col overflow-x-clip bg-background pb-28 text-foreground"
       style={
         {
           ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
-          ...(business?.brand_background ? { "--background": business.brand_background } : {}),
+          "--background": pageBackground,
+          "--foreground": pageText,
+          "--card": pageBackground,
+          "--card-foreground": pageText,
+          "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
+          backgroundColor: pageBackground,
+          color: pageText,
+          fontFamily: `'${pageFontFamily}', sans-serif`,
+          ...(pageBackgroundImage
+            ? {
+                backgroundImage: `url(${pageBackgroundImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundAttachment: "fixed",
+              }
+            : {}),
         } as React.CSSProperties
       }
     >
-      <header className="border-b border-border/40 bg-sidebar px-4 py-3">
+      <header
+        className="border-b px-4 py-3"
+        style={{
+          backgroundColor: appearance.header_background,
+          color: appearance.header_text,
+          borderColor: appearance.service_border,
+        }}
+      >
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-          <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em] text-primary">
+          <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em]">
             Agenda Agora
           </span>
           {business?.phone ? (
-            <a
-              href={`tel:${business.phone}`}
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-            >
+            <a href={`tel:${business.phone}`} className="inline-flex items-center gap-1.5 text-xs">
               <Phone className="size-3.5" /> Contato
             </a>
           ) : null}
@@ -319,7 +440,7 @@ function PublicBooking() {
       <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
         {!business ? (
           <div className="flex min-h-[50vh] items-center justify-center py-10">
-            <p className="text-sm text-muted-foreground">Negócio não encontrado</p>
+            <p className="text-sm">Negócio não encontrado</p>
           </div>
         ) : (
           <>
@@ -327,6 +448,7 @@ function PublicBooking() {
               name={business.name}
               logoUrl={business.logo_url ?? null}
               address={business.address}
+              appearance={appearance}
             />
 
             {business.status === "suspenso" ? (
@@ -336,11 +458,16 @@ function PublicBooking() {
             ) : tab === "agendar" ? (
               <div className="space-y-8">
                 {services?.length ? (
-                  <ServiceSection services={services} onSelect={openService} />
+                  <ServiceSection
+                    services={services}
+                    onSelect={openService}
+                    appearance={appearance}
+                    pageText={pageText}
+                  />
                 ) : (
                   <div className="rounded-xl border border-border bg-card p-8 text-center">
                     <p className="font-semibold">Nenhum serviço disponível no momento.</p>
-                    <p className="mt-2 text-sm text-muted-foreground">
+                    <p className="mt-2 text-sm">
                       Volte mais tarde para conferir novos horários e serviços.
                     </p>
                   </div>
@@ -348,9 +475,19 @@ function PublicBooking() {
               </div>
             ) : (
               <HistoryList
+                slug={slug}
                 bookings={bookings.data?.bookings ?? []}
                 onOpen={setActiveCharge}
                 onRefresh={() => void bookings.refetch()}
+                appearance={appearance}
+                pageText={pageText}
+                {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+                onCancel={(code) => cancelAppointment.mutate(code)}
+                onReschedule={async (input) => {
+                  await rescheduleAppointment.mutateAsync(input);
+                }}
+                cancelPending={cancelAppointment.isPending}
+                reschedulePending={rescheduleAppointment.isPending}
               />
             )}
           </>
@@ -359,7 +496,14 @@ function PublicBooking() {
 
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
-        <DialogContent className="max-h-[92vh] max-w-lg overflow-y-auto bg-card p-0">
+        <DialogContent
+          className="max-h-[92vh] max-w-lg overflow-y-auto p-0"
+          style={{
+            backgroundColor: appearance.modal_background,
+            color: modalText,
+            borderColor: appearance.modal_border,
+          }}
+        >
           {service && (
             <div className="space-y-6 p-5 text-center sm:p-6">
               <div>
@@ -373,13 +517,13 @@ function PublicBooking() {
                   />
                 )}
                 <h2 className="font-display text-xl font-bold">{service.name}</h2>
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
                   {service.show_price ? <span>{formatPrice(service.price_cents)}</span> : null}
                   {service.show_price && service.show_duration ? <span>·</span> : null}
                   {service.show_duration ? <span>{service.duration_minutes}min</span> : null}
                 </div>
                 {service.description && (
-                  <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
+                  <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed">
                     {service.description}
                   </p>
                 )}
@@ -401,16 +545,27 @@ function PublicBooking() {
                         }}
                         className={`rounded-lg border p-3 text-left transition-colors ${
                           professional?.id === p.id
-                            ? "border-primary bg-primary/15 text-foreground"
-                            : "border-border bg-background/30 hover:border-primary"
+                            ? ""
+                            : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
                         }`}
+                        style={
+                          {
+                            borderColor:
+                              professional?.id === p.id
+                                ? appearance.modal_border
+                                : appearance.modal_border,
+                            backgroundColor:
+                              professional?.id === p.id
+                                ? appearance.modal_active_background
+                                : appearance.modal_background,
+                            color: professional?.id === p.id ? modalActiveText : modalText,
+                            "--modal-hover-background": appearance.modal_hover_background,
+                            "--modal-hover-text": modalHoverText,
+                          } as React.CSSProperties
+                        }
                       >
                         <span className="block font-semibold">{p.name}</span>
-                        {p.role && (
-                          <span className="mt-0.5 block text-xs text-muted-foreground">
-                            {p.role}
-                          </span>
-                        )}
+                        {p.role && <span className="mt-0.5 block text-xs">{p.role}</span>}
                       </button>
                     ))}
                   </div>
@@ -421,7 +576,7 @@ function PublicBooking() {
                 <div>
                   <p className="mb-3 text-sm font-semibold">Escolha a data</p>
                   {!days.length ? (
-                    <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                    <p className="rounded-lg border border-border p-4 text-sm">
                       Nenhum dia de atendimento está disponível no momento.
                     </p>
                   ) : (
@@ -431,7 +586,8 @@ function PublicBooking() {
                         aria-label="Datas anteriores"
                         disabled={pageStart === 0}
                         onClick={() => setPageStart(Math.max(0, pageStart - 7))}
-                        className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                        className="rounded-md p-1 transition-colors disabled:opacity-30"
+                        style={{ color: modalText }}
                       >
                         <ChevronLeft className="size-6" />
                       </button>
@@ -446,9 +602,21 @@ function PublicBooking() {
                             }}
                             className={`min-w-[4.75rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
                               date === d.date
-                                ? "border-primary bg-primary/15 text-primary"
-                                : "border-border bg-background/30 hover:border-primary"
+                                ? ""
+                                : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
                             }`}
+                            style={
+                              {
+                                borderColor: appearance.modal_border,
+                                backgroundColor:
+                                  date === d.date
+                                    ? appearance.modal_active_background
+                                    : appearance.modal_background,
+                                color: date === d.date ? modalActiveText : modalText,
+                                "--modal-hover-background": appearance.modal_hover_background,
+                                "--modal-hover-text": modalHoverText,
+                              } as React.CSSProperties
+                            }
                           >
                             <span className="block font-semibold">{ddmm(d.date)}</span>
                             <span className="mt-0.5 block text-[11px] opacity-80">
@@ -462,7 +630,8 @@ function PublicBooking() {
                         aria-label="Próximas datas"
                         disabled={pageStart + 7 >= days.length}
                         onClick={() => setPageStart(pageStart + 7)}
-                        className="rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-30"
+                        className="rounded-md p-1 transition-colors disabled:opacity-30"
+                        style={{ color: modalText }}
                       >
                         <ChevronRight className="size-6" />
                       </button>
@@ -475,11 +644,18 @@ function PublicBooking() {
                 <div>
                   <p className="mb-3 text-sm font-semibold">Escolha um horário disponível</p>
                   {loadingSlots ? (
-                    <p className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <p className="flex items-center justify-center gap-2 text-sm">
                       <Loader2 className="size-4 animate-spin" /> Carregando horários...
                     </p>
+                  ) : slotsError ? (
+                    <p
+                      role="alert"
+                      className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive"
+                    >
+                      Não foi possível carregar os horários. Atualize a página e tente novamente.
+                    </p>
                   ) : !availability?.slots.length ? (
-                    <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                    <p className="rounded-lg border border-border p-4 text-sm">
                       Nenhum horário livre nesta data. Escolha outro dia.
                     </p>
                   ) : (
@@ -491,9 +667,21 @@ function PublicBooking() {
                           onClick={() => setTime(s)}
                           className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
                             time === s
-                              ? "border-primary bg-primary/15 text-primary"
-                              : "border-border bg-background/30 hover:border-primary"
+                              ? ""
+                              : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
                           }`}
+                          style={
+                            {
+                              borderColor: appearance.modal_border,
+                              backgroundColor:
+                                time === s
+                                  ? appearance.modal_active_background
+                                  : appearance.modal_background,
+                              color: time === s ? modalActiveText : modalText,
+                              "--modal-hover-background": appearance.modal_hover_background,
+                              "--modal-hover-text": modalHoverText,
+                            } as React.CSSProperties
+                          }
                         >
                           {s}
                         </button>
@@ -509,19 +697,22 @@ function PublicBooking() {
                     <h3 className="font-display text-base font-bold uppercase tracking-wide">
                       Resumo
                     </h3>
-                    <div className="mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border bg-background/30 p-4 text-left text-sm">
+                    <div
+                      className="mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border p-4 text-left text-sm"
+                      style={{ backgroundColor: appearance.modal_background, color: modalText }}
+                    >
                       <p className="flex items-center gap-2">
-                        <Info className="size-4 shrink-0 text-primary" /> {service.name}
+                        <Info className="size-4 shrink-0" /> {service.name}
                       </p>
                       <p className="flex items-center gap-2">
-                        <User className="size-4 shrink-0 text-primary" />{" "}
+                        <User className="size-4 shrink-0" />{" "}
                         {professional?.name ?? "Profissional Agenda"}
                       </p>
                       <p className="flex items-center gap-2">
-                        <CalendarDays className="size-4 shrink-0 text-primary" /> {fullDate(date)}
+                        <CalendarDays className="size-4 shrink-0" /> {fullDate(date)}
                       </p>
                       <p className="flex items-center gap-2">
-                        <Clock className="size-4 shrink-0 text-primary" /> {time}
+                        <Clock className="size-4 shrink-0" /> {time}
                       </p>
                     </div>
                   </div>
@@ -555,19 +746,32 @@ function PublicBooking() {
                       />
                     </div>
                     {needsDocument && (
-                      <div className="space-y-1.5 sm:col-span-2">
-                        <Label htmlFor="cpf">CPF ou CNPJ</Label>
-                        <Input
-                          id="cpf"
-                          inputMode="numeric"
-                          placeholder="000.000.000-00"
-                          value={cpfCnpj}
-                          onChange={(e) => setCpfCnpj(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Necessário pra emitir o Pix do sinal.
-                        </p>
-                      </div>
+                      <>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label htmlFor="email">E-mail</Label>
+                          <Input
+                            id="email"
+                            type="email"
+                            inputMode="email"
+                            autoComplete="email"
+                            placeholder="cliente@exemplo.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                          />
+                          <p className="text-xs">Necessário pra emitir o Pix do sinal.</p>
+                        </div>
+                        <div className="space-y-1.5 sm:col-span-2">
+                          <Label htmlFor="cpf">CPF ou CNPJ</Label>
+                          <Input
+                            id="cpf"
+                            inputMode="numeric"
+                            placeholder="000.000.000-00"
+                            value={cpfCnpj}
+                            onChange={(e) => setCpfCnpj(e.target.value)}
+                          />
+                          <p className="text-xs">Necessário pra emitir o Pix do sinal.</p>
+                        </div>
+                      </>
                     )}
                   </div>
 
@@ -580,7 +784,7 @@ function PublicBooking() {
                       "Agendar"
                     )}
                   </Button>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs">
                     {needsDocument
                       ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
                       : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
@@ -593,22 +797,34 @@ function PublicBooking() {
       </Dialog>
 
       {activeCharge && (
-        <PaymentDialog
-          chargeId={activeCharge}
-          booking={bookings.data?.bookings.find((b) => b.chargeId === activeCharge) ?? null}
-          reservedAmountCents={
-            reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
-          }
-          onClose={() => {
-            setActiveCharge(null);
-            void bookings.refetch();
-          }}
+        <Suspense fallback={<p className="py-4 text-center text-sm">Carregando pagamento...</p>}>
+          <PaymentDialog
+            chargeId={activeCharge}
+            booking={bookings.data?.bookings.find((b) => b.chargeId === activeCharge) ?? null}
+            reservedAmountCents={
+              reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
+            }
+            onClose={() => {
+              setActiveCharge(null);
+              void bookings.refetch();
+            }}
+          />
+        </Suspense>
+      )}
+
+      {confirmed && (
+        <ConfirmedDialog
+          booking={confirmed}
+          appearance={appearance}
+          timezone={catalog?.preferences?.timezone ?? "America/Sao_Paulo"}
+          onClose={() => setConfirmed(null)}
         />
       )}
 
-      {confirmed && <ConfirmedDialog booking={confirmed} onClose={() => setConfirmed(null)} />}
-
-      <nav className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border bg-card/95 py-3 shadow-lg backdrop-blur">
+      <nav
+        className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg"
+        style={{ backgroundColor: pageBackground }}
+      >
         {(
           [
             { key: "agendar", label: "Agendar", icon: CalendarDays },
@@ -619,6 +835,7 @@ function PublicBooking() {
             key={item.key}
             type="button"
             onClick={() => setTab(item.key)}
+            style={{ color: pageText }}
             className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
               tab === item.key
                 ? "font-semibold text-foreground underline underline-offset-4"
@@ -634,96 +851,37 @@ function PublicBooking() {
   );
 }
 
-function BusinessHeader({
-  name,
-  logoUrl,
-  address,
-}: {
-  name: string;
-  logoUrl: string | null;
-  address: string | null;
-}) {
-  return (
-    <div className="py-8 text-center">
-      {logoUrl ? (
-        <img
-          src={logoUrl}
-          alt={`Logotipo de ${name}`}
-          decoding="async"
-          fetchPriority="high"
-          className="mx-auto max-h-24 max-w-[72%] object-contain"
-        />
-      ) : (
-        <div className="mx-auto flex size-16 items-center justify-center rounded-2xl border border-border bg-card text-xl font-bold text-primary">
-          {name.slice(0, 2).toUpperCase()}
-        </div>
-      )}
-      <h1 className="mt-4 text-xl font-semibold">{name}</h1>
-      {address ? (
-        <p className="mx-auto mt-2 flex max-w-md items-center justify-center gap-1.5 text-xs text-muted-foreground">
-          <MapPin className="size-3.5 shrink-0" /> {address}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-function ServiceSection({
-  services,
-  onSelect,
-}: {
-  services: Service[];
-  onSelect: (service: Service) => void;
-}) {
-  return (
-    <section>
-      <h2 className="mb-3 text-center text-sm font-bold uppercase tracking-[0.16em] text-muted-foreground">
-        Serviços
-      </h2>
-      <div className="space-y-3">
-        {services.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => onSelect(s)}
-            className="w-full rounded-lg border border-border bg-card px-4 py-5 text-center text-card-foreground transition-colors hover:border-primary"
-          >
-            <p className="text-base font-medium">{s.name}</p>
-            {(s.show_price || s.show_duration) && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {s.show_price ? formatPrice(s.price_cents) : null}
-                {s.show_price && s.show_duration ? " - " : null}
-                {s.show_duration ? `${s.duration_minutes}min` : null}
-              </p>
-            )}
-            {s.effectiveDepositCents > 0 ? (
-              <p className="mt-2 text-xs font-semibold text-primary">
-                Sinal de {formatPrice(s.effectiveDepositCents)}
-              </p>
-            ) : (
-              <p className="mt-2 text-xs text-muted-foreground">Sem sinal</p>
-            )}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 type Booking = {
-  chargeId: string;
+  chargeId: string | null;
   chargeStatus: string;
   amountCents: number;
+  publicCode: string | null;
   customerName: string | null;
   expiresAt: string | null;
   createdAt: string;
   startsAt: string | null;
   appointmentStatus: string;
+  serviceId: string | null;
+  professionalId: string | null;
   serviceName: string;
   professionalName: string;
 };
 
 function statusInfo(b: Booking) {
+  if (b.appointmentStatus === "cancelado")
+    return {
+      tag: "#Agendamento Cancelado",
+      tone: "border-destructive/60",
+      label: "Cancelado",
+      steps: 3,
+    };
+  if (b.chargeStatus === "sem_sinal" || b.chargeStatus === "pago")
+    return {
+      tag: "#Agendamento Confirmado",
+      tone: "border-primary/60",
+      label: "Confirmado",
+      steps: 2,
+    };
   if (b.chargeStatus === "pago")
     return {
       tag: "#Agendamento Confirmado",
@@ -747,69 +905,132 @@ function statusInfo(b: Booking) {
 }
 
 function HistoryList({
+  slug,
   bookings,
   onOpen,
   onRefresh,
+  appearance,
+  pageText,
+  preferences,
+  onCancel,
+  onReschedule,
+  cancelPending,
+  reschedulePending,
 }: {
+  slug: string;
   bookings: Booking[];
   onOpen: (id: string) => void;
   onRefresh: () => void;
+  appearance: Panel1Appearance;
+  pageText: string;
+  preferences?: Panel1Preferences;
+  onCancel: (publicCode: string) => void;
+  onReschedule: (input: { publicCode: string; date: string; time: string }) => Promise<void>;
+  cancelPending: boolean;
+  reschedulePending: boolean;
 }) {
+  const [reschedulingCode, setReschedulingCode] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState("");
+  const [rescheduleTime, setRescheduleTime] = useState("");
+  const rescheduleAvailabilityFn = useServerFn(getAvailability);
+  const reschedulingBooking = bookings.find((b) => b.publicCode === reschedulingCode);
+  const rescheduleSlots = useQuery({
+    queryKey: [
+      "reschedule-slots",
+      slug,
+      reschedulingBooking?.serviceId,
+      reschedulingBooking?.professionalId,
+      rescheduleDate,
+    ],
+    enabled: !!reschedulingBooking?.serviceId && !!rescheduleDate,
+    queryFn: () =>
+      rescheduleAvailabilityFn({
+        data: {
+          slug,
+          serviceId: reschedulingBooking!.serviceId!,
+          date: rescheduleDate,
+          professionalId: reschedulingBooking?.professionalId ?? null,
+        },
+      }),
+  });
   if (!bookings.length)
     return (
-      <div className="rounded-xl border border-border bg-card p-8 text-center">
-        <History className="mx-auto size-7 text-muted-foreground" />
+      <div
+        className="rounded-xl border p-8 text-center"
+        style={{
+          backgroundColor: appearance.agenda_background,
+          color: accessibleTextColor(appearance.agenda_background),
+          borderColor: appearance.agenda_border,
+        }}
+      >
+        <History className="mx-auto size-7" />
         <p className="mt-3 font-semibold">Nenhum agendamento por aqui ainda.</p>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Seus agendamentos feitos neste aparelho aparecerão aqui.
-        </p>
+        <p className="mt-1 text-sm">Seus agendamentos feitos neste aparelho aparecerão aqui.</p>
       </div>
     );
 
   return (
     <div className="space-y-4">
-      <div className="border-b border-border pb-3">
-        <p className="text-sm font-semibold text-primary">Histórico de agendamentos</p>
-        {bookings[0]?.customerName ? (
-          <p className="text-sm text-muted-foreground">{bookings[0].customerName}</p>
-        ) : null}
+      <div className="border-b border-border pb-3" style={{ color: pageText }}>
+        <p className="text-sm font-semibold">Histórico de agendamentos</p>
+        {bookings[0]?.customerName ? <p className="text-sm">{bookings[0].customerName}</p> : null}
       </div>
       {bookings.map((b) => {
         const info = statusInfo(b);
-        const starts = b.startsAt ? new Date(b.startsAt) : null;
         return (
-          <article key={b.chargeId} className={`rounded-xl border ${info.tone} bg-card p-4`}>
+          <article
+            key={b.publicCode ?? b.chargeId ?? b.createdAt}
+            className={`rounded-xl border ${info.tone} p-4`}
+            style={{
+              backgroundColor: appearance.agenda_background,
+              color: accessibleTextColor(appearance.agenda_background),
+              borderColor: appearance.agenda_border,
+            }}
+          >
             <div className="flex items-center justify-between gap-3">
-              <p className="text-xs font-semibold italic text-muted-foreground">{info.tag}</p>
+              <p className="text-xs font-semibold italic">{info.tag}</p>
               <span className="rounded-full border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide">
                 {info.label}
               </span>
             </div>
-            <div className="mt-3 space-y-2 rounded-lg border border-border bg-background/20 p-3 text-sm">
+            <div
+              className="mt-3 space-y-2 rounded-lg border p-3 text-sm"
+              style={{
+                backgroundColor: appearance.agenda_background,
+                color: accessibleTextColor(appearance.agenda_background),
+                borderColor: appearance.agenda_border,
+              }}
+            >
               <p className="flex items-center gap-2">
-                <Info className="size-4 text-primary" /> {b.serviceName}
+                <Info className="size-4" /> {b.serviceName}
               </p>
               <p className="flex items-center gap-2">
-                <CalendarDays className="size-4 text-primary" />{" "}
-                {starts
-                  ? starts.toLocaleString("pt-BR", {
-                      weekday: "long",
-                      day: "2-digit",
-                      month: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      timeZone: "America/Sao_Paulo",
-                    })
+                <CalendarDays className="size-4" />{" "}
+                {b.startsAt
+                  ? formatAppointmentDateTime(
+                      b.startsAt,
+                      preferences?.timezone ?? "America/Sao_Paulo",
+                    )
                   : "—"}
               </p>
               <p className="flex items-center gap-2">
-                <User className="size-4 text-primary" /> {b.professionalName}
+                <User className="size-4" /> {b.professionalName}
               </p>
             </div>
 
             <div className="mt-4 flex items-start justify-center gap-4">
-              <Step icon={<History className="size-4" />} label="Agendamento cadastrado" />
-              <Step icon={<DollarSign className="size-4" />} label="Pagamento do sinal" />
+              <Step
+                icon={<History className="size-4" />}
+                label="Agendamento cadastrado"
+                textColor={accessibleTextColor(appearance.agenda_background)}
+              />
+              {shouldRenderDepositStep(b.chargeStatus) && (
+                <Step
+                  icon={<DollarSign className="size-4" />}
+                  label="Pagamento do sinal"
+                  textColor={accessibleTextColor(appearance.agenda_background)}
+                />
+              )}
               {info.steps === 3 && (
                 <Step
                   icon={
@@ -820,14 +1041,16 @@ function HistoryList({
                     )
                   }
                   label={info.label}
+                  textColor={accessibleTextColor(appearance.agenda_background)}
                 />
               )}
             </div>
 
-            {b.chargeStatus === "pendente" && (
+            {b.chargeStatus === "pendente" && b.chargeId && (
               <Button
                 className="mt-4 w-full"
                 onClick={() => {
+                  if (!b.chargeId) return;
                   onOpen(b.chargeId);
                   onRefresh();
                 }}
@@ -835,6 +1058,103 @@ function HistoryList({
                 Pagar sinal de {formatPrice(b.amountCents)}
               </Button>
             )}
+            {b.appointmentStatus === "agendado" && b.publicCode && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {preferences?.cancellations_enabled && (
+                  <Button
+                    variant="outline"
+                    disabled={cancelPending || reschedulePending}
+                    onClick={() => {
+                      setReschedulingCode(null);
+                      setRescheduleDate("");
+                      setRescheduleTime("");
+                      onCancel(b.publicCode!);
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                )}
+                {preferences?.reschedule_enabled && (
+                  <Button
+                    variant="outline"
+                    disabled={cancelPending || reschedulePending}
+                    onClick={() => {
+                      setReschedulingCode(reschedulingCode === b.publicCode ? null : b.publicCode);
+                      setRescheduleDate("");
+                      setRescheduleTime("");
+                    }}
+                  >
+                    Remarcar
+                  </Button>
+                )}
+              </div>
+            )}
+            {b.publicCode &&
+              canRenderRescheduleForm(b.appointmentStatus, reschedulingCode === b.publicCode) && (
+                <form
+                  className="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (!rescheduleDate || !rescheduleTime) return;
+                    try {
+                      await onReschedule({
+                        publicCode: b.publicCode!,
+                        date: rescheduleDate,
+                        time: rescheduleTime,
+                      });
+                      setReschedulingCode(null);
+                      setRescheduleDate("");
+                      setRescheduleTime("");
+                    } catch {
+                      // O erro já é comunicado pelo toast da mutation.
+                    }
+                  }}
+                >
+                  <label className="grid gap-1 text-xs">
+                    Nova data
+                    <Input
+                      type="date"
+                      required
+                      value={rescheduleDate}
+                      onChange={(event) => {
+                        setRescheduleDate(event.target.value);
+                        setRescheduleTime("");
+                      }}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-xs">
+                    Novo horário
+                    <select
+                      required
+                      className="border-input h-9 rounded-md border bg-transparent px-3 text-sm"
+                      value={rescheduleTime}
+                      disabled={!rescheduleDate || rescheduleSlots.isFetching}
+                      onChange={(event) => setRescheduleTime(event.target.value)}
+                    >
+                      <option value="" disabled>
+                        {!rescheduleDate
+                          ? "Escolha a data"
+                          : rescheduleSlots.isFetching
+                            ? "Carregando..."
+                            : rescheduleSlots.data?.slots.length
+                              ? "Selecione"
+                              : "Sem horários"}
+                      </option>
+                      {rescheduleSlots.data?.slots.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <Button
+                    type="submit"
+                    disabled={reschedulePending || !rescheduleDate || !rescheduleTime}
+                  >
+                    Confirmar
+                  </Button>
+                </form>
+              )}
           </article>
         );
       })}
@@ -842,280 +1162,87 @@ function HistoryList({
   );
 }
 
-function Step({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Step({
+  icon,
+  label,
+  textColor,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  textColor: string;
+}) {
   return (
     <div className="flex w-24 flex-col items-center gap-1 text-center">
-      <span className="flex size-9 items-center justify-center rounded-full border border-primary/70 text-primary">
+      <span
+        className="flex size-9 items-center justify-center rounded-full border"
+        style={{ borderColor: textColor, color: textColor }}
+      >
         {icon}
       </span>
-      <span className="text-[10px] leading-tight text-muted-foreground">{label}</span>
+      <span className="text-[10px] leading-tight" style={{ color: textColor }}>
+        {label}
+      </span>
     </div>
   );
 }
 
 function ConfirmedDialog({
   booking,
+  appearance,
+  timezone,
   onClose,
 }: {
   booking: { serviceName: string; startsAt: string };
+  appearance: Panel1Appearance;
+  timezone: string;
   onClose: () => void;
 }) {
-  const starts = new Date(booking.startsAt);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-sm bg-card text-center">
+      <DialogContent
+        className="max-w-sm text-center"
+        style={{
+          backgroundColor: appearance.modal_background,
+          color: accessibleTextColor(appearance.modal_background),
+          borderColor: appearance.modal_border,
+        }}
+      >
         <div className="space-y-4 p-2">
-          <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/15 text-primary">
+          <span
+            className="mx-auto flex size-14 items-center justify-center rounded-full border"
+            style={{
+              color: accessibleTextColor(appearance.modal_background),
+              borderColor: appearance.modal_border,
+            }}
+          >
             <Check className="size-7" />
           </span>
           <div>
             <h2 className="font-display text-lg font-bold">Agendamento confirmado!</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm">
               Este serviço não exige sinal — seu horário já está garantido.
             </p>
           </div>
-          <div className="space-y-2 rounded-lg border border-border bg-background/30 p-4 text-left text-sm">
+          <div
+            className="space-y-2 rounded-lg border p-4 text-left text-sm"
+            style={{
+              backgroundColor: appearance.modal_background,
+              color: accessibleTextColor(appearance.modal_background),
+              borderColor: appearance.modal_border,
+            }}
+          >
             <p className="flex items-center gap-2">
-              <Info className="size-4 shrink-0 text-primary" /> {booking.serviceName}
+              <Info className="size-4 shrink-0" /> {booking.serviceName}
             </p>
             <p className="flex items-center gap-2">
-              <CalendarDays className="size-4 shrink-0 text-primary" />{" "}
-              {starts.toLocaleString("pt-BR", {
-                weekday: "long",
-                day: "2-digit",
-                month: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-                timeZone: "America/Sao_Paulo",
-              })}
+              <CalendarDays className="size-4 shrink-0" />{" "}
+              {formatAppointmentDateTime(booking.startsAt, timezone)}
             </p>
           </div>
           <Button className="w-full" onClick={onClose}>
             Fechar
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function PaymentDialog({
-  chargeId,
-  booking,
-  reservedAmountCents,
-  onClose,
-}: {
-  chargeId: string;
-  booking: Booking | null;
-  reservedAmountCents: number | null;
-  onClose: () => void;
-}) {
-  // Snapshot gravado no servidor (deposit_payments.amount_cents); nada é recalculado aqui.
-  const amountCents = booking?.amountCents ?? reservedAmountCents;
-  const pixFn = useServerFn(generateDepositPix);
-  const statusFn = useServerFn(getDepositStatus);
-  const cancelFn = useServerFn(cancelDepositBooking);
-  const generatingPix = useRef(false);
-  const [pix, setPix] = useState<{
-    qrCode: string;
-    qrCodeBase64: string;
-  } | null>(null);
-  const [pixError, setPixError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const [paid, setPaid] = useState(false);
-  const [left, setLeft] = useState(300);
-
-  const expiresAt = booking?.expiresAt ? new Date(booking.expiresAt).getTime() : null;
-
-  useEffect(() => {
-    const tick = () => {
-      if (!expiresAt) return;
-      setLeft(Math.max(0, Math.round((expiresAt - Date.now()) / 1000)));
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [expiresAt]);
-
-  useEffect(() => {
-    if (paid) return;
-    const id = setInterval(async () => {
-      try {
-        const r = await statusFn({ data: { chargeId } });
-        if (r.status === "pago") setPaid(true);
-        if (r.status === "expirado") {
-          toast.error("O prazo do Pix acabou e o agendamento foi cancelado.");
-          onClose();
-        }
-      } catch {
-        /* tenta de novo */
-      }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [chargeId, paid, statusFn, onClose]);
-
-  const generate = useMutation({
-    mutationFn: async () => {
-      const result = await pixFn({ data: { chargeId } });
-      const qrCode = result.qrCode?.trim();
-      const qrCodeBase64 = result.qrCodeBase64?.trim();
-      if (
-        !qrCode ||
-        !qrCodeBase64 ||
-        !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(qrCodeBase64)
-      ) {
-        throw new Error("O código Pix ainda não está disponível. Tente novamente.");
-      }
-      return { qrCode, qrCodeBase64 };
-    },
-    onSuccess: (result) => {
-      setPix(result);
-      setPixError(null);
-    },
-    onError: (error: Error) => {
-      setPix(null);
-      const message = error.message;
-      if (/prazo|expirad|não está mais ativa/i.test(message)) {
-        setPixError("O prazo desta reserva terminou. Faça um novo agendamento.");
-      } else if (/não está habilitado|subconta|análise/i.test(message)) {
-        setPixError("Este estabelecimento ainda não pode receber Pix. Entre em contato com ele.");
-      } else {
-        setPixError("Não foi possível gerar o Pix agora. Tente novamente.");
-      }
-    },
-    onSettled: () => {
-      generatingPix.current = false;
-    },
-  });
-
-  const requestPix = () => {
-    if (generatingPix.current || generate.isPending || pix) return;
-    generatingPix.current = true;
-    setPixError(null);
-    generate.mutate();
-  };
-
-  const cancel = useMutation({
-    mutationFn: () => cancelFn({ data: { chargeId } }),
-    onSuccess: () => {
-      toast.success("Agendamento cancelado.");
-      onClose();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const mm = String(Math.floor(left / 60)).padStart(2, "0");
-  const ss = String(left % 60).padStart(2, "0");
-
-  if (paid)
-    return (
-      <Dialog open onOpenChange={onClose}>
-        <DialogContent className="max-w-md text-center">
-          <Check className="mx-auto size-10 text-primary" />
-          <h2 className="font-display text-xl font-bold">Agendamento confirmado!</h2>
-          <p className="text-sm text-muted-foreground">
-            Sinal recebido. Seu horário está reservado.
-          </p>
-          <Button onClick={onClose}>Fechar</Button>
-        </DialogContent>
-      </Dialog>
-    );
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto text-center">
-        <h2 className="font-display text-xl font-bold">Agendamento aguardando pagamento</h2>
-        <p className="text-sm text-muted-foreground">
-          Para confirmar seu agendamento, efetue o pagamento do sinal via Pix.
-        </p>
-        <p className="mx-auto w-fit rounded-md bg-muted px-4 py-1 text-sm font-semibold">
-          {amountCents === null ? "Carregando valor do sinal..." : formatPrice(amountCents)}
-        </p>
-        <Button
-          className="mx-auto w-fit"
-          disabled={generate.isPending || !!pix}
-          onClick={requestPix}
-          aria-busy={generate.isPending}
-        >
-          {generate.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-          {generate.isPending
-            ? "Gerando código Pix..."
-            : pixError
-              ? "Tentar novamente"
-              : "Gerar código Pix"}
-        </Button>
-        {pixError && (
-          <p role="alert" className="text-sm text-destructive">
-            {pixError}
-          </p>
-        )}
-
-        {pix && (
-          <div className="min-w-0 space-y-2">
-            <img
-              src={`data:image/png;base64,${pix.qrCodeBase64}`}
-              alt="QR Code do Pix para pagar o sinal"
-              decoding="async"
-              className="mx-auto size-56 rounded-lg bg-white p-2"
-              onError={() => {
-                setPix(null);
-                setPixError("O QR Code do Pix não pôde ser exibido. Tente novamente.");
-              }}
-            />
-            {amountCents !== null && (
-              <p className="text-sm font-medium">Valor do Pix: {formatPrice(amountCents)}</p>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Use a função Pix copia e cola do seu banco para concluir o pagamento.
-            </p>
-            <p className="min-w-0 truncate rounded-md bg-muted px-3 py-2 text-left text-xs">
-              {pix.qrCode}
-            </p>
-            <Button
-              variant="secondary"
-              className="mx-auto w-fit"
-              onClick={() => {
-                void navigator.clipboard.writeText(pix.qrCode);
-                setCopied(true);
-                toast.success("Código Pix copiado!");
-              }}
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />} Copiar código
-              pix
-            </Button>
-          </div>
-        )}
-
-        <p className="text-xs text-muted-foreground">
-          Você tem 5 minutos para efetuar seu pagamento antes que seu agendamento seja cancelado
-          automaticamente
-        </p>
-        <p className="font-display text-lg font-bold">
-          Tempo restante: {mm}:{ss}
-        </p>
-        <Button variant="outline" className="mx-auto w-fit" onClick={() => setConfirmCancel(true)}>
-          Cancelar pagamento
-        </Button>
-
-        <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
-          <DialogContent className="max-w-sm text-center">
-            <h3 className="text-base font-semibold">Pagamento Obrigatório</h3>
-            <p className="text-sm">Você confirma o cancelamento desse agendamento?</p>
-            <div className="flex justify-center gap-3">
-              <Button variant="secondary" onClick={() => setConfirmCancel(false)}>
-                Não quero cancelar
-              </Button>
-              <Button
-                variant="destructive"
-                disabled={cancel.isPending}
-                onClick={() => cancel.mutate()}
-              >
-                Sim, quero cancelar
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
       </DialogContent>
     </Dialog>
   );

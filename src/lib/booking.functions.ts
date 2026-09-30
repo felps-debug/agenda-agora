@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { loadPanel1Config } from "@/lib/panel1-config.storage";
+import { DEFAULT_PANEL1_APPEARANCE, type Panel1Appearance } from "@/lib/panel1-config";
 import { isBusinessImagePath } from "@/lib/business-image-path";
 import { effectiveDepositCents, type ServiceDepositConfig } from "@/lib/deposit-amount";
 
@@ -19,7 +20,6 @@ const publicProfessionalsSchema = z.object({
 
 type Ctx = {
   businessId: string;
-  asaasSubaccountStatus: string;
   service: {
     id: string;
     name: string;
@@ -55,7 +55,9 @@ function serviceDepositCents(service: ServiceDepositRow & { id: string }): numbe
       serviceId: service.id,
       errorType: error instanceof Error ? error.name : typeof error,
     });
-    throw new Error("O sinal deste serviço está configurado incorretamente.");
+    throw new Error(
+      "Este serviço não está disponível para reserva agora. Tente outro horário ou entre em contato.",
+    );
   }
 }
 
@@ -64,22 +66,41 @@ async function admin() {
   return supabaseAdmin;
 }
 
-/**
- * Fuso horários oferecidos em Panel1Preferences.timezone (painel.configuracoes.tsx)
- * — todos brasileiros e sem horário de verão, por isso um offset fixo basta.
- */
-function offsetForTimezone(timezone: string): string {
-  switch (timezone) {
-    case "America/Manaus":
-    case "America/Cuiaba":
-      return "-04:00";
-    default:
-      return "-03:00";
-  }
+function timezoneOffsetMinutes(instant: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const localAsUtc = Date.UTC(
+    Number(values["year"]),
+    Number(values["month"]) - 1,
+    Number(values["day"]),
+    Number(values["hour"]),
+    Number(values["minute"]),
+    Number(values["second"]),
+  );
+  return (localAsUtc - instant.getTime()) / 60_000;
+}
+
+function weekdayInTimezone(date: string, timezone: string): number {
+  const weekday = new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  });
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
 }
 
 export function toIso(date: string, time: string, timezone = "America/Sao_Paulo") {
-  return new Date(`${date}T${time}:00${offsetForTimezone(timezone)}`).toISOString();
+  const localAsUtc = new Date(`${date}T${time}:00Z`);
+  const offset = timezoneOffsetMinutes(localAsUtc, timezone);
+  return new Date(localAsUtc.getTime() - offset * 60_000).toISOString();
 }
 
 /**
@@ -112,15 +133,14 @@ export function computeOpenDays(params: {
   timezone: string;
   target: number;
 }): { date: string; weekday: number }[] {
-  const offset = offsetForTimezone(params.timezone);
   // Pior caso: só 1 dos 7 dias da semana está aberto — precisa de até target*7 dias pra achar `target` ocorrências.
   const iterationLimit = Math.min(400, params.target * 7 + 7);
   const days: { date: string; weekday: number }[] = [];
   for (let i = 0; i < iterationLimit && days.length < params.target; i++) {
     const d = new Date(Date.now() + i * 86400000);
     const date = d.toLocaleDateString("en-CA", { timeZone: params.timezone });
-    const weekday = new Date(`${date}T12:00:00${offset}`).getDay();
-    if (params.openWeekdays.has(weekday)) days.push({ date, weekday });
+    const weekdayIndex = weekdayInTimezone(date, params.timezone);
+    if (params.openWeekdays.has(weekdayIndex)) days.push({ date, weekday: weekdayIndex });
   }
   return days;
 }
@@ -161,7 +181,7 @@ export function isValidCpfCnpj(value: string) {
 async function signedPublicAssetUrl(
   path: string | null,
   businessId: string,
-  kind: "logo" | "service",
+  kind: "logo" | "service" | "background",
 ) {
   if (!path || !isBusinessImagePath(path, businessId, kind)) return null;
   const supabase = await admin();
@@ -179,7 +199,7 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
     const { data: business, error: businessError } = await supabase
       .from("businesses")
       .select(
-        "id, name, category, phone, address, status, brand_primary, brand_background, logo_url",
+        "id, name, category, phone, address, status, brand_primary, brand_background, brand_background_image, logo_url",
       )
       .eq("slug", data.slug)
       .maybeSingle();
@@ -217,8 +237,9 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       }
     });
 
-    const [logoUrl, publicServices] = await Promise.all([
+    const [logoUrl, backgroundImageUrl, publicServices, config] = await Promise.all([
       signedPublicAssetUrl(business.logo_url, business.id, "logo"),
+      signedPublicAssetUrl(business.brand_background_image, business.id, "background"),
       Promise.all(
         priced.map(async ({ service, depositCents }) => {
           const { deposit_cents: _storedDeposit, ...publicService } = service;
@@ -232,10 +253,20 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
           };
         }),
       ),
+      loadPanel1Config(supabase, business.id),
     ]);
 
-    const { logo_url: _logoPath, ...publicBusiness } = business;
-    return { business: { ...publicBusiness, logo_url: logoUrl }, services: publicServices };
+    const { logo_url: _logoPath, brand_background_image: _bgPath, ...publicBusiness } = business;
+    return {
+      business: {
+        ...publicBusiness,
+        logo_url: logoUrl,
+        brand_background_image: backgroundImageUrl,
+      },
+      services: publicServices,
+      appearance: config.appearance ?? DEFAULT_PANEL1_APPEARANCE,
+      preferences: config.preferences,
+    };
   });
 
 /** Profissionais públicos vinculados ao serviço selecionado. */
@@ -284,12 +315,14 @@ export function computeSlots(params: {
   busy: [number, number][];
   durationMinutes: number;
   nowMin: number;
+  listingIntervalMinutes?: number;
 }): string[] {
   const slots: string[] = [];
+  const interval = params.listingIntervalMinutes ?? 30;
   for (const h of params.hours) {
     const from = minutesOf(h.starts_at.slice(0, 5));
     const to = minutesOf(h.ends_at.slice(0, 5));
-    for (let t = from; t + params.durationMinutes <= to; t += 30) {
+    for (let t = from; t + params.durationMinutes <= to; t += interval) {
       const end = t + params.durationMinutes;
       if (t <= params.nowMin) continue;
       if (params.busy.some(([bs, be]) => t < be && end > bs)) continue;
@@ -315,7 +348,7 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   const db = await admin();
   const { data: business } = await db
     .from("businesses")
-    .select("id, status, asaas_subaccount_status")
+    .select("id, status")
     .eq("slug", slug)
     .maybeSingle();
   if (!business) throw new Error("Negócio não encontrado.");
@@ -333,7 +366,6 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   if (!service) throw new Error("Serviço não encontrado.");
   return {
     businessId: business.id,
-    asaasSubaccountStatus: business.asaas_subaccount_status,
     service: {
       id: service.id,
       name: service.name,
@@ -351,6 +383,147 @@ async function loadPreferences(businessId: string) {
   const config = await loadPanel1Config(db, businessId);
   return config.preferences;
 }
+
+type PublicAppointment = {
+  id: string;
+  public_code: string;
+  business_id: string;
+  service_id: string | null;
+  professional_id: string | null;
+  customer_name: string;
+  customer_phone: string | null;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+};
+
+async function findAppointmentsByPublicCodes(
+  db: Awaited<ReturnType<typeof admin>>,
+  publicCodes: string[],
+): Promise<PublicAppointment[]> {
+  // Tipo temporário: appointments.public_code aguarda regeneração após a migration T104.
+  const table = db.from("appointments") as unknown as {
+    select(columns: string): {
+      in(
+        column: string,
+        values: string[],
+      ): PromiseLike<{ data: PublicAppointment[] | null; error: { message: string } | null }>;
+    };
+  };
+  const { data, error } = await table
+    .select(
+      "id, public_code, business_id, service_id, professional_id, customer_name, customer_phone, starts_at, ends_at, status",
+    )
+    .in("public_code", publicCodes);
+  if (error) throw new Error("Não foi possível consultar o agendamento.");
+  return data ?? [];
+}
+
+async function findAppointmentByPublicCode(
+  db: Awaited<ReturnType<typeof admin>>,
+  publicCode: string,
+) {
+  return (await findAppointmentsByPublicCodes(db, [publicCode]))[0] ?? null;
+}
+
+function hasNoticeElapsed(startsAt: string, noticeMinutes: number, now = Date.now()) {
+  return Date.parse(startsAt) - now >= noticeMinutes * 60_000;
+}
+
+const publicCodeInput = z.object({ publicCode: z.string().uuid() });
+
+export const cancelAppointmentPublic = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => publicCodeInput.parse(d))
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const appointment = await findAppointmentByPublicCode(db, data.publicCode);
+    if (!appointment) throw new Error("Agendamento não encontrado.");
+    if (appointment.status === "cancelado") return { ok: true, status: "cancelado" as const };
+
+    const preferences = await loadPreferences(appointment.business_id);
+    if (!preferences.cancellations_enabled)
+      throw new Error("O cancelamento não está disponível para este agendamento.");
+    if (!hasNoticeElapsed(appointment.starts_at, preferences.cancellation_notice_minutes))
+      throw new Error("O prazo para cancelar este agendamento terminou.");
+    if (appointment.status !== "agendado")
+      throw new Error("Este agendamento não pode ser cancelado agora.");
+
+    const { data: updated, error } = await db
+      .from("appointments")
+      .update({ status: "cancelado" })
+      .eq("id", appointment.id)
+      .eq("status", "agendado")
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error("Não foi possível cancelar o agendamento.");
+    if (!updated) {
+      const current = await findAppointmentByPublicCode(db, data.publicCode);
+      if (current?.status === "cancelado") return { ok: true, status: "cancelado" as const };
+      throw new Error("O agendamento mudou. Atualize o histórico e tente novamente.");
+    }
+    return { ok: true, status: "cancelado" as const };
+  });
+
+export const rescheduleAppointmentPublic = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    publicCodeInput
+      .extend({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        time: z.string().regex(/^\d{2}:\d{2}$/),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const appointment = await findAppointmentByPublicCode(db, data.publicCode);
+    if (!appointment) throw new Error("Agendamento não encontrado.");
+    const preferences = await loadPreferences(appointment.business_id);
+    if (!preferences.reschedule_enabled)
+      throw new Error("A remarcação não está disponível para este agendamento.");
+    if (appointment.status !== "agendado" || !appointment.service_id)
+      throw new Error("Este agendamento não pode ser remarcado agora.");
+
+    const startsAt = toIso(data.date, data.time, preferences.timezone);
+    if (startsAt === appointment.starts_at) return { ok: true, startsAt };
+    if (!hasNoticeElapsed(appointment.starts_at, preferences.reschedule_notice_minutes))
+      throw new Error("O prazo para remarcar este agendamento terminou.");
+
+    const { data: business, error: businessError } = await db
+      .from("businesses")
+      .select("slug")
+      .eq("id", appointment.business_id)
+      .maybeSingle();
+    if (businessError || !business) throw new Error("Não foi possível consultar o negócio.");
+    const availability = await getAvailability({
+      data: {
+        slug: business.slug,
+        serviceId: appointment.service_id,
+        date: data.date,
+        professionalId: appointment.professional_id,
+      },
+    });
+    if (!availability.slots.includes(data.time))
+      throw new Error("Esse horário não está mais disponível. Escolha outro.");
+
+    const { data: service, error: serviceError } = await db
+      .from("services")
+      .select("duration_minutes")
+      .eq("id", appointment.service_id)
+      .eq("business_id", appointment.business_id)
+      .maybeSingle();
+    if (serviceError || !service) throw new Error("Não foi possível consultar o serviço.");
+    const endsAt = new Date(Date.parse(startsAt) + service.duration_minutes * 60_000).toISOString();
+    const { data: updated, error } = await db
+      .from("appointments")
+      .update({ starts_at: startsAt, ends_at: endsAt })
+      .eq("id", appointment.id)
+      .eq("status", "agendado")
+      .select("id")
+      .maybeSingle();
+    if (error || !updated)
+      throw new Error("Não foi possível remarcar. Atualize o histórico e tente novamente.");
+    return { ok: true, startsAt };
+  });
 
 async function validateProfessional(
   businessId: string,
@@ -382,9 +555,7 @@ export const getAvailability = createServerFn({ method: "POST" })
     const db = await admin();
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const preferences = await loadPreferences(businessId);
-    const weekday = new Date(
-      `${data.date}T12:00:00${offsetForTimezone(preferences.timezone)}`,
-    ).getDay();
+    const weekday = weekdayInTimezone(data.date, preferences.timezone);
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
     if (professional && !professional.working_days.includes(weekday))
       return { slots: [] as string[], depositCents: service.depositCents };
@@ -450,7 +621,13 @@ export const getAvailability = createServerFn({ method: "POST" })
 
     const nowMin = computeNowMin(data.date, preferences.timezone, preferences.minimum_notice_hours);
 
-    const slots = computeSlots({ hours, busy, durationMinutes: service.duration_minutes, nowMin });
+    const slots = computeSlots({
+      hours,
+      busy,
+      durationMinutes: service.duration_minutes,
+      nowMin,
+      listingIntervalMinutes: preferences.listing_time_minutes,
+    });
     return { slots, depositCents: service.depositCents };
   });
 
@@ -486,6 +663,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
         time: z.string().regex(/^\d{2}:\d{2}$/),
         customerName: z.string().min(2).max(80),
         customerPhone: z.string().min(8).max(20),
+        customerEmail: z.string().trim().email("E-mail inválido").optional(),
         // Opcional: só é exigido quando o sinal efetivo calculado no servidor é positivo.
         customerCpfCnpj: z
           .string()
@@ -498,27 +676,23 @@ export const reserveBooking = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { businessId, service, asaasSubaccountStatus } = await loadContext(
-      data.slug,
-      data.serviceId,
-    );
+    const { businessId, service } = await loadContext(data.slug, data.serviceId);
+    const preferences = await loadPreferences(businessId);
     await validateProfessional(businessId, service.id, data.professionalId);
     // Snapshot único do sinal: o mesmo valor vai para appointments.deposit_cents,
     // deposit_payments.amount_cents e para a resposta. Sinal efetivo zero (0% ou
     // preço zero no modo percentual) confirma o horário sem cobrança.
     const depositCents = service.depositCents;
     const chargesDeposit = depositCents > 0;
-    // Legado fixo: exigir sinal sem valor continua sendo configuração incompleta.
-    if (service.requires_deposit && service.deposit_mode === "fixed" && !chargesDeposit)
-      throw new Error("Este serviço ainda não tem valor de sinal configurado.");
-    if (chargesDeposit && asaasSubaccountStatus !== "aprovada")
-      throw new Error("Este estabelecimento ainda não está habilitado para receber o sinal.");
-    // O Asaas exige o documento do pagador; sem cobrança ele não é pedido nem gravado.
+    // O documento do pagador só é solicitado quando há cobrança de sinal.
     const payerDocument = chargesDeposit ? data.customerCpfCnpj : undefined;
     if (chargesDeposit && !payerDocument)
       throw new Error("Informe um CPF ou CNPJ válido para gerar o Pix.");
+    const payerEmail = chargesDeposit ? data.customerEmail : undefined;
+    if (chargesDeposit && !payerEmail)
+      throw new Error("Informe um e-mail válido para gerar o Pix.");
 
-    const startsAt = toIso(data.date, data.time);
+    const startsAt = toIso(data.date, data.time, preferences.timezone);
     const endsAt = new Date(
       new Date(startsAt).getTime() + service.duration_minutes * 60_000,
     ).toISOString();
@@ -534,20 +708,24 @@ export const reserveBooking = createServerFn({ method: "POST" })
     const { data: clash } = await clashQuery.limit(1);
     if (clash?.length) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
 
+    const publicCode = globalThis.crypto.randomUUID();
+    // Tipo temporário: public_code só existe após a migration T104 e os tipos serão regenerados.
+    const appointmentRow = {
+      business_id: businessId,
+      service_id: service.id,
+      professional_id: data.professionalId ?? null,
+      customer_name: data.customerName,
+      customer_phone: data.customerPhone,
+      public_code: publicCode,
+      starts_at: startsAt,
+      ends_at: endsAt,
+      status: chargesDeposit ? "aguardando_sinal" : "agendado",
+      deposit_cents: chargesDeposit ? depositCents : 0,
+      notes: data.notes ?? null,
+    };
     const { data: appointment, error: apptError } = await db
       .from("appointments")
-      .insert({
-        business_id: businessId,
-        service_id: service.id,
-        professional_id: data.professionalId ?? null,
-        customer_name: data.customerName,
-        customer_phone: data.customerPhone,
-        starts_at: startsAt,
-        ends_at: endsAt,
-        status: chargesDeposit ? "aguardando_sinal" : "agendado",
-        deposit_cents: chargesDeposit ? depositCents : 0,
-        notes: data.notes ?? null,
-      })
+      .insert(appointmentRow as never)
       .select("id")
       .single();
     if (apptError?.code === "23P01")
@@ -557,8 +735,8 @@ export const reserveBooking = createServerFn({ method: "POST" })
     if (!chargesDeposit) {
       return {
         chargeId: null,
-        appointmentId: appointment.id,
         amountCents: 0,
+        publicCode,
         serviceName: service.name,
         startsAt,
         expiresAt: null,
@@ -576,6 +754,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
         payer_name: data.customerName,
         payer_phone: data.customerPhone,
         payer_cpf_cnpj: payerDocument ?? null,
+        payer_email: payerEmail ?? null,
         expires_at: expiresAt,
       })
       .select("id")
@@ -584,8 +763,8 @@ export const reserveBooking = createServerFn({ method: "POST" })
 
     return {
       chargeId: charge.id,
-      appointmentId: appointment.id,
       amountCents: depositCents,
+      publicCode,
       serviceName: service.name,
       startsAt,
       expiresAt,
@@ -608,9 +787,8 @@ const inFlightPix = new Map<string, Promise<DepositPixResult>>();
 
 async function pixExternalStep<T>(
   chargeId: string,
-  stage: "credential" | "customer" | "payment",
+  stage: "payment",
   action: () => Promise<T>,
-  isDefinitivePixRejection?: (error: unknown) => boolean,
 ): Promise<T> {
   try {
     return await action();
@@ -620,19 +798,12 @@ async function pixExternalStep<T>(
       stage,
       errorType: error instanceof Error ? error.name : typeof error,
     });
-    if (stage === "payment" && isDefinitivePixRejection?.(error)) {
-      const rejection = new Error(
-        "O Asaas ainda não habilitou Pix para esta subconta. Conclua a aprovação no Sandbox e tente novamente.",
-      ) as Error & { pixAttemptOutcome?: "rejeitado" };
-      rejection.pixAttemptOutcome = "rejeitado";
-      throw rejection;
-    }
     throw new Error("Não foi possível gerar o Pix agora. Tente novamente em instantes.");
   }
 }
 
 const DEPOSIT_PIX_COLUMNS =
-  "id, business_id, amount_cents, status, payer_name, payer_phone, payer_cpf_cnpj, asaas_customer_id, provider_payment_id, qr_code, qr_code_base64, ticket_url, expires_at" as const;
+  "id, business_id, amount_cents, status, payer_name, payer_phone, payer_cpf_cnpj, payer_email, provider_payment_id, qr_code, qr_code_base64, ticket_url, expires_at" as const;
 
 const isChargeExpired = (expiresAt: string | null) => {
   const expiresAtMs = Date.parse(expiresAt ?? "");
@@ -660,15 +831,7 @@ export const generateDepositPix = createServerFn({ method: "POST" })
       if (!Number.isInteger(charge.amount_cents) || charge.amount_cents <= 0) {
         throw new Error("Esta reserva não possui sinal a cobrar.");
       }
-      const { data: business, error: businessError } = await db
-        .from("businesses")
-        .select("asaas_wallet_id, asaas_subaccount_status, asaas_commission_percent")
-        .eq("id", charge.business_id)
-        .single();
-      if (businessError || !business || business.asaas_subaccount_status !== "aprovada") {
-        throw new Error("O estabelecimento ainda não está habilitado para receber pelo Asaas.");
-      }
-      if (charge.qr_code?.trim() && charge.qr_code_base64?.trim())
+      if (charge.qr_code?.trim())
         return {
           qrCode: charge.qr_code,
           qrCodeBase64: charge.qr_code_base64,
@@ -718,8 +881,8 @@ export const generateDepositPix = createServerFn({ method: "POST" })
         throw failure ?? new Error("Não foi possível gerar o Pix. Tente novamente.");
       };
       try {
-        // Relê depois do claim: outra instância pode ter salvo QR, id ou cliente (e
-        // apagado o CPF), ou a cobrança pode ter sido cancelada/expirada no intervalo.
+        // Relê depois do claim: outra instância pode ter salvo QR ou id, ou a
+        // cobrança pode ter sido cancelada/expirada no intervalo.
         const { data: current, error: currentError } = await db
           .from("deposit_payments")
           .select(DEPOSIT_PIX_COLUMNS)
@@ -734,7 +897,7 @@ export const generateDepositPix = createServerFn({ method: "POST" })
           throw new Error("O prazo desta reserva terminou. Faça um novo agendamento.");
         }
         paymentRecorded = Boolean(current.provider_payment_id);
-        if (current.qr_code?.trim() && current.qr_code_base64?.trim()) {
+        if (current.qr_code?.trim()) {
           saved = true;
           outcome = {
             qrCode: current.qr_code,
@@ -744,107 +907,71 @@ export const generateDepositPix = createServerFn({ method: "POST" })
           };
           return finish();
         }
-        const { getBusinessAsaasAccessToken } = await import("./asaas-events.server");
-        const accessToken = await pixExternalStep(current.id, "credential", () =>
-          getBusinessAsaasAccessToken(current.business_id),
-        );
-        const { getOrCreateCustomer, createPixCharge, isDefinitivePixAvailabilityRejection } =
-          await import("./asaas.server");
-        let customerId = current.asaas_customer_id;
-        if (!customerId) {
-          const payerDocument = current.payer_cpf_cnpj;
-          if (!payerDocument) throw new Error("CPF/CNPJ do pagador não informado.");
-          customerId = await pixExternalStep(current.id, "customer", () =>
-            getOrCreateCustomer({
-              accessToken,
-              name: current.payer_name ?? "Cliente",
-              cpfCnpj: payerDocument,
-              ...(current.payer_phone ? { phone: current.payer_phone } : {}),
-              externalReference: current.id,
-            }),
+        const { createPixCharge } = await import("./agpay.server");
+        const payerDocument = current.payer_cpf_cnpj;
+        if (!payerDocument) throw new Error("CPF/CNPJ do pagador não informado.");
+        const payerEmail = current.payer_email?.trim();
+        if (!payerEmail) throw new Error("E-mail do pagador não informado.");
+        if (current.provider_payment_id) {
+          throw new Error(
+            "A cobrança Pix já foi registrada e aguarda conciliação. Tente novamente em instantes.",
           );
-          // Keep the document until the customer ID is durably stored for retry.
-          const { data: updatedCustomer, error: customerUpdateError } = await db
-            .from("deposit_payments")
-            .update({ asaas_customer_id: customerId, payer_cpf_cnpj: null })
-            .eq("id", current.id)
-            .eq("status", "pendente")
-            .filter("pix_claim_token", "eq", claimToken)
-            .select("id")
-            .maybeSingle();
-          if (customerUpdateError || !updatedCustomer) {
-            throw new Error("Não foi possível preparar o Pix. Tente novamente.");
-          }
         }
 
-        // O POST só é anunciado depois que a busca não achou cobrança; o banco decide
-        // se o estado (nao_tentado ou post_incerto após carência) ainda permite POST.
-        const mayCreate =
-          !current.provider_payment_id &&
-          (claim.attempt_state === "nao_tentado" ||
-            claim.attempt_state === "post_incerto" ||
-            claim.attempt_state === "rejeitado");
-        const announcePost = async () => {
-          const { data: marked, error: markError } = await pixRpc("mark_deposit_pix_post_started", {
-            _charge_id: current.id,
-            _claim_token: claimToken,
-          });
-          return !markError && marked === true;
-        };
+        // O AgPay não oferece busca por referência externa. O banco é a única
+        // proteção contra POST duplicado e precisa autorizar imediatamente antes.
+        const { data: marked, error: markError } = await pixRpc("mark_deposit_pix_post_started", {
+          _charge_id: current.id,
+          _claim_token: claimToken,
+        });
+        if (markError || marked !== true) {
+          throw new Error("A cobrança anterior ainda está sendo conciliada.");
+        }
 
-        const pix = await pixExternalStep(
-          current.id,
-          "payment",
-          () =>
-            createPixCharge({
-              accessToken,
-              amountCents: current.amount_cents,
-              description: "Sinal do agendamento",
-              customerId,
-              externalReference: current.id,
-              commissionPercent: Number(business.asaas_commission_percent ?? 0),
-              knownPaymentId: current.provider_payment_id,
-              allowCreate: mayCreate,
-              beforeCreate: announcePost,
-              onPaymentLocated: async (payment) => {
-                if (payment.id === current.provider_payment_id) return;
-                // Nunca troca um provider_payment_id já gravado por outro.
-                const { data: updatedPayment, error: paymentError } = await db
-                  .from("deposit_payments")
-                  .update({
-                    provider: "asaas",
-                    provider_payment_id: payment.id,
-                    provider_status: payment.status,
-                  })
-                  .eq("id", current.id)
-                  .eq("status", "pendente")
-                  .filter("pix_claim_token", "eq", claimToken)
-                  .is("provider_payment_id", null)
-                  .select("id")
-                  .maybeSingle();
-                if (paymentError || !updatedPayment) {
-                  throw new Error("Não foi possível registrar a cobrança Pix.");
-                }
-                paymentRecorded = true;
-              },
-            }),
-          isDefinitivePixAvailabilityRejection,
+        const pix = await pixExternalStep(current.id, "payment", () =>
+          createPixCharge({
+            amountCents: current.amount_cents,
+            payerName: current.payer_name ?? "Cliente",
+            payerEmail,
+            payerCpf: payerDocument,
+          }),
         );
-        if (!pix.qrCode?.trim() || !pix.qrCodeBase64?.trim()) {
+
+        // Persiste o identificador assim que o POST retorna. Se qualquer passo
+        // posterior falhar, retries nunca emitem uma segunda cobrança.
+        const { data: updatedPayment, error: paymentError } = await db
+          .from("deposit_payments")
+          .update({
+            provider: "agpay",
+            provider_payment_id: pix.providerPaymentId,
+            provider_status: pix.status,
+          })
+          .eq("id", current.id)
+          .eq("status", "pendente")
+          .filter("pix_claim_token", "eq", claimToken)
+          .is("provider_payment_id", null)
+          .select("id")
+          .maybeSingle();
+        if (paymentError || !updatedPayment) {
+          throw new Error("Não foi possível registrar a cobrança Pix.");
+        }
+        paymentRecorded = true;
+
+        if (!pix.qrCode?.trim()) {
           throw new Error("O Pix ainda não está disponível. Tente novamente.");
         }
-        // A cobrança pode ter sido criada no Asaas depois que a reserva venceu: o id já
-        // está gravado para o cancelamento remover a cobrança, mas o QR não é exposto.
+        // A cobrança pode ter sido criada no AgPay depois que a reserva venceu: o id
+        // fica gravado para auditoria, mas o QR não é exposto.
         if (isChargeExpired(current.expires_at)) {
           throw new Error("O prazo desta reserva terminou. Faça um novo agendamento.");
         }
         const { data: updatedPix, error: pixUpdateError } = await db
           .from("deposit_payments")
           .update({
-            provider: "asaas",
+            provider: "agpay",
             provider_payment_id: pix.providerPaymentId,
             provider_status: pix.status,
-            asaas_customer_id: customerId,
+            payer_cpf_cnpj: null,
             qr_code: pix.qrCode,
             qr_code_base64: pix.qrCodeBase64,
             ticket_url: pix.ticketUrl,
@@ -882,7 +1009,7 @@ export const generateDepositPix = createServerFn({ method: "POST" })
 export const cancelDepositBooking = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
-    const { cancelPendingDeposit } = await import("./asaas-events.server");
+    const { cancelPendingDeposit } = await import("./agpay-events.server");
     const result = await cancelPendingDeposit(data.chargeId);
     if (result.status === "pendente") {
       throw new Error(
@@ -894,31 +1021,60 @@ export const cancelDepositBooking = createServerFn({ method: "POST" })
 
 export const getMyBookings = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ chargeIds: z.array(z.string().uuid()).max(50) }).parse(d),
+    z
+      .object({
+        chargeIds: z.array(z.string().uuid()).max(50).default([]),
+        publicCodes: z.array(z.string().uuid()).max(50).default([]),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
-    if (!data.chargeIds.length) return { bookings: [] };
+    if (!data.chargeIds.length && !data.publicCodes.length) return { bookings: [] };
     const db = await admin();
-    const { data: charges } = await db
-      .from("deposit_payments")
-      .select("id, status, amount_cents, payer_name, expires_at, created_at, appointment_id")
-      .in("id", data.chargeIds)
-      .order("created_at", { ascending: false });
-    const apptIds = (charges ?? []).map((c) => c.appointment_id).filter(Boolean) as string[];
-    const { data: appts } = apptIds.length
+    const { data: chargeRows } = data.chargeIds.length
+      ? await db
+          .from("deposit_payments")
+          .select("id, status, amount_cents, payer_name, expires_at, created_at, appointment_id")
+          .in("id", data.chargeIds)
+          .order("created_at", { ascending: false })
+      : { data: [] };
+    const chargedAppointmentIds = (chargeRows ?? [])
+      .map((charge) => charge.appointment_id)
+      .filter(Boolean) as string[];
+    const { data: chargedAppointments } = chargedAppointmentIds.length
       ? await db
           .from("appointments")
           .select("id, starts_at, status, service_id, professional_id")
-          .in("id", apptIds)
+          .in("id", chargedAppointmentIds)
       : { data: [] as never[] };
-    const serviceIds = [...new Set((appts ?? []).map((a) => a.service_id).filter(Boolean))];
+    const codedAppointments = data.publicCodes.length
+      ? await findAppointmentsByPublicCodes(db, data.publicCodes)
+      : [];
+    const appointments = [
+      ...(chargedAppointments ?? []),
+      ...codedAppointments.filter((coded) => !chargedAppointmentIds.includes(coded.id)),
+    ];
+    const appointmentIds = [...new Set(appointments.map((appointment) => appointment.id))];
+    const additionalCharges = appointmentIds.length
+      ? await db
+          .from("deposit_payments")
+          .select("id, status, amount_cents, payer_name, expires_at, created_at, appointment_id")
+          .in("appointment_id", appointmentIds)
+      : { data: [] as never[] };
+    const charges = [
+      ...(chargeRows ?? []),
+      ...(additionalCharges.data ?? []).filter(
+        (additional) => !(chargeRows ?? []).some((charge) => charge.id === additional.id),
+      ),
+    ];
+    const serviceIds = [...new Set(appointments.map((a) => a.service_id).filter(Boolean))];
     const { data: servicesRows } = serviceIds.length
       ? await db
           .from("services")
           .select("id, name")
           .in("id", serviceIds as string[])
       : { data: [] as never[] };
-    const profIds = [...new Set((appts ?? []).map((a) => a.professional_id).filter(Boolean))];
+    const profIds = [...new Set(appointments.map((a) => a.professional_id).filter(Boolean))];
     const { data: profs } = profIds.length
       ? await db
           .from("professionals")
@@ -926,19 +1082,23 @@ export const getMyBookings = createServerFn({ method: "POST" })
           .in("id", profIds as string[])
       : { data: [] as never[] };
 
-    const bookings = (charges ?? []).map((c) => {
-      const a = (appts ?? []).find((x) => x.id === c.appointment_id);
-      const s = (servicesRows ?? []).find((x) => x.id === a?.service_id);
-      const p = (profs ?? []).find((x) => x.id === a?.professional_id);
+    const bookings = appointments.map((a) => {
+      const c = charges.find((charge) => charge.appointment_id === a.id);
+      const s = (servicesRows ?? []).find((x) => x.id === a.service_id);
+      const p = (profs ?? []).find((x) => x.id === a.professional_id);
+      const codeRow = codedAppointments.find((coded) => coded.id === a.id);
       return {
-        chargeId: c.id,
-        chargeStatus: c.status,
-        amountCents: c.amount_cents,
-        customerName: c.payer_name,
-        expiresAt: c.expires_at,
-        createdAt: c.created_at,
-        startsAt: a?.starts_at ?? null,
-        appointmentStatus: a?.status ?? "cancelado",
+        chargeId: c?.id ?? null,
+        chargeStatus: c?.status ?? "sem_sinal",
+        amountCents: c?.amount_cents ?? 0,
+        publicCode: codeRow?.public_code ?? null,
+        customerName: c?.payer_name ?? codeRow?.customer_name ?? null,
+        expiresAt: c?.expires_at ?? null,
+        createdAt: c?.created_at ?? a.starts_at,
+        startsAt: a.starts_at,
+        appointmentStatus: a.status,
+        serviceId: a.service_id,
+        professionalId: a.professional_id,
         serviceName: s?.name ?? "Serviço",
         professionalName: p?.name ?? "Profissional Agenda",
       };
@@ -949,6 +1109,6 @@ export const getMyBookings = createServerFn({ method: "POST" })
 export const getDepositStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
-    const { synchronizeDepositPayment } = await import("./asaas-events.server");
+    const { synchronizeDepositPayment } = await import("./agpay-events.server");
     return synchronizeDepositPayment(data.chargeId);
   });

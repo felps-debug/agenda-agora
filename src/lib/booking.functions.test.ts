@@ -3,21 +3,25 @@ import {
   computeNowMin,
   computeOpenDays,
   computeSlots,
+  cancelAppointmentPublic,
   generateDepositPix,
   getPublicBookingCatalog,
+  getAvailability,
   hhmm,
   isValidCpfCnpj,
   minutesOf,
   reserveBooking,
+  rescheduleAppointmentPublic,
   shouldRequireDeposit,
   toIso,
 } from "./booking.functions";
+import { DEFAULT_PANEL1_APPEARANCE, defaultPanel1Config } from "./panel1-config";
+import { formatAppointmentDateTime } from "./booking-history";
 
 const pixRuntime = vi.hoisted(() => ({
   db: { from: vi.fn(), rpc: vi.fn() },
-  getBusinessAsaasAccessToken: vi.fn(),
-  getOrCreateCustomer: vi.fn(),
   createPixCharge: vi.fn(),
+  panel1Config: null as unknown,
 }));
 
 vi.mock("@tanstack/react-start", () => ({
@@ -37,15 +41,11 @@ vi.mock("@tanstack/react-start", () => ({
   },
 }));
 vi.mock("@/integrations/supabase/client.server", () => ({ supabaseAdmin: pixRuntime.db }));
-vi.mock("./asaas-events.server", () => ({
-  getBusinessAsaasAccessToken: pixRuntime.getBusinessAsaasAccessToken,
-}));
-vi.mock("./asaas.server", () => ({
-  getOrCreateCustomer: pixRuntime.getOrCreateCustomer,
+vi.mock("./agpay.server", () => ({
   createPixCharge: pixRuntime.createPixCharge,
-  isDefinitivePixAvailabilityRejection: (error: unknown) =>
-    Array.isArray((error as { codes?: unknown } | null)?.codes) &&
-    (error as { codes: unknown[] }).codes.includes("invalid_billingType"),
+}));
+vi.mock("@/lib/panel1-config.storage", () => ({
+  loadPanel1Config: async () => pixRuntime.panel1Config ?? defaultPanel1Config(),
 }));
 
 describe("isValidCpfCnpj", () => {
@@ -63,6 +63,31 @@ describe("minutesOf / hhmm", () => {
     expect(minutesOf("00:00")).toBe(0);
     expect(hhmm(570)).toBe("09:30");
     expect(hhmm(0)).toBe("00:00");
+  });
+});
+
+describe("toIso: fuso do estabelecimento", () => {
+  it.each([
+    ["America/Sao_Paulo", "2026-01-15T13:00:00.000Z"],
+    ["America/Manaus", "2026-01-15T14:00:00.000Z"],
+    ["America/Fortaleza", "2026-01-15T13:00:00.000Z"],
+    ["Asia/Tokyo", "2026-01-15T01:00:00.000Z"],
+  ])("converte 10h corretamente em %s", (timezone, expected) => {
+    expect(toIso("2026-01-15", "10:00", timezone)).toBe(expected);
+  });
+});
+
+describe("computeSlots: intervalo de listagem", () => {
+  it("usa o intervalo configurado entre horários", () => {
+    expect(
+      computeSlots({
+        hours: [{ starts_at: "09:00", ends_at: "11:00" }],
+        busy: [],
+        durationMinutes: 30,
+        nowMin: -1,
+        listingIntervalMinutes: 20,
+      }),
+    ).toEqual(["09:00", "09:20", "09:40", "10:00", "10:20"]);
   });
 });
 
@@ -195,20 +220,18 @@ const chargeId = "11111111-1111-4111-8111-111111111111";
 const businessId = "22222222-2222-4222-8222-222222222222";
 const pixResponse = {
   providerPaymentId: "pay_test_1",
-  status: "PENDING",
+  status: "pending",
   qrCode: "pix-copia-e-cola",
-  qrCodeBase64: "imagem-base64",
-  ticketUrl: "https://example.test/ticket",
+  qrCodeBase64: null,
+  ticketUrl: null,
 };
 
 function setupDepositPix(
   options: {
-    subaccountStatus?: string;
     expiresAt?: string;
     qrCode?: string | null;
-    asaasCustomerId?: string | null;
     payerCpfCnpj?: string | null;
-    failCustomerUpdate?: boolean;
+    payerEmail?: string | null;
     failQrUpdate?: boolean;
     providerPaymentId?: string | null;
     markAllowed?: boolean;
@@ -224,7 +247,8 @@ function setupDepositPix(
     payer_name: "Cliente Teste",
     payer_phone: "11999990000",
     payer_cpf_cnpj: options.payerCpfCnpj === undefined ? "52998224725" : options.payerCpfCnpj,
-    asaas_customer_id: options.asaasCustomerId ?? null,
+    payer_email:
+      options.payerEmail === undefined ? "cliente.pagador@example.com" : options.payerEmail,
     provider_payment_id: (options.providerPaymentId ?? null) as string | null,
     qr_code: options.qrCode ?? null,
     qr_code_base64: options.qrCode ? "imagem-base64" : null,
@@ -283,9 +307,6 @@ function setupDepositPix(
         select: vi.fn(() => updateQuery),
         maybeSingle: vi.fn(async () => {
           updates.push(patch);
-          if (options.failCustomerUpdate && "payer_cpf_cnpj" in patch) {
-            return { data: null, error: { message: "falha no update do cliente" } };
-          }
           if (options.failQrUpdate && "qr_code" in patch) {
             return { data: null, error: { message: "falha no update do QR" } };
           }
@@ -296,27 +317,10 @@ function setupDepositPix(
       return updateQuery;
     }),
   };
-  const businesses = {
-    select: vi.fn(() => ({
-      eq: vi.fn(() => ({
-        single: vi.fn(async () => ({
-          data: {
-            asaas_wallet_id: "wallet_test",
-            asaas_subaccount_status: options.subaccountStatus ?? "aprovada",
-            asaas_commission_percent: 0,
-          },
-          error: null,
-        })),
-      })),
-    })),
-  };
   pixRuntime.db.from.mockImplementation((table: string) => {
     if (table === "deposit_payments") return payments;
-    if (table === "businesses") return businesses;
     throw new Error(`Tabela inesperada no teste: ${table}`);
   });
-  pixRuntime.getBusinessAsaasAccessToken.mockResolvedValue("token-de-teste");
-  pixRuntime.getOrCreateCustomer.mockResolvedValue("cus_test_1");
   pixRuntime.createPixCharge.mockResolvedValue(pixResponse);
   return { charge, updates, payments, releases, updateFilters };
 }
@@ -324,24 +328,25 @@ function setupDepositPix(
 describe("generateDepositPix: retry e estados da cobrança", () => {
   beforeEach(() => vi.resetAllMocks());
 
-  it("reutiliza cliente após falha externa e permite retry sem pedir CPF novamente", async () => {
+  it("mantém o CPF após falha externa e permite retry pelo claim", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockRejectedValueOnce(
-      new Error("Asaas temporariamente indisponível"),
-    );
+    pixRuntime.createPixCharge.mockRejectedValueOnce(new Error("AgPay indisponível"));
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
-    expect(db.charge.asaas_customer_id).toBe("cus_test_1");
-    expect(db.charge.payer_cpf_cnpj).toBeNull();
+    expect(db.charge.payer_cpf_cnpj).toBe("52998224725");
 
     await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
       qrCode: pixResponse.qrCode,
       qrCodeBase64: pixResponse.qrCodeBase64,
     });
-    expect(pixRuntime.getOrCreateCustomer).toHaveBeenCalledOnce();
     expect(pixRuntime.createPixCharge).toHaveBeenCalledTimes(2);
     expect(pixRuntime.createPixCharge).toHaveBeenLastCalledWith(
-      expect.objectContaining({ customerId: "cus_test_1", externalReference: chargeId }),
+      expect.objectContaining({
+        amountCents: 2500,
+        payerName: "Cliente Teste",
+        payerEmail: "cliente.pagador@example.com",
+        payerCpf: "52998224725",
+      }),
     );
   });
 
@@ -371,7 +376,7 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
     expect(pixRuntime.createPixCharge).toHaveBeenCalledOnce();
   });
 
-  it("não consulta Asaas quando outra instância já detém o claim", async () => {
+  it("não cria outra cobrança quando outra instância já detém o claim", async () => {
     setupDepositPix();
     pixRuntime.db.rpc.mockResolvedValueOnce({
       data: [{ acquired: false, reason: "ocupada", claim_token: null, attempt_state: null }],
@@ -379,84 +384,70 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
     });
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(/sendo gerado/i);
-    expect(pixRuntime.getBusinessAsaasAccessToken).not.toHaveBeenCalled();
     expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 
-  it("em POST anterior incerto, só permite novo POST se o banco aceitar o anúncio", async () => {
-    setupDepositPix({ asaasCustomerId: "cus_salvo", payerCpfCnpj: null, markAllowed: false });
+  it("em POST anterior incerto, só envia novo POST se o banco aceitar o anúncio", async () => {
+    setupDepositPix({ markAllowed: false });
     pixRuntime.db.rpc.mockResolvedValueOnce({
       data: [
         { acquired: true, reason: "ok", claim_token: chargeId, attempt_state: "post_incerto" },
       ],
       error: null,
     });
-    let announced: boolean | undefined;
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: { beforeCreate: () => Promise<boolean> }) => {
-        announced = await input.beforeCreate();
-        throw new Error("A cobrança anterior ainda está sendo conciliada.");
-      },
-    );
-
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
-    expect(announced).toBe(false);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
     expect(pixRuntime.db.rpc).toHaveBeenCalledWith(
       "mark_deposit_pix_post_started",
       expect.objectContaining({ _claim_token: chargeId }),
     );
   });
 
-  it("não anuncia POST antes da busca: mark só roda via beforeCreate", async () => {
+  it("anuncia o POST pelo RPC imediatamente antes de chamar o AgPay", async () => {
     setupDepositPix();
 
     await generateDepositPix({ data: { chargeId } });
-    expect(pixRuntime.db.rpc).not.toHaveBeenCalledWith(
+    expect(pixRuntime.db.rpc).toHaveBeenCalledWith(
       "mark_deposit_pix_post_started",
       expect.anything(),
     );
     expect(pixRuntime.createPixCharge).toHaveBeenCalledWith(
-      expect.objectContaining({ allowCreate: true, beforeCreate: expect.any(Function) }),
+      expect.not.objectContaining({
+        knownPaymentId: expect.anything(),
+        allowCreate: expect.anything(),
+        beforeCreate: expect.anything(),
+        onPaymentLocated: expect.anything(),
+      }),
     );
   });
 
-  it("com provider_payment_id salvo, consulta a cobrança conhecida e nunca permite POST", async () => {
+  it("com provider_payment_id salvo e sem QR, aguarda conciliação e nunca repete POST", async () => {
     setupDepositPix({
-      asaasCustomerId: "cus_salvo",
-      payerCpfCnpj: null,
       providerPaymentId: "pay_salvo",
     });
 
-    await generateDepositPix({ data: { chargeId } });
-    expect(pixRuntime.createPixCharge).toHaveBeenCalledWith(
-      expect.objectContaining({ knownPaymentId: "pay_salvo", allowCreate: false }),
-    );
+    await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(/conciliação/i);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 
   it("libera como criado quando o ID foi gravado mesmo se o QR falhou", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: {
-        onPaymentLocated: (payment: { id: string; status: string }) => Promise<void>;
-      }) => {
-        await input.onPaymentLocated({ id: "pay_test_1", status: "PENDING" });
-        throw new Error("QR indisponível");
-      },
-    );
+    pixRuntime.createPixCharge.mockResolvedValueOnce({ ...pixResponse, qrCode: "" });
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
+    expect(db.charge.provider_payment_id).toBe("pay_test_1");
     expect(db.releases).toEqual(["criado"]);
   });
 
   it("libera como falhou quando nenhuma cobrança foi localizada", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockRejectedValueOnce(new Error("Asaas fora do ar"));
+    pixRuntime.createPixCharge.mockRejectedValueOnce(new Error("provedor fora do ar"));
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
     expect(db.releases).toEqual(["falhou"]);
   });
 
-  it("releases immediately for definitive Asaas Pix rejection", async () => {
+  it("normaliza rejeição do AgPay e libera o claim como falhou", async () => {
     const db = setupDepositPix();
     pixRuntime.createPixCharge.mockRejectedValueOnce(
       Object.assign(new Error("Provider rejected billing type."), {
@@ -465,45 +456,31 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
     );
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(
-      /habilitou pix.*sandbox/i,
+      /não foi possível gerar o pix agora/i,
     );
-    expect(db.releases).toEqual(["rejeitado"]);
+    expect(db.releases).toEqual(["falhou"]);
   });
 
   it("grava o ID do provedor filtrando por token e sem sobrescrever outro ID", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: {
-        onPaymentLocated: (payment: { id: string; status: string }) => Promise<void>;
-      }) => {
-        await input.onPaymentLocated({ id: "pay_test_1", status: "PENDING" });
-        return pixResponse;
-      },
-    );
 
     await generateDepositPix({ data: { chargeId } });
     expect(db.updateFilters).toContainEqual(["pix_claim_token", "eq", chargeId]);
     expect(db.updateFilters).toContainEqual(["provider_payment_id", "is", null]);
   });
 
-  it("relê após o claim: usa cliente salvo por outra instância sem exigir o CPF apagado", async () => {
+  it("relê após o claim: sem CPF não chama o AgPay", async () => {
     setupDepositPix({
       onClaim: (charge) => {
-        charge["asaas_customer_id"] = "cus_outra_instancia";
         charge["payer_cpf_cnpj"] = null;
       },
     });
 
-    await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
-      qrCode: pixResponse.qrCode,
-    });
-    expect(pixRuntime.getOrCreateCustomer).not.toHaveBeenCalled();
-    expect(pixRuntime.createPixCharge).toHaveBeenCalledWith(
-      expect.objectContaining({ customerId: "cus_outra_instancia" }),
-    );
+    await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(/CPF\/CNPJ/i);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 
-  it("relê após o claim: devolve QR persistido por outra instância sem chamar o Asaas", async () => {
+  it("relê após o claim: devolve QR persistido por outra instância", async () => {
     const db = setupDepositPix({
       onClaim: (charge) => {
         charge["provider_payment_id"] = "pay_outra_instancia";
@@ -515,12 +492,11 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
     await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
       qrCode: "pix-outra-instancia",
     });
-    expect(pixRuntime.getBusinessAsaasAccessToken).not.toHaveBeenCalled();
     expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
     expect(db.releases).toEqual(["criado"]);
   });
 
-  it("relê após o claim: cobrança expirada no intervalo não chama o Asaas", async () => {
+  it("relê após o claim: cobrança expirada no intervalo não cria cobrança", async () => {
     const db = setupDepositPix({
       onClaim: (charge) => {
         charge["status"] = "expirado";
@@ -536,22 +512,14 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
 
   it("todas as gravações exigem status pendente e token do claim", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: {
-        onPaymentLocated: (payment: { id: string; status: string }) => Promise<void>;
-      }) => {
-        await input.onPaymentLocated({ id: "pay_test_1", status: "PENDING" });
-        return pixResponse;
-      },
-    );
 
     await generateDepositPix({ data: { chargeId } });
     const statusFilters = db.updateFilters.filter(
       ([column, op, value]) => column === "status" && op === "eq" && value === "pendente",
     );
     const tokenFilters = db.updateFilters.filter(([column]) => column === "pix_claim_token");
-    expect(statusFilters).toHaveLength(3);
-    expect(tokenFilters).toHaveLength(3);
+    expect(statusFilters).toHaveLength(2);
+    expect(tokenFilters).toHaveLength(2);
     expect(db.updateFilters.some(([column, op]) => column === "expires_at" && op === "gt")).toBe(
       true,
     );
@@ -561,15 +529,10 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
     const db = setupDepositPix();
     const realNow = Date.now();
     const nowSpy = vi.spyOn(Date, "now");
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: {
-        onPaymentLocated: (payment: { id: string; status: string }) => Promise<void>;
-      }) => {
-        await input.onPaymentLocated({ id: "pay_tardio", status: "PENDING" });
-        nowSpy.mockReturnValue(realNow + 60 * 60_000);
-        return pixResponse;
-      },
-    );
+    pixRuntime.createPixCharge.mockImplementationOnce(async () => {
+      nowSpy.mockReturnValue(realNow + 60 * 60_000);
+      return { ...pixResponse, providerPaymentId: "pay_tardio" };
+    });
 
     try {
       await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(/prazo/i);
@@ -589,22 +552,15 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
 
     vi.resetAllMocks();
     setupDepositPix({ releaseFails: true });
-    pixRuntime.createPixCharge.mockRejectedValueOnce(new Error("Asaas fora do ar"));
+    pixRuntime.createPixCharge.mockRejectedValueOnce(new Error("provedor fora do ar"));
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(
       /não foi possível gerar o pix agora/i,
     );
   });
 
-  it("persiste o ID do provedor antes de uma falha ao buscar o QR", async () => {
+  it("persiste o ID do provedor antes de rejeitar resposta sem QR", async () => {
     const db = setupDepositPix();
-    pixRuntime.createPixCharge.mockImplementationOnce(
-      async (input: {
-        onPaymentLocated: (payment: { id: string; status: string }) => Promise<void>;
-      }) => {
-        await input.onPaymentLocated({ id: "pay_test_1", status: "PENDING" });
-        throw new Error("QR indisponível");
-      },
-    );
+    pixRuntime.createPixCharge.mockResolvedValueOnce({ ...pixResponse, qrCode: "" });
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
     expect(db.charge.provider_payment_id).toBe("pay_test_1");
@@ -616,58 +572,52 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
       setupDepositPix({ expiresAt: "2020-01-01T00:00:00.000Z", qrCode });
 
       await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
-      expect(pixRuntime.getBusinessAsaasAccessToken).not.toHaveBeenCalled();
       expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
     },
   );
 
-  it("usa asaas_customer_id já salvo mesmo quando CPF temporário foi apagado", async () => {
-    setupDepositPix({ asaasCustomerId: "cus_salvo", payerCpfCnpj: null });
+  it("envia ao AgPay apenas os campos suportados pelo novo cliente", async () => {
+    setupDepositPix();
 
-    await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
-      qrCode: pixResponse.qrCode,
+    await generateDepositPix({ data: { chargeId } });
+    expect(pixRuntime.createPixCharge).toHaveBeenCalledWith({
+      amountCents: 2500,
+      payerName: "Cliente Teste",
+      payerEmail: "cliente.pagador@example.com",
+      payerCpf: "52998224725",
     });
-    expect(pixRuntime.getOrCreateCustomer).not.toHaveBeenCalled();
-    expect(pixRuntime.createPixCharge).toHaveBeenCalledWith(
-      expect.objectContaining({ customerId: "cus_salvo" }),
-    );
-  });
-
-  it("interrompe antes de criar Pix se falhar o update que vincula cliente e apaga CPF", async () => {
-    const db = setupDepositPix({ failCustomerUpdate: true });
-
-    await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
-    expect(db.charge.payer_cpf_cnpj).toBe("52998224725");
-    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 
   it("não declara sucesso se falhar o update do QR e do provider_payment_id", async () => {
     const db = setupDepositPix({ failQrUpdate: true });
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
-    expect(db.charge.provider_payment_id).toBeNull();
+    expect(db.charge.provider_payment_id).toBe("pay_test_1");
     expect(db.charge.qr_code).toBeNull();
   });
 
-  it.each([
-    ["payload", { qrCode: "", qrCodeBase64: pixResponse.qrCodeBase64 }],
-    ["imagem", { qrCode: pixResponse.qrCode, qrCodeBase64: null }],
-  ])("não devolve sucesso com %s do QR ausente", async (_part, missing) => {
+  it("não devolve sucesso sem o payload copia-e-cola", async () => {
     setupDepositPix();
-    pixRuntime.createPixCharge.mockResolvedValue({ ...pixResponse, ...missing });
+    pixRuntime.createPixCharge.mockResolvedValue({ ...pixResponse, qrCode: "" });
 
     await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
   });
 
-  it("mantém subconta em análise bloqueada sem chamar Asaas", async () => {
-    setupDepositPix({ subaccountStatus: "em_analise" });
+  it("aceita QR sem imagem base64, como retornado pelo AgPay", async () => {
+    setupDepositPix();
+    await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
+      qrCode: pixResponse.qrCode,
+      qrCodeBase64: null,
+    });
+  });
 
-    await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow(
-      /não está habilitado/i,
-    );
-    expect(pixRuntime.getBusinessAsaasAccessToken).not.toHaveBeenCalled();
-    expect(pixRuntime.getOrCreateCustomer).not.toHaveBeenCalled();
-    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
+  it("cria cobrança sem e-mail de split ou aprovação prévia", async () => {
+    setupDepositPix();
+
+    await expect(generateDepositPix({ data: { chargeId } })).resolves.toMatchObject({
+      qrCode: pixResponse.qrCode,
+    });
+    expect(pixRuntime.createPixCharge).toHaveBeenCalledOnce();
   });
 });
 
@@ -697,6 +647,249 @@ function fakeQuery(table: string, result: unknown, calls: Call[]): unknown {
 
 const serviceId = "33333333-3333-4333-8333-333333333333";
 const appointmentId = "44444444-4444-4444-8444-444444444444";
+const publicCode = "55555555-5555-4555-8555-555555555555";
+
+function setupPublicAppointment(
+  options: {
+    found?: boolean;
+    status?: string;
+    startsAt?: string;
+    cancellationsEnabled?: boolean;
+    cancellationNotice?: number;
+    rescheduleEnabled?: boolean;
+    rescheduleNotice?: number;
+  } = {},
+) {
+  const row: Record<string, unknown> = {
+    id: appointmentId,
+    public_code: publicCode,
+    business_id: businessId,
+    service_id: serviceId,
+    professional_id: null,
+    customer_name: "Cliente Teste",
+    customer_phone: "11999990000",
+    starts_at: options.startsAt ?? "2099-01-05T13:00:00.000Z",
+    ends_at: "2099-01-05T13:30:00.000Z",
+    status: options.status ?? "agendado",
+  };
+  const config = defaultPanel1Config();
+  config.preferences.cancellations_enabled = options.cancellationsEnabled ?? true;
+  config.preferences.cancellation_notice_minutes = options.cancellationNotice ?? 60;
+  config.preferences.reschedule_enabled = options.rescheduleEnabled ?? true;
+  config.preferences.reschedule_notice_minutes = options.rescheduleNotice ?? 60;
+  pixRuntime.panel1Config = config;
+  const appointmentQuery = {
+    select: () => ({
+      in: async (_column: string, codes: string[]) => ({
+        data: options.found === false || !codes.includes(publicCode) ? [] : [row],
+        error: null,
+      }),
+    }),
+    update: (patch: Record<string, unknown>) => {
+      const query = {
+        eq: () => query,
+        select: () => query,
+        maybeSingle: async () => {
+          Object.assign(row, patch);
+          return { data: { id: appointmentId }, error: null };
+        },
+      };
+      return query;
+    },
+  };
+  pixRuntime.db.from.mockImplementation((table: string) => {
+    if (table === "appointments") return appointmentQuery;
+    throw new Error(`Tabela inesperada no teste: ${table}`);
+  });
+  return { row };
+}
+
+function setupAvailableReschedule(timezone = "America/Sao_Paulo") {
+  const row: Record<string, unknown> = {
+    id: appointmentId,
+    public_code: publicCode,
+    business_id: businessId,
+    service_id: serviceId,
+    professional_id: null,
+    customer_name: "Cliente Teste",
+    customer_phone: "11999990000",
+    starts_at: "2099-01-05T13:00:00.000Z",
+    ends_at: "2099-01-05T13:30:00.000Z",
+    status: "agendado",
+  };
+  const config = defaultPanel1Config();
+  config.preferences.reschedule_enabled = true;
+  config.preferences.reschedule_notice_minutes = 60;
+  config.preferences.timezone = timezone;
+  pixRuntime.panel1Config = config;
+  const from = vi.fn((table: string) => {
+    let selected = "";
+    let patch: Record<string, unknown> | null = null;
+    let result: unknown;
+    const query = new Proxy(
+      {},
+      {
+        get(_target, property) {
+          if (property === "select") return (columns: string) => ((selected = columns), query);
+          if (property === "update")
+            return (value: Record<string, unknown>) => ((patch = value), query);
+          if (property === "in")
+            return async (_column: string, codes: string[]) => ({
+              data: codes.includes(publicCode) ? [row] : [],
+              error: null,
+            });
+          if (property === "maybeSingle")
+            return async () => {
+              if (table === "businesses")
+                return {
+                  data:
+                    selected === "slug"
+                      ? { slug: "barbearia" }
+                      : { id: businessId, status: "ativo" },
+                  error: null,
+                };
+              if (table === "services")
+                return {
+                  data:
+                    selected === "duration_minutes"
+                      ? { duration_minutes: 30 }
+                      : {
+                          id: serviceId,
+                          name: "Corte",
+                          duration_minutes: 30,
+                          requires_deposit: false,
+                          deposit_mode: "fixed",
+                          deposit_percent_bps: 0,
+                          price_cents: 10_000,
+                          deposit_cents: 0,
+                        },
+                  error: null,
+                };
+              if (table === "appointments" && patch) {
+                Object.assign(row, patch);
+                return { data: { id: appointmentId }, error: null };
+              }
+              return { data: null, error: null };
+            };
+          if (property === "then")
+            return (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
+              Promise.resolve(
+                result ??
+                  (table === "business_hours"
+                    ? { data: [{ starts_at: "09:00", ends_at: "12:00" }], error: null }
+                    : { data: [], error: null }),
+              ).then(resolve, reject);
+          return (..._args: unknown[]) => query;
+        },
+      },
+    );
+    return query;
+  });
+  pixRuntime.db.from.mockImplementation(from);
+  return { row };
+}
+
+describe("cancelAppointmentPublic: acesso pelo código público", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("cancela uma reserva identificada pelo código e repete sem efeito adicional", async () => {
+    const db = setupPublicAppointment();
+    await expect(cancelAppointmentPublic({ data: { publicCode } })).resolves.toEqual({
+      ok: true,
+      status: "cancelado",
+    });
+    expect(db.row["status"]).toBe("cancelado");
+    await expect(cancelAppointmentPublic({ data: { publicCode } })).resolves.toEqual({
+      ok: true,
+      status: "cancelado",
+    });
+  });
+
+  it("recusa código inexistente ou pertencente a outra reserva", async () => {
+    setupPublicAppointment({ found: false });
+    await expect(cancelAppointmentPublic({ data: { publicCode } })).rejects.toThrow(
+      "Agendamento não encontrado.",
+    );
+  });
+
+  it("repetir a remarcação para o horário já salvo é idempotente", async () => {
+    setupPublicAppointment({
+      startsAt: "2099-01-05T13:00:00.000Z",
+      rescheduleEnabled: true,
+    });
+    await expect(
+      rescheduleAppointmentPublic({ data: { publicCode, date: "2099-01-05", time: "10:00" } }),
+    ).resolves.toMatchObject({ ok: true, startsAt: "2099-01-05T13:00:00.000Z" });
+  });
+
+  it("remarca para um horário disponível e preserva o código público", async () => {
+    const db = setupAvailableReschedule();
+    await expect(
+      rescheduleAppointmentPublic({ data: { publicCode, date: "2099-01-06", time: "10:00" } }),
+    ).resolves.toMatchObject({ ok: true, startsAt: "2099-01-06T13:00:00.000Z" });
+    expect(db.row["starts_at"]).toBe("2099-01-06T13:00:00.000Z");
+    expect(db.row["public_code"]).toBe(publicCode);
+  });
+
+  it.each([
+    ["America/Manaus", "2099-01-06T14:30:00.000Z"],
+    ["America/Fortaleza", "2099-01-06T13:30:00.000Z"],
+    ["America/Sao_Paulo", "2099-01-06T13:30:00.000Z"],
+  ])("fluxo completo mantém 10:30 da lista até o histórico em %s", async (timezone, expected) => {
+    const db = setupAvailableReschedule(timezone);
+    const availability = await getAvailability({
+      data: { slug: "barbearia", serviceId, date: "2099-01-06" },
+    });
+    const selectedTime = availability.slots.find((slot) => slot === "10:30");
+    expect(selectedTime).toBe("10:30");
+    await expect(
+      rescheduleAppointmentPublic({
+        data: { publicCode, date: "2099-01-06", time: selectedTime! },
+      }),
+    ).resolves.toMatchObject({ startsAt: expected });
+    expect(db.row["starts_at"]).toBe(expected);
+    expect(formatAppointmentDateTime(String(db.row["starts_at"]), timezone)).toContain("10:30");
+  });
+
+  it("respeita recurso desligado e prazo mínimo para cancelar", async () => {
+    setupPublicAppointment({ cancellationsEnabled: false });
+    await expect(cancelAppointmentPublic({ data: { publicCode } })).rejects.toThrow(
+      /cancelamento não está disponível/i,
+    );
+
+    setupPublicAppointment({
+      startsAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      cancellationNotice: 60,
+    });
+    await expect(cancelAppointmentPublic({ data: { publicCode } })).rejects.toThrow(
+      /prazo para cancelar/i,
+    );
+  });
+});
+
+describe("rescheduleAppointmentPublic: acesso pelo código público", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("recusa código de outra reserva, recurso desligado e prazo encerrado", async () => {
+    setupPublicAppointment({ found: false });
+    await expect(
+      rescheduleAppointmentPublic({ data: { publicCode, date: "2099-01-06", time: "10:00" } }),
+    ).rejects.toThrow("Agendamento não encontrado.");
+
+    setupPublicAppointment({ rescheduleEnabled: false });
+    await expect(
+      rescheduleAppointmentPublic({ data: { publicCode, date: "2099-01-06", time: "10:00" } }),
+    ).rejects.toThrow(/remarcação não está disponível/i);
+
+    setupPublicAppointment({
+      startsAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+      rescheduleNotice: 60,
+    });
+    await expect(
+      rescheduleAppointmentPublic({ data: { publicCode, date: "2099-01-06", time: "10:00" } }),
+    ).rejects.toThrow(/prazo para remarcar/i);
+  });
+});
 
 function setupReserve(
   service: Partial<{
@@ -705,13 +898,16 @@ function setupReserve(
     deposit_percent_bps: number;
     price_cents: number;
     deposit_cents: number;
-  }>,
-  subaccountStatus = "aprovada",
+  }> = {},
+  timezone = "America/Sao_Paulo",
 ) {
+  const config = defaultPanel1Config();
+  config.preferences.timezone = timezone;
+  pixRuntime.panel1Config = config;
   const calls: Call[] = [];
   const results: Record<string, unknown> = {
     businesses: {
-      data: { id: businessId, status: "ativo", asaas_subaccount_status: subaccountStatus },
+      data: { id: businessId, status: "ativo" },
       error: null,
     },
     services: {
@@ -746,7 +942,11 @@ function setupReserve(
     calls
       .filter((c) => c.table === table && c.method === "insert")
       .map((c) => c.args[0] as Record<string, unknown>);
-  return { calls, inserted };
+  return {
+    calls,
+    inserted,
+    service: (results["services"] as { data: Record<string, unknown> }).data,
+  };
 }
 
 const reserveInput = {
@@ -756,11 +956,28 @@ const reserveInput = {
   time: "10:00",
   customerName: "Cliente Teste",
   customerPhone: "11999990000",
+  customerEmail: "cliente.pagador@example.com",
   customerCpfCnpj: "529.982.247-25",
 };
 
 describe("reserveBooking: snapshot do sinal (fixo/percentual)", () => {
   beforeEach(() => vi.resetAllMocks());
+
+  it("usa o fuso do negócio ao criar o horário, como no fluxo de remarcação", async () => {
+    const db = setupReserve(
+      { requires_deposit: false, deposit_mode: "fixed", deposit_cents: 0 },
+      "America/Manaus",
+    );
+
+    await reserveBooking({ data: reserveInput });
+
+    expect(db.inserted("appointments")[0]).toMatchObject({
+      starts_at: "2099-01-05T14:00:00.000Z",
+      ends_at: "2099-01-05T14:30:00.000Z",
+      status: "agendado",
+    });
+    expect(db.calls.some((call) => call.table === "deposit_payments")).toBe(false);
+  });
 
   it("10% de R$ 100 grava o mesmo snapshot de R$ 10 no agendamento e na cobrança", async () => {
     const db = setupReserve({
@@ -790,35 +1007,48 @@ describe("reserveBooking: snapshot do sinal (fixo/percentual)", () => {
     expect(db.inserted("deposit_payments")[0]).toMatchObject({ amount_cents: 2_500 });
   });
 
+  it("mantém o snapshot do sinal após o serviço ser editado", async () => {
+    const db = setupReserve({ deposit_mode: "percent", deposit_percent_bps: 1_000 });
+    await reserveBooking({ data: reserveInput });
+    const firstAppointment = db.inserted("appointments")[0]!;
+    const firstPayment = db.inserted("deposit_payments")[0]!;
+
+    db.service["price_cents"] = 20_000;
+    db.service["deposit_percent_bps"] = 2_000;
+    await reserveBooking({ data: reserveInput });
+    const secondAppointment = db.inserted("appointments")[1]!;
+
+    expect(firstAppointment["deposit_cents"]).toBe(1_000);
+    expect(firstPayment["amount_cents"]).toBe(1_000);
+    expect(secondAppointment["deposit_cents"]).toBe(4_000);
+  });
+
   it.each([
-    ["0%", { deposit_percent_bps: 0, price_cents: 10_000 }],
-    ["preço zero", { deposit_percent_bps: 5_000, price_cents: 0 }],
-  ])(
-    "%s no modo percentual confirma sem cobrança, sem Asaas e sem deposit_payments",
-    async (_label, config) => {
-      // Subconta pendente não bloqueia: não há sinal a receber.
-      const db = setupReserve({ deposit_mode: "percent", ...config }, "pendente");
+    ["0%", { requires_deposit: false, deposit_percent_bps: 0, price_cents: 10_000 }],
+    ["preço zero", { requires_deposit: false, deposit_percent_bps: 5_000, price_cents: 0 }],
+  ])("%s no modo percentual confirma sem cobrança nem deposit_payments", async (_label, config) => {
+    const db = setupReserve({ deposit_mode: "percent", ...config });
 
-      const result = await reserveBooking({ data: reserveInput });
+    const result = await reserveBooking({ data: reserveInput });
 
-      expect(result).toMatchObject({ chargeId: null, amountCents: 0 });
-      expect(db.inserted("appointments")[0]).toMatchObject({
-        status: "agendado",
-        deposit_cents: 0,
-      });
-      expect(db.calls.some((c) => c.table === "deposit_payments")).toBe(false);
-      expect(pixRuntime.getOrCreateCustomer).not.toHaveBeenCalled();
-      expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toMatchObject({ chargeId: null, amountCents: 0 });
+    expect(db.inserted("appointments")[0]).toMatchObject({
+      status: "agendado",
+      deposit_cents: 0,
+    });
+    expect(db.calls.some((c) => c.table === "deposit_payments")).toBe(false);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
+  });
 
-  it("fixo legado exigindo sinal sem valor continua recusado", async () => {
+  it("serviço legado com exigência e sinal zero confirma sem cobrança", async () => {
     const db = setupReserve({ deposit_mode: "fixed", deposit_cents: 0 });
 
-    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
-      "Este serviço ainda não tem valor de sinal configurado.",
-    );
-    expect(db.inserted("appointments")).toHaveLength(0);
+    await expect(reserveBooking({ data: reserveInput })).resolves.toMatchObject({
+      chargeId: null,
+      amountCents: 0,
+    });
+    expect(db.inserted("appointments")[0]).toMatchObject({ status: "agendado", deposit_cents: 0 });
+    expect(db.calls.some((call) => call.table === "deposit_payments")).toBe(false);
   });
 
   it("configuração de sinal inválida é recusada antes de reservar", async () => {
@@ -826,9 +1056,22 @@ describe("reserveBooking: snapshot do sinal (fixo/percentual)", () => {
     const db = setupReserve({ deposit_mode: "percent", deposit_percent_bps: 12_000 });
 
     await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
-      "O sinal deste serviço está configurado incorretamente.",
+      "Este serviço não está disponível para reserva agora. Tente outro horário ou entre em contato.",
     );
     expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it.each([
+    ["-1%", -100],
+    ["101%", 10_100],
+  ])("rejeita percentual de sinal %s antes de reservar", async (_label, percentBps) => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = setupReserve({ deposit_mode: "percent", deposit_percent_bps: percentBps });
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      "Este serviço não está disponível para reserva agora. Tente outro horário ou entre em contato.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 });
 
@@ -838,7 +1081,11 @@ describe("reserveBooking: CPF/CNPJ condicional ao sinal efetivo (T038)", () => {
   const withoutDocument = { ...reserveInput, customerCpfCnpj: undefined };
 
   it("sinal zero reserva sem CPF/CNPJ", async () => {
-    const db = setupReserve({ deposit_mode: "percent", deposit_percent_bps: 0 });
+    const db = setupReserve({
+      requires_deposit: false,
+      deposit_mode: "percent",
+      deposit_percent_bps: 0,
+    });
 
     const result = await reserveBooking({ data: withoutDocument });
 
@@ -858,12 +1105,15 @@ describe("reserveBooking: CPF/CNPJ condicional ao sinal efetivo (T038)", () => {
     },
   );
 
-  it("sinal positivo grava o documento normalizado para o Asaas", async () => {
+  it("sinal positivo grava o documento normalizado para o pagamento", async () => {
     const db = setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 });
 
     await reserveBooking({ data: reserveInput });
 
     expect(db.inserted("deposit_payments")[0]).toMatchObject({ payer_cpf_cnpj: "52998224725" });
+    expect(db.inserted("deposit_payments")[0]).toMatchObject({
+      payer_email: "cliente.pagador@example.com",
+    });
   });
 
   it("documento informado mas inválido continua recusado", async () => {
@@ -873,10 +1123,33 @@ describe("reserveBooking: CPF/CNPJ condicional ao sinal efetivo (T038)", () => {
       reserveBooking({ data: { ...reserveInput, customerCpfCnpj: "529.982.247-24" } }),
     ).rejects.toThrow("CPF ou CNPJ inválido");
   });
+
+  it.each([undefined, "", "   "])(
+    "sinal positivo recusa e-mail ausente (%j) antes de reservar",
+    async (customerEmail) => {
+      const db = setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 });
+
+      await expect(reserveBooking({ data: { ...reserveInput, customerEmail } })).rejects.toThrow(
+        /e-mail (?:inválido|válido para gerar o Pix)/i,
+      );
+      expect(db.inserted("appointments")).toHaveLength(0);
+    },
+  );
+
+  it("sinal positivo recusa e-mail inválido", async () => {
+    setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 });
+
+    await expect(
+      reserveBooking({ data: { ...reserveInput, customerEmail: "email-invalido" } }),
+    ).rejects.toThrow("E-mail inválido");
+  });
 });
 
 describe("getPublicBookingCatalog: sinal efetivo calculado no servidor", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    pixRuntime.panel1Config = null;
+  });
 
   it("expõe o sinal efetivo e omite serviço com sinal inválido", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -944,12 +1217,60 @@ describe("getPublicBookingCatalog: sinal efetivo calculado no servidor", () => {
       fakeQuery(table, results[table], calls),
     );
 
-    const { services } = await getPublicBookingCatalog({ data: { slug: "barbearia" } });
+    const { services, appearance } = await getPublicBookingCatalog({ data: { slug: "barbearia" } });
+
+    expect(Object.keys(appearance ?? {}).sort()).toEqual(
+      Object.keys(DEFAULT_PANEL1_APPEARANCE).sort(),
+    );
+    expect(appearance).toEqual(DEFAULT_PANEL1_APPEARANCE);
 
     expect(services.map((s) => [s.id, s.effectiveDepositCents, s.deposit_cents])).toEqual([
       ["percent", 1_000, 1_000],
       ["fixed", 2_500, 2_500],
       ["zero", 0, 0],
     ]);
+  });
+
+  it("retorna as 17 cores salvas na aparência pública", async () => {
+    const calls: Call[] = [];
+    const savedAppearance = Object.fromEntries(
+      Object.keys(DEFAULT_PANEL1_APPEARANCE).map((key, index) => [
+        key,
+        `#${index.toString(16).padStart(6, "0")}`,
+      ]),
+    );
+    pixRuntime.panel1Config = {
+      ...defaultPanel1Config(),
+      appearance: savedAppearance,
+    };
+    pixRuntime.db.from.mockImplementation((table: string) =>
+      fakeQuery(
+        table,
+        table === "businesses"
+          ? {
+              data: {
+                id: businessId,
+                name: "Barbearia",
+                category: null,
+                phone: null,
+                address: null,
+                status: "ativo",
+                brand_primary: null,
+                brand_background: null,
+                logo_url: null,
+              },
+              error: null,
+            }
+          : { data: [], error: null },
+        calls,
+      ),
+    );
+
+    const { appearance } = await getPublicBookingCatalog({ data: { slug: "barbearia" } });
+
+    expect(appearance).toEqual(savedAppearance);
+    expect(Object.keys(appearance ?? {})).toHaveLength(
+      Object.keys(DEFAULT_PANEL1_APPEARANCE).length,
+    );
   });
 });

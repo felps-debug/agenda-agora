@@ -1,5 +1,27 @@
+export const PANEL1_FONTS = [
+  "inter",
+  "playfair-display",
+  "montserrat",
+  "poppins",
+  "lato",
+  "roboto",
+  "oswald",
+  "merriweather",
+] as const;
+export type Panel1Font = (typeof PANEL1_FONTS)[number];
+
+export const PANEL1_LOGO_FITS = ["quadrado", "horizontal", "vertical"] as const;
+export type Panel1LogoFit = (typeof PANEL1_LOGO_FITS)[number];
+
 export type Panel1Appearance = {
+  font_family: Panel1Font;
+  logo_fit: Panel1LogoFit;
   page_text: string;
+  header_background: string;
+  header_text: string;
+  header_title: string;
+  service_name_text: string;
+  service_price_text: string;
   service_background: string;
   service_text: string;
   service_border: string;
@@ -45,7 +67,14 @@ export const DEFAULT_EXTRA_REMINDER_TEMPLATE =
   "{Saudacao} {Cliente}, só estou passando aqui para lembrar que você tem um horário agendado conosco hoje às {Horario} 😅 Espero por você, até breve! 👋";
 
 export const DEFAULT_PANEL1_APPEARANCE: Panel1Appearance = {
+  font_family: "inter",
+  logo_fit: "quadrado",
   page_text: "#f3f4f6",
+  header_background: "#050607",
+  header_text: "#f3f4f6",
+  header_title: "#f3f4f6",
+  service_name_text: "#f3f4f6",
+  service_price_text: "#f3f4f6",
   service_background: "#0b0d0f",
   service_text: "#f3f4f6",
   service_border: "#2a2d32",
@@ -63,6 +92,58 @@ export const DEFAULT_PANEL1_APPEARANCE: Panel1Appearance = {
   agenda_text: "#f3f4f6",
   agenda_border: "#2a2d32",
 };
+
+export const PANEL1_APPEARANCE_PRESETS = {
+  noturno: {
+    header_background: "#050607",
+    header_text: "#f3f4f6",
+    header_title: "#f3f4f6",
+    service_background: "#0b0d0f",
+    service_text: "#f3f4f6",
+    service_border: "#2a2d32",
+    service_name_text: "#f3f4f6",
+    service_price_text: "#f3f4f6",
+  },
+  classico: {
+    header_background: "#3a261d",
+    header_text: "#fff4e8",
+    header_title: "#fff4e8",
+    service_background: "#fffaf4",
+    service_text: "#2c211b",
+    service_border: "#c9ab84",
+    service_name_text: "#2c211b",
+    service_price_text: "#765333",
+  },
+  claro: {
+    header_background: "#f4f6f8",
+    header_text: "#1d2939",
+    header_title: "#101828",
+    service_background: "#ffffff",
+    service_text: "#344054",
+    service_border: "#d0d5dd",
+    service_name_text: "#101828",
+    service_price_text: "#475467",
+  },
+  verde: {
+    header_background: "#123b35",
+    header_text: "#e8fff8",
+    header_title: "#ffffff",
+    service_background: "#f1faf6",
+    service_text: "#173b32",
+    service_border: "#9ac7b7",
+    service_name_text: "#173b32",
+    service_price_text: "#28614f",
+  },
+} as const;
+
+export type Panel1AppearancePreset = keyof typeof PANEL1_APPEARANCE_PRESETS;
+
+export function applyPanel1AppearancePreset(
+  current: Panel1Appearance,
+  preset: Panel1AppearancePreset,
+): Panel1Appearance {
+  return { ...current, ...PANEL1_APPEARANCE_PRESETS[preset] };
+}
 
 export const DEFAULT_PANEL1_PREFERENCES: Panel1Preferences = {
   minimum_notice_hours: 2,
@@ -130,8 +211,19 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
   const appearance = { ...DEFAULT_PANEL1_APPEARANCE };
 
   for (const key of Object.keys(appearance) as Array<keyof Panel1Appearance>) {
+    if (key === "font_family" || key === "logo_fit") continue;
     appearance[key] = colorValue(rawAppearance[key], appearance[key]);
   }
+  appearance.font_family = (PANEL1_FONTS as readonly string[]).includes(
+    rawAppearance["font_family"] as string,
+  )
+    ? (rawAppearance["font_family"] as Panel1Font)
+    : DEFAULT_PANEL1_APPEARANCE.font_family;
+  appearance.logo_fit = (PANEL1_LOGO_FITS as readonly string[]).includes(
+    rawAppearance["logo_fit"] as string,
+  )
+    ? (rawAppearance["logo_fit"] as Panel1LogoFit)
+    : DEFAULT_PANEL1_APPEARANCE.logo_fit;
 
   const rawListing = Math.round(
     numberValue(

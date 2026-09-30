@@ -5,6 +5,8 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
 import {
   DEFAULT_PANEL1_APPEARANCE,
+  PANEL1_FONTS,
+  PANEL1_LOGO_FITS,
   type Panel1Appearance,
   type Panel1Preferences,
 } from "@/lib/panel1-config";
@@ -34,25 +36,31 @@ export const getPanel1Config = createServerFn({ method: "GET" })
     return loadPanel1Config(supabaseAdmin, data.businessId);
   });
 
-const appearanceKeys = new Set(Object.keys(DEFAULT_PANEL1_APPEARANCE));
-const appearancePatch = z
-  .record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/))
-  .refine((value) => Object.keys(value).every((key) => appearanceKeys.has(key)), {
-    message: "Campo de aparência desconhecido.",
-  });
-const preferencesPatch = z
+const appearanceColorKeys = Object.keys(DEFAULT_PANEL1_APPEARANCE).filter(
+  (key) => key !== "font_family" && key !== "logo_fit",
+) as Array<Exclude<keyof Panel1Appearance, "font_family" | "logo_fit">>;
+const colorField = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export const appearancePatch = z
+  .object({
+    font_family: z.enum(PANEL1_FONTS),
+    logo_fit: z.enum(PANEL1_LOGO_FITS),
+    ...Object.fromEntries(appearanceColorKeys.map((key) => [key, colorField])),
+  })
+  .partial()
+  .strict();
+export const preferencesPatch = z
   .object({
     minimum_notice_hours: z.number().finite().min(0).max(720),
     listing_time_minutes: z.number().int().min(10).max(390),
-    notify_clients: z.boolean(),
+    notify_clients: z.boolean().default(true),
     reminder_hours_before: z.number().int().min(1).max(168),
     extra_reminder_minutes: z.number().int().min(0).max(1440),
     extra_reminder_template: z.string().max(800),
     timezone: z.string().min(1).max(80),
     list_dates_days: z.number().int().min(7).max(365),
-    cancellations_enabled: z.boolean(),
+    cancellations_enabled: z.boolean().default(true),
     cancellation_notice_minutes: z.number().int().min(0).max(1440),
-    reschedule_enabled: z.boolean(),
+    reschedule_enabled: z.boolean().default(false),
     reschedule_notice_minutes: z.number().int().min(0).max(1440),
     greeting: z.string().max(80),
   })

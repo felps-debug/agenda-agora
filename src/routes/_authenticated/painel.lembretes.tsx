@@ -1,345 +1,232 @@
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { BellRing, MessageCircle, CheckCheck, Send } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
+import { Send } from "lucide-react";
 import { useBusiness } from "@/lib/business";
+import {
+  getOutreachBusinessSettings,
+  saveOutreachBusinessSettings,
+} from "@/lib/outreach-templates.functions";
+import { sendTestMessage } from "@/lib/whatsapp.functions";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { formatPrice, formatTime } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/painel/lembretes")({
   head: () => ({
     meta: [
       { title: "Lembretes — Agenda Agora" },
-      { name: "description", content: "Lembre os clientes do horário marcado e reduza faltas." },
-      { property: "og:title", content: "Lembretes — Agenda Agora" },
-      { property: "og:description", content: "Lembretes de WhatsApp para os agendamentos." },
+      { name: "description", content: "Configure as mensagens automáticas de WhatsApp." },
     ],
   }),
   component: LembretesPage,
 });
 
-const DEFAULT_TEMPLATE =
-  "Olá {nome}! Lembrete: seu horário de {servico} em {negocio} é {data} às {hora}. Qualquer imprevisto, avisa a gente! 😊";
+type Settings = {
+  selectedTemplateIds: string[];
+  confirmationTemplate: string;
+  paymentConfirmationTemplate: string;
+  reminderTemplate: string;
+  reminderHoursBefore: number;
+};
 
-const DEFAULT_CONFIRMATION =
-  "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}. Até lá! ✅";
+const MESSAGE_FIELDS = [
+  ["confirmationTemplate", "Confirmação do agendamento"],
+  ["paymentConfirmationTemplate", "Confirmação do sinal"],
+  ["reminderTemplate", "Lembrete"],
+] as const;
+const TOKENS = ["nome", "servico", "hora", "data", "negocio"];
 
-function buildMessage(template: string, vars: Record<string, string>) {
-  return template.replace(/\{(nome|servico|hora|data|negocio)\}/g, (_, k) => vars[k] ?? "");
-}
-
-function phoneToWa(phone: string | null) {
-  const digits = (phone ?? "").replace(/\D/g, "");
-  if (!digits) return null;
-  return digits.startsWith("55") ? digits : `55${digits}`;
+function placeholdersAreValid(text: string) {
+  return [...text.matchAll(/\{([^{}]+)\}/g)].every((match) => TOKENS.includes(match[1] ?? ""));
 }
 
 function LembretesPage() {
-  const { business, businessId } = useBusiness();
+  const { businessId } = useBusiness();
   const queryClient = useQueryClient();
-  const [template, setTemplate] = useState<string | null>(null);
-  const [confirmTemplate, setConfirmTemplate] = useState<string | null>(null);
-  const [hours, setHours] = useState<number | null>(null);
+  const getSettingsFn = useServerFn(getOutreachBusinessSettings);
+  const saveSettingsFn = useServerFn(saveOutreachBusinessSettings);
+  const testFn = useServerFn(sendTestMessage);
+  const [draft, setDraft] = useState<Settings | null>(null);
+  const [testPhone, setTestPhone] = useState("");
+  const [testingKey, setTestingKey] = useState<string | null>(null);
 
-  const config = useQuery({
-    queryKey: ["reminder-config", businessId],
+  const settings = useQuery({
+    queryKey: ["outreach-business-settings", businessId],
     enabled: !!businessId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select(
-          "reminder_enabled, reminder_hours_before, reminder_template, confirmation_template, whatsapp_status",
-        )
-        .eq("id", businessId!)
-        .single();
-      if (error) throw error;
-      return data;
+      const value = await getSettingsFn({ data: { businessId: businessId! } });
+      return {
+        selectedTemplateIds: value.selectedTemplateIds,
+        confirmationTemplate: value.confirmationTemplate,
+        paymentConfirmationTemplate: value.paymentConfirmationTemplate,
+        reminderTemplate: value.reminderTemplate,
+        reminderHoursBefore: value.reminderHoursBefore,
+      } satisfies Settings;
     },
   });
 
-  const enabled = config.data?.reminder_enabled ?? false;
-  const hoursBefore = hours ?? config.data?.reminder_hours_before ?? 24;
-  const messageTemplate = template ?? config.data?.reminder_template ?? DEFAULT_TEMPLATE;
-  const confirmationTemplate =
-    confirmTemplate ?? config.data?.confirmation_template ?? DEFAULT_CONFIRMATION;
-  const whatsappConnected = config.data?.whatsapp_status === "conectado";
+  useEffect(() => {
+    if (settings.data) setDraft(settings.data);
+  }, [settings.data]);
 
-  const upcoming = useQuery({
-    queryKey: ["reminder-upcoming", businessId, hoursBefore],
-    enabled: !!businessId && enabled,
-    queryFn: async () => {
-      const now = new Date();
-      const until = new Date(now.getTime() + hoursBefore * 3_600_000);
-      const { data: appts, error } = await supabase
-        .from("appointments")
-        .select("id, customer_name, customer_phone, starts_at, status, service_id, deposit_cents")
-        .eq("business_id", businessId!)
-        .in("status", ["agendado", "confirmado"])
-        .gte("starts_at", now.toISOString())
-        .lte("starts_at", until.toISOString())
-        .order("starts_at", { ascending: true });
-      if (error) throw error;
-      const serviceIds = [...new Set((appts ?? []).map((a) => a.service_id).filter(Boolean))];
-      const { data: services, error: servicesError } = serviceIds.length
-        ? await supabase
-            .from("services")
-            .select("id, name")
-            .in("id", serviceIds as string[])
-        : { data: [] as { id: string; name: string }[] };
-      if (servicesError) throw servicesError;
-      const apptIds = (appts ?? []).map((a) => a.id);
-      const { data: logs, error: logsError } = apptIds.length
-        ? await supabase
-            .from("reminder_logs")
-            .select("appointment_id, status, created_at")
-            .in("appointment_id", apptIds)
-        : { data: [] as { appointment_id: string; status: string; created_at: string }[] };
-      if (logsError) throw logsError;
-      return (appts ?? []).map((a) => ({
-        ...a,
-        serviceName: (services ?? []).find((s) => s.id === a.service_id)?.name ?? "Serviço",
-        reminder:
-          (logs ?? []).find((l) => l.appointment_id === a.id && l.status === "enviado") ?? null,
-      }));
+  const save = useMutation({
+    mutationFn: (value: Settings) =>
+      saveSettingsFn({ data: { businessId: businessId!, ...value } }),
+    onSuccess: async () => {
+      toast.success("Configurações salvas.");
+      await queryClient.invalidateQueries({ queryKey: ["outreach-business-settings", businessId] });
     },
-    refetchInterval: 60_000,
+    onError: () => toast.error("Não foi possível salvar as configurações. Tente novamente."),
   });
 
-  const saveConfig = useMutation({
-    mutationFn: async (
-      patch:
-        | { reminder_enabled: boolean }
-        | { reminder_hours_before: number }
-        | { reminder_template: string }
-        | { confirmation_template: string },
-    ) => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .update(patch)
-        .eq("id", businessId!)
-        .select("id")
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) throw new Error("O negócio não foi encontrado para atualizar.");
-    },
-    onSuccess: () => {
-      toast.success("Configuração salva.");
-      void queryClient.invalidateQueries({ queryKey: ["reminder-config", businessId] });
-    },
-    onError: (e: Error) => toast.error(e.message),
+  const test = useMutation({
+    mutationFn: (vars: { key: string; template: string }) =>
+      testFn({ data: { businessId: businessId!, phone: testPhone, template: vars.template } }),
+    onMutate: (vars) => setTestingKey(vars.key),
+    onSuccess: () => toast.success("Mensagem de teste enviada."),
+    onError: (error: Error) =>
+      toast.error(error.message || "Não foi possível enviar a mensagem de teste."),
+    onSettled: () => setTestingKey(null),
   });
 
-  const markSent = useMutation({
-    mutationFn: async (appointmentId: string) => {
-      const { error } = await supabase.from("reminder_logs").insert({
-        business_id: businessId!,
-        appointment_id: appointmentId,
-        channel: "whatsapp",
-        status: "enviado",
-      });
-      if (error && error.code !== "23505") throw error;
-    },
-    onSuccess: () =>
-      void queryClient.invalidateQueries({ queryKey: ["reminder-upcoming", businessId] }),
-    onError: () => toast.error("O lembrete abriu no WhatsApp, mas o envio não foi registrado."),
-  });
-
-  const sendReminder = (a: NonNullable<typeof upcoming.data>[number]) => {
-    const wa = phoneToWa(a.customer_phone);
-    if (!wa) {
-      toast.error("Esse agendamento não tem telefone do cliente.");
-      return;
-    }
-    const d = new Date(a.starts_at);
-    const msg = buildMessage(messageTemplate, {
-      nome: a.customer_name.split(" ")[0] ?? a.customer_name,
-      servico: a.serviceName,
-      hora: formatTime(a.starts_at),
-      data: d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
-      negocio: business?.name ?? "",
-    });
-    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, "_blank");
-    markSent.mutate(a.id);
-  };
+  const hasInvalidPlaceholder = useMemo(
+    () => !!draft && MESSAGE_FIELDS.some(([key]) => !placeholdersAreValid(draft[key])),
+    [draft],
+  );
+  // Aceita com ou sem o "55" do país na frente (o servidor normaliza do mesmo jeito).
+  const testPhoneDigits = testPhone.replace(/\D/g, "");
+  const testPhoneValid = /^\d{10,13}$/.test(testPhoneDigits);
+  const testPhoneTouched = testPhoneDigits.length > 0;
 
   if (!businessId) return <NoBusiness />;
+  if (!draft && settings.isLoading) return <p role="status">Carregando lembretes...</p>;
+  if (settings.isError) {
+    return (
+      <p role="alert">
+        Não foi possível carregar os lembretes. Atualize a página e tente novamente.
+      </p>
+    );
+  }
+  if (!draft) return <p role="status">Carregando configurações...</p>;
+
+  const patchDraft = <K extends keyof Settings>(key: K, value: Settings[K]) =>
+    setDraft((current) => (current ? { ...current, [key]: value } : current));
 
   return (
-    <div>
+    <div className="space-y-8">
       <PageHeader
-        title="Mensagens automáticas"
-        subtitle="Confirmação ao pagar o sinal e lembrete antes do horário — enviadas sozinhas pelo WhatsApp conectado."
+        title="Lembretes"
+        subtitle="Mensagens automáticas de WhatsApp enviadas pro cliente."
       />
 
-      {config.isError && (
-        <p role="alert" className="mb-4 rounded-xl border border-destructive/40 p-4 text-sm">
-          Não foi possível carregar as configurações. Atualize a página antes de alterá-las.
-        </p>
-      )}
-
-      <div className="surface p-5">
-        <div className="flex items-center gap-3">
-          <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-primary">
-            <MessageCircle className="size-5" />
-          </span>
-          <div>
-            <p className="font-semibold">Mensagem 1 — Confirmação do agendamento</p>
-            <p className="text-xs text-muted-foreground">
-              Enviada automaticamente assim que o cliente paga o sinal Pix.
-            </p>
-          </div>
-        </div>
-        <div className="mt-4">
-          <Label htmlFor="tpl-confirm">Texto da confirmação</Label>
-          <Textarea
-            id="tpl-confirm"
-            className="mt-1 min-h-20"
-            disabled={config.isError}
-            value={confirmationTemplate}
-            onChange={(e) => setConfirmTemplate(e.target.value)}
-            onBlur={() => {
-              const v = confirmationTemplate.trim() || DEFAULT_CONFIRMATION;
-              setConfirmTemplate(v);
-              if (v !== config.data?.confirmation_template)
-                saveConfig.mutate({ confirmation_template: v });
-            }}
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            Use {"{nome}"}, {"{servico}"}, {"{data}"}, {"{hora}"} e {"{negocio}"} — são substituídos
-            automaticamente.
+      <section aria-labelledby="outreach-messages-title" className="surface space-y-5 p-5">
+        <div>
+          <h2 id="outreach-messages-title" className="text-lg font-bold">
+            Mensagens automáticas
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Use os campos entre chaves para preencher os dados do agendamento.
           </p>
         </div>
-      </div>
 
-      <div className="surface mt-4 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-full bg-primary/15 text-primary">
-              <BellRing className="size-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Mensagem 2 — Lembrete do horário</p>
-              <p className="text-xs text-muted-foreground">
-                {whatsappConnected
-                  ? "Enviada automaticamente na antecedência que você definir."
-                  : "Conecte o WhatsApp na página Integrações para o envio automático funcionar."}
-              </p>
-            </div>
-          </div>
-          <Switch
-            checked={enabled}
-            disabled={config.isError}
-            onCheckedChange={(v) => saveConfig.mutate({ reminder_enabled: v })}
+        <div className="space-y-2">
+          <Label htmlFor="testPhone">Número para teste</Label>
+          <Input
+            id="testPhone"
+            type="tel"
+            placeholder="(99) 99999-9999"
+            value={testPhone}
+            onChange={(event) => setTestPhone(event.target.value)}
+            aria-invalid={testPhoneTouched && !testPhoneValid}
+            className="max-w-xs"
           />
-        </div>
-
-        {enabled && (
-          <div className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-[140px_1fr]">
-            <div>
-              <Label htmlFor="hours">Avisar quantas horas antes</Label>
-              <Input
-                id="hours"
-                type="number"
-                min={1}
-                max={72}
-                disabled={config.isError}
-                className="mt-1"
-                value={hoursBefore}
-                onChange={(e) => setHours(Number(e.target.value))}
-                onBlur={() => {
-                  const v = Math.min(72, Math.max(1, hoursBefore || 24));
-                  setHours(v);
-                  if (v !== config.data?.reminder_hours_before)
-                    saveConfig.mutate({ reminder_hours_before: v });
-                }}
-              />
-            </div>
-            <div>
-              <Label htmlFor="tpl">Texto da mensagem</Label>
-              <Textarea
-                id="tpl"
-                className="mt-1 min-h-20"
-                disabled={config.isError}
-                value={messageTemplate}
-                onChange={(e) => setTemplate(e.target.value)}
-                onBlur={() => {
-                  const v = messageTemplate.trim() || DEFAULT_TEMPLATE;
-                  setTemplate(v);
-                  if (v !== config.data?.reminder_template)
-                    saveConfig.mutate({ reminder_template: v });
-                }}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Use {"{nome}"}, {"{servico}"}, {"{data}"}, {"{hora}"} e {"{negocio}"} — são
-                substituídos automaticamente.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {enabled && (
-        <div className="mt-6">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Clientes a lembrar nas próximas {hoursBefore}h
-          </h2>
-          {upcoming.isError ? (
-            <p
-              role="alert"
-              className="rounded-xl border border-destructive/40 p-6 text-center text-sm"
-            >
-              Não foi possível carregar o histórico de lembretes. Tente atualizar a página.
-            </p>
-          ) : !upcoming.data?.length ? (
-            <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              Nenhum agendamento confirmado nesse período. 🎉
+          {testPhoneTouched && !testPhoneValid ? (
+            <p role="alert" className="text-sm text-destructive">
+              Número inválido. Informe DDD + número (10 ou 11 dígitos), com ou sem o 55 do país.
             </p>
           ) : (
-            <div className="space-y-2">
-              {upcoming.data.map((a) => (
-                <div key={a.id} className="surface flex flex-wrap items-center gap-3 p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{a.customer_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {a.serviceName} ·{" "}
-                      {new Date(a.starts_at).toLocaleDateString("pt-BR", {
-                        day: "2-digit",
-                        month: "2-digit",
-                      })}{" "}
-                      às {formatTime(a.starts_at)}
-                      {a.deposit_cents > 0 && ` · sinal ${formatPrice(a.deposit_cents)}`}
-                    </p>
-                  </div>
-                  {a.reminder ? (
-                    <span className="flex items-center gap-1.5 text-sm font-medium text-primary">
-                      <CheckCheck className="size-4" /> Lembrado
-                    </span>
-                  ) : (
-                    <Button size="sm" onClick={() => sendReminder(a)}>
-                      <Send className="size-4" /> Lembrar no WhatsApp
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Informe o número que vai receber os testes de cada mensagem abaixo. Os botões "Testar"
+              só ficam ativos com um número válido aqui.
+            </p>
           )}
         </div>
-      )}
 
-      {!enabled && (
-        <div className="mt-6 flex items-center gap-3 rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-          <MessageCircle className="size-5 shrink-0 text-primary" />
-          Ative o lembrete acima para os clientes receberem o aviso automaticamente no WhatsApp, na
-          antecedência que você definir. A lista de quem será lembrado aparece aqui.
+        <div className="grid gap-5 lg:grid-cols-3">
+          {MESSAGE_FIELDS.map(([key, label]) => (
+            <div key={key} className="flex flex-col space-y-2">
+              <Label htmlFor={key}>{label}</Label>
+              <Textarea
+                id={key}
+                rows={6}
+                maxLength={2000}
+                className="resize-none"
+                aria-invalid={!placeholdersAreValid(draft[key])}
+                aria-describedby={!placeholdersAreValid(draft[key]) ? `${key}-error` : undefined}
+                value={draft[key]}
+                onChange={(event) => patchDraft(key, event.target.value)}
+              />
+              {!placeholdersAreValid(draft[key]) && (
+                <p id={`${key}-error`} role="alert" className="text-sm text-destructive">
+                  Remova os campos não reconhecidos.
+                </p>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="w-fit"
+                disabled={
+                  !testPhoneValid || testingKey !== null || !placeholdersAreValid(draft[key])
+                }
+                onClick={() => test.mutate({ key, template: draft[key] })}
+              >
+                <Send className="size-4" />
+                {testingKey === key ? "Enviando..." : "Testar"}
+              </Button>
+            </div>
+          ))}
         </div>
-      )}
+
+        <div className="max-w-xs space-y-2">
+          <Label htmlFor="reminderHoursBefore">Antecedência do lembrete (horas)</Label>
+          <Input
+            id="reminderHoursBefore"
+            type="number"
+            min={1}
+            max={168}
+            aria-invalid={draft.reminderHoursBefore < 1 || draft.reminderHoursBefore > 168}
+            aria-describedby="reminder-hours-help"
+            value={draft.reminderHoursBefore}
+            onChange={(event) => patchDraft("reminderHoursBefore", Number(event.target.value))}
+          />
+          <p id="reminder-hours-help" className="text-xs text-muted-foreground">
+            Informe um valor entre 1 e 168 horas.
+          </p>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Campos disponíveis: {TOKENS.map((token) => `{${token}}`).join(", ")}. O teste usa dados
+          fictícios de exemplo.
+        </p>
+        <Button
+          type="button"
+          disabled={
+            save.isPending ||
+            hasInvalidPlaceholder ||
+            draft.reminderHoursBefore < 1 ||
+            draft.reminderHoursBefore > 168
+          }
+          onClick={() => save.mutate(draft)}
+        >
+          {save.isPending ? "Salvando..." : "Salvar configurações"}
+        </Button>
+      </section>
     </div>
   );
 }

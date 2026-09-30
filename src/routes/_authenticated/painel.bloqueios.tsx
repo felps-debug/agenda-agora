@@ -1,16 +1,30 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { CalendarX2, Plus, Repeat2, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { WEEKDAYS, weekdayLabel, hhmm, toDateInput } from "@/lib/format";
+import { createTimeBlock } from "@/lib/time-blocks.functions";
+import { validateTimeBlockRange } from "@/lib/time-blocks";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -42,17 +56,22 @@ export const Route = createFileRoute("/_authenticated/painel/bloqueios")({
 function BloqueiosPage() {
   const { businessId } = useBusiness();
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [showRecurring, setShowRecurring] = useState(true);
-  const [showSpecific, setShowSpecific] = useState(true);
-  const [form, setForm] = useState({
+  const createTimeBlockFn = useServerFn(createTimeBlock);
+  const emptyForm = {
     recurring: true,
     weekday: "1",
     date: toDateInput(new Date()),
     starts: "09:00",
     ends: "09:30",
     reason: "",
-  });
+  };
+  const [open, setOpen] = useState(false);
+  const [blockToRemove, setBlockToRemove] = useState<string | null>(null);
+  const [showRecurring, setShowRecurring] = useState(true);
+  const [showSpecific, setShowSpecific] = useState(true);
+  const [form, setForm] = useState(emptyForm);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const isFormDirty = JSON.stringify(form) !== JSON.stringify(emptyForm);
 
   const blocksQuery = useQuery({
     queryKey: ["time_blocks", businessId],
@@ -69,26 +88,28 @@ function BloqueiosPage() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["time_blocks", businessId] });
+  const timeError = validateTimeBlockRange(form.starts, form.ends);
 
   const create = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase.from("time_blocks").insert({
-        business_id: businessId!,
-        recurring: form.recurring,
-        weekday: form.recurring ? Number(form.weekday) : null,
-        block_date: form.recurring ? null : form.date,
-        starts_at: form.starts,
-        ends_at: form.ends,
-        reason: form.reason || null,
-      });
-      if (error) throw error;
-    },
+    mutationFn: async () =>
+      createTimeBlockFn({
+        data: {
+          businessId: businessId!,
+          recurring: form.recurring,
+          weekday: form.recurring ? Number(form.weekday) : null,
+          blockDate: form.recurring ? null : form.date,
+          startsAt: form.starts,
+          endsAt: form.ends,
+          reason: form.reason || null,
+        },
+      }),
     onSuccess: () => {
       toast.success("Bloqueio cadastrado!");
       setOpen(false);
+      setForm(emptyForm);
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const remove = useMutation({
@@ -110,7 +131,21 @@ function BloqueiosPage() {
         title="Horários bloqueados"
         subtitle="Horários que não aparecem para os clientes agendarem."
         action={
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog
+            open={open}
+            onOpenChange={(v) => {
+              if (v) {
+                setOpen(true);
+                return;
+              }
+              if (isFormDirty) {
+                setConfirmDiscard(true);
+                return;
+              }
+              setOpen(false);
+              setForm(emptyForm);
+            }}
+          >
             <DialogTrigger asChild>
               <Button>
                 <Plus className="size-4" /> Cadastrar
@@ -189,8 +224,13 @@ function BloqueiosPage() {
                   />
                 </div>
               </div>
+              {timeError && (
+                <p role="alert" className="text-sm text-destructive">
+                  {timeError}
+                </p>
+              )}
               <DialogFooter>
-                <Button onClick={() => create.mutate()} disabled={create.isPending}>
+                <Button onClick={() => create.mutate()} disabled={create.isPending || !!timeError}>
                   Salvar
                 </Button>
               </DialogFooter>
@@ -258,7 +298,7 @@ function BloqueiosPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => remove.mutate(b.id)}
+                      onClick={() => setBlockToRemove(b.id)}
                       aria-label="Remover bloqueio"
                     >
                       <Trash2 className="size-4 text-destructive" />
@@ -270,6 +310,54 @@ function BloqueiosPage() {
           </table>
         </div>
       )}
+      <AlertDialog
+        open={blockToRemove !== null}
+        onOpenChange={(value) => !value && setBlockToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover bloqueio?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esse horário voltará a ficar disponível para agendamentos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (blockToRemove)
+                  remove.mutate(blockToRemove, { onSettled: () => setBlockToRemove(null) });
+              }}
+              disabled={remove.isPending}
+            >
+              Remover bloqueio
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDiscard} onOpenChange={(v) => !v && setConfirmDiscard(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem alterações não salvas neste formulário. Se sair agora, elas serão perdidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmDiscard(false);
+                setOpen(false);
+                setForm(emptyForm);
+              }}
+            >
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

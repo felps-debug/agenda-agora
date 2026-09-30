@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -6,11 +7,22 @@ import { Plus, Trash2, Search, Download } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { daysSince } from "@/lib/format";
+import { mergeAppointmentCustomers } from "@/lib/customer-list";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +49,7 @@ function ClientesPage() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
+  const [customerToRemove, setCustomerToRemove] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", phone: "", email: "", notes: "" });
 
   const customersQuery = useQuery({
@@ -59,19 +72,16 @@ function ClientesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("appointments")
-        .select("customer_id, starts_at")
+        .select("customer_id, customer_name, customer_phone, starts_at")
         .eq("business_id", businessId!)
-        .not("customer_id", "is", null)
+        .neq("status", "bloqueado")
         .order("starts_at", { ascending: false });
       if (error) throw error;
       return data;
     },
   });
 
-  const lastVisit: Record<string, string> = {};
-  for (const v of visitsQuery.data ?? []) {
-    if (v.customer_id && !lastVisit[v.customer_id]) lastVisit[v.customer_id] = v.starts_at;
-  }
+  const customers = mergeAppointmentCustomers(customersQuery.data ?? [], visitsQuery.data ?? []);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["customers", businessId] });
 
@@ -92,7 +102,7 @@ function ClientesPage() {
       setForm({ name: "", phone: "", email: "", notes: "" });
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const remove = useMutation({
@@ -108,9 +118,8 @@ function ClientesPage() {
 
   if (!businessId) return <NoBusiness />;
 
-  const customers = customersQuery.data;
-  const filtered = (customers ?? []).filter((c) =>
-    c.name.toLowerCase().includes(term.toLowerCase()),
+  const filtered = customers.filter((c) =>
+    `${c.name} ${c.phone ?? ""}`.toLowerCase().includes(term.toLowerCase()),
   );
 
   const exportCsv = () => {
@@ -118,7 +127,7 @@ function ClientesPage() {
       c.name,
       canViewCustomerPhone ? (c.phone ?? "") : "",
       c.email ?? "",
-      lastVisit[c.id] ? new Date(lastVisit[c.id]!).toLocaleDateString("pt-BR") : "",
+      c.lastAppointmentAt ? new Date(c.lastAppointmentAt).toLocaleDateString("pt-BR") : "",
       (c.notes ?? "").replace(/\s+/g, " "),
     ]);
     const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -224,7 +233,7 @@ function ClientesPage() {
         </p>
       )}
 
-      {customersQuery.isError ? (
+      {customersQuery.isError || visitsQuery.isError ? (
         <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
           Não foi possível carregar os clientes. Atualize a página e tente novamente.
         </p>
@@ -243,7 +252,7 @@ function ClientesPage() {
             </thead>
             <tbody>
               {filtered.map((c) => {
-                const last = lastVisit[c.id];
+                const last = c.lastAppointmentAt;
                 const days = last === undefined ? null : daysSince(last);
                 return (
                   <tr key={c.id} className="border-t border-border/60">
@@ -253,14 +262,16 @@ function ClientesPage() {
                     </td>
                     <td className="px-4 py-3">{days === null ? "—" : `${days} dias`}</td>
                     <td className="px-4 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => remove.mutate(c.id)}
-                        aria-label={`Remover ${c.name}`}
-                      >
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
+                      {c.manual && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setCustomerToRemove(c.id)}
+                          aria-label={`Remover ${c.name}`}
+                        >
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -272,6 +283,32 @@ function ClientesPage() {
           </p>
         </div>
       )}
+      <AlertDialog
+        open={customerToRemove !== null}
+        onOpenChange={(open) => !open && setCustomerToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover cliente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O cadastro manual será excluído. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (customerToRemove)
+                  remove.mutate(customerToRemove, { onSettled: () => setCustomerToRemove(null) });
+              }}
+              disabled={remove.isPending}
+            >
+              Remover cliente
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

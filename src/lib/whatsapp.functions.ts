@@ -11,12 +11,15 @@ import {
 
 const bizSchema = z.object({ businessId: z.string().uuid() });
 
-type BizRow = {
-  id: string;
-  name: string;
-  whatsapp_instance: string | null;
-  whatsapp_status: string;
-};
+type BizRow = Pick<
+  Database["public"]["Tables"]["businesses"]["Row"],
+  | "id"
+  | "name"
+  | "whatsapp_instance"
+  | "whatsapp_status"
+  | "whatsapp_instance_id"
+  | "whatsapp_instance_token"
+>;
 
 async function loadOwnedBusiness(
   supabase: SupabaseClient<Database>,
@@ -40,12 +43,23 @@ async function loadOwnedBusiness(
 
   const { data, error } = await supabase
     .from("businesses")
-    .select("id, name, whatsapp_instance, whatsapp_status")
+    .select(
+      "id, name, whatsapp_instance, whatsapp_status, whatsapp_instance_id, whatsapp_instance_token",
+    )
     .eq("id", businessId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error("Negócio não encontrado.");
-  return data as BizRow;
+  return data;
+}
+
+async function updateBusinessWhatsapp(
+  businessId: string,
+  patch: Database["public"]["Tables"]["businesses"]["Update"],
+) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error } = await supabaseAdmin.from("businesses").update(patch).eq("id", businessId);
+  if (error) throw new Error("Não foi possível atualizar a conexão do WhatsApp.");
 }
 
 /** Inicia a conexão: marca o negócio como conectando e devolve o QR Code. */
@@ -56,20 +70,34 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
     const uazapi = await import("./uazapi.server");
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
 
-    const connected = await uazapi.isConnected();
+    let instance =
+      business.whatsapp_instance_id && business.whatsapp_instance_token
+        ? {
+            instanceId: business.whatsapp_instance_id,
+            instanceToken: business.whatsapp_instance_token,
+          }
+        : null;
+    if (!instance) {
+      instance = await uazapi.createBusinessInstance(business.name);
+      await updateBusinessWhatsapp(business.id, {
+        whatsapp_instance_id: instance.instanceId,
+        whatsapp_instance_token: instance.instanceToken,
+        whatsapp_instance: instance.instanceId,
+        whatsapp_status: "conectando",
+      });
+    } else if (business.whatsapp_instance !== instance.instanceId) {
+      // Backfill: negócios conectados antes de whatsapp_instance_id/token existirem
+      // como colunas separadas podem ter ficado com whatsapp_instance vazio.
+      await updateBusinessWhatsapp(business.id, { whatsapp_instance: instance.instanceId });
+    }
+    const connected = await uazapi.isConnected(instance.instanceToken);
     if (connected) {
-      await context.supabase
-        .from("businesses")
-        .update({ whatsapp_instance: "uazapi", whatsapp_status: "conectado" })
-        .eq("id", business.id);
+      await updateBusinessWhatsapp(business.id, { whatsapp_status: "conectado" });
       return { qrCode: null, alreadyConnected: true };
     }
 
-    const qrCode = await uazapi.getQrCode();
-    await context.supabase
-      .from("businesses")
-      .update({ whatsapp_instance: "uazapi", whatsapp_status: "conectando" })
-      .eq("id", business.id);
+    const qrCode = await uazapi.getQrCode(instance.instanceToken);
+    await updateBusinessWhatsapp(business.id, { whatsapp_status: "conectando" });
 
     return { qrCode, alreadyConnected: false };
   });
@@ -79,9 +107,10 @@ export const refreshWhatsappQr = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    await loadOwnedBusiness(context.supabase, context, data.businessId);
     const uazapi = await import("./uazapi.server");
-    const qrCode = await uazapi.getQrCode();
+    const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
+    if (!business.whatsapp_instance_token) throw new Error("Conexão de WhatsApp não iniciada.");
+    const qrCode = await uazapi.getQrCode(business.whatsapp_instance_token);
     return { qrCode };
   });
 
@@ -91,11 +120,11 @@ export const getWhatsappStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (!business.whatsapp_instance) {
+    if (!business.whatsapp_instance || !business.whatsapp_instance_token) {
       return { status: "desconectado" as const, connected: false };
     }
     const uazapi = await import("./uazapi.server");
-    const online = await uazapi.isConnected();
+    const online = await uazapi.isConnected(business.whatsapp_instance_token);
     const status =
       online || business.whatsapp_status === "conectando"
         ? online
@@ -103,10 +132,7 @@ export const getWhatsappStatus = createServerFn({ method: "POST" })
           : ("conectando" as const)
         : ("desconectado" as const);
     if (status !== business.whatsapp_status) {
-      await context.supabase
-        .from("businesses")
-        .update({ whatsapp_status: status })
-        .eq("id", business.id);
+      await updateBusinessWhatsapp(business.id, { whatsapp_status: status });
     }
     return { status, connected: status === "conectado" };
   });
@@ -117,13 +143,42 @@ export const disconnectWhatsapp = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (business.whatsapp_instance) {
+    if (business.whatsapp_instance_token) {
       const uazapi = await import("./uazapi.server");
-      await uazapi.disconnect();
+      await uazapi.disconnect(business.whatsapp_instance_token);
     }
-    await context.supabase
-      .from("businesses")
-      .update({ whatsapp_instance: null, whatsapp_status: "desconectado" })
-      .eq("id", business.id);
+    await updateBusinessWhatsapp(business.id, {
+      whatsapp_instance: null,
+      whatsapp_status: "desconectado",
+    });
+    return { ok: true };
+  });
+
+const testMessageSchema = z.object({
+  businessId: z.string().uuid(),
+  phone: z.string().min(10).max(20),
+  template: z.string().min(1).max(2000),
+});
+
+const TEST_SAMPLE_VARS = {
+  nome: "Cliente Teste",
+  servico: "Corte de Cabelo",
+  data: "01/01",
+  hora: "14:00",
+};
+
+/** Envia uma mensagem de teste com dados fictícios pro número informado. */
+export const sendTestMessage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => testMessageSchema.parse(d))
+  .handler(async ({ context, data }) => {
+    const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
+    if (!business.whatsapp_instance || !business.whatsapp_instance_token) {
+      throw new Error("Conecte o WhatsApp em Integrações antes de testar.");
+    }
+    const { renderMessage } = await import("./whatsapp-notify.server");
+    const uazapi = await import("./uazapi.server");
+    const message = renderMessage(data.template, { ...TEST_SAMPLE_VARS, negocio: business.name });
+    await uazapi.sendTextMessage(business.whatsapp_instance_token, data.phone, message);
     return { ok: true };
   });

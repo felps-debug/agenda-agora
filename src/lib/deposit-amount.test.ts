@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 //   Lança erro para modo desconhecido, centavos negativos/não inteiros e
 //   pontos-base fora de 0–10000 ou não inteiros (data-model.md, FR-011/012).
 // - `percentToBps(percent)`: percentual da UI (0–100, até duas casas) em pontos-base.
-import { effectiveDepositCents, percentToBps } from "./deposit-amount";
+import { assertRequiredDepositAmount, effectiveDepositCents, percentToBps } from "./deposit-amount";
 
 type ServiceDeposit = Parameters<typeof effectiveDepositCents>[0];
 
@@ -77,6 +77,22 @@ describe("effectiveDepositCents — legado fixo e sem sinal", () => {
       ).toBe(0);
     },
   );
+});
+
+describe("exigência de sinal", () => {
+  it("permite valor zero quando o serviço não exige sinal", () => {
+    expect(() => assertRequiredDepositAmount(false, 0)).not.toThrow();
+  });
+
+  it("explica em português que o valor precisa ser positivo quando exige sinal", () => {
+    expect(() => assertRequiredDepositAmount(true, 0)).toThrow(
+      "Informe um valor de sinal maior que R$ 0,00 ou desative a exigência de sinal.",
+    );
+  });
+
+  it("aceita sinal positivo quando a exigência está ligada", () => {
+    expect(() => assertRequiredDepositAmount(true, 500)).not.toThrow();
+  });
 });
 
 describe("effectiveDepositCents — rejeita configuração inválida", () => {

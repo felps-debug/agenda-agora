@@ -10,16 +10,13 @@ import {
   BellRing,
   Gem,
   PieChart,
-  Calculator,
   MessageSquareText,
-  DollarSign,
   CircleX,
   Settings2,
   MessageCircle,
   UserCircle,
   Clock3,
   LoaderCircle,
-  Package,
   Link2,
   Copy,
   Check,
@@ -30,11 +27,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useServerFn } from "@tanstack/react-start";
 import { getMasterStatus } from "@/lib/admin.functions";
+import { getWhatsappStatus } from "@/lib/whatsapp.functions";
 import { useBusiness } from "@/lib/business";
 import { publicBookingUrl } from "@/lib/public-booking-link";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import brandLogo from "@/assets/agenda-agora-logo.png.asset.json";
+
+const brandLogo = "/agenda-agora-logo.svg";
 
 export const Route = createFileRoute("/_authenticated/painel")({
   head: () => ({
@@ -45,8 +44,26 @@ export const Route = createFileRoute("/_authenticated/painel")({
       { property: "og:description", content: "Gerencie a agenda do seu negócio." },
     ],
   }),
+  notFoundComponent: PanelNotFoundComponent,
   component: PainelLayout,
 });
+
+function PanelNotFoundComponent() {
+  const navigate = useNavigate();
+
+  return (
+    <section className="mx-auto flex min-h-[50vh] max-w-xl flex-col items-center justify-center gap-4 text-center">
+      <h1 className="text-2xl font-semibold text-white">Página não encontrada</h1>
+      <p className="text-sm text-[#9ca3af]">Não encontramos esta página do painel.</p>
+      <div className="flex flex-wrap justify-center gap-3">
+        <Button variant="outline" onClick={() => window.history.back()}>
+          Voltar
+        </Button>
+        <Button onClick={() => void navigate({ to: "/painel" })}>Ir para a agenda</Button>
+      </div>
+    </section>
+  );
+}
 
 const nav = [
   {
@@ -84,20 +101,12 @@ const nav = [
         icon: UserRound,
       },
       { to: "/painel/servicos", label: "Serviço", hint: "Serviços e valores", icon: Scissors },
-      { to: "/painel/produtos", label: "Produtos", hint: "Produtos e catálogo", icon: Package },
     ],
   },
   {
     title: "Financeiro",
     items: [
       { to: "/painel/as-pay", label: "AS Pay", hint: "Saldo dos sinais", icon: Gem },
-      { to: "/painel/caixa", label: "Caixa", hint: "Entradas e saídas", icon: Calculator },
-      {
-        to: "/painel/pagamentos",
-        label: "Pagamentos",
-        hint: "Histórico da assinatura",
-        icon: DollarSign,
-      },
       {
         to: "/painel/relatorio",
         label: "Relatório",
@@ -141,27 +150,20 @@ const routePermission: Partial<Record<string, string>> = {
   "/painel": "view_agenda",
   "/painel/bloqueios": "block_schedule",
   "/painel/clientes": "view_customer_phone",
-  "/painel/caixa": "view_financial",
-  "/painel/pagamentos": "view_financial",
   "/painel/relatorio": "view_reports",
 };
 
 function WhatsappBadge() {
   const { businessId } = useBusiness();
+  const statusFn = useServerFn(getWhatsappStatus);
   const { data } = useQuery({
-    queryKey: ["whatsapp-badge", businessId],
-    queryFn: async () => {
-      const { data: row } = await supabase
-        .from("businesses")
-        .select("whatsapp_status")
-        .eq("id", businessId!)
-        .maybeSingle();
-      return row?.whatsapp_status ?? "desconectado";
-    },
+    queryKey: ["whatsapp-status", businessId],
+    queryFn: () => statusFn({ data: { businessId: businessId! } }),
     enabled: !!businessId,
-    refetchInterval: 15000,
+    refetchInterval: (query) => (query.state.data?.status === "conectado" ? false : 15_000),
+    refetchIntervalInBackground: false,
   });
-  const connected = data === "conectado";
+  const connected = data?.status === "conectado";
   return (
     <Link
       to="/painel/integracoes"
@@ -264,6 +266,27 @@ function PainelLayout() {
   const masterStatusFn = useServerFn(getMasterStatus);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem("agenda-agora:sidebar-collapsed") === "true");
+    } catch {
+      setCollapsed(false);
+    }
+  }, []);
+
+  const toggleCollapsed = () => {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem("agenda-agora:sidebar-collapsed", String(next));
+      } catch {
+        // O estado continua funcionando durante a sessão mesmo sem armazenamento disponível.
+      }
+      return next;
+    });
+  };
   const [transitioning, setTransitioning] = useState(false);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { data: member } = useQuery({
@@ -309,7 +332,7 @@ function PainelLayout() {
   const visibleNav = platformMode ? [] : nav;
 
   return (
-    <div className="owner-panel relative min-h-screen min-h-[100dvh] overflow-x-hidden bg-[#050607] text-[#f3f4f6] lg:flex">
+    <div className="owner-panel relative min-h-screen min-h-[100dvh] overflow-x-clip bg-[#050607] text-[#f3f4f6] lg:flex">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_0%_20%,rgba(15,48,86,0.42),transparent_38%),radial-gradient(circle_at_100%_100%,rgba(0,70,150,0.16),transparent_34%)]"
@@ -334,7 +357,8 @@ function PainelLayout() {
         className={`${open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"} fixed inset-0 z-40 h-auto w-auto rounded-none bg-[#050607]/75 p-0 backdrop-blur-[2px] transition-opacity hover:bg-[#050607]/75 lg:hidden`}
       />
       <aside
-        className={`${open ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 flex w-[17.5rem] max-w-[82vw] flex-col overflow-hidden border-r border-[#1b2d47] bg-[radial-gradient(ellipse_120%_54%_at_0%_0%,rgba(22,119,255,0.28)_0%,rgba(22,119,255,0.15)_28%,rgba(22,119,255,0.055)_49%,transparent_72%),linear-gradient(180deg,rgba(6,9,15,0.72)_0%,rgba(5,7,11,0.68)_34%,rgba(5,6,7,0.62)_100%)] px-5 py-4 shadow-[18px_0_55px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(93,168,255,0.10),inset_-1px_0_0_rgba(22,119,255,0.08)] backdrop-blur-xl transition-transform duration-200 ease-out lg:sticky lg:top-0 lg:h-screen lg:w-[18.5rem] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:px-5 lg:shadow-[inset_0_1px_0_rgba(93,168,255,0.10),inset_-1px_0_0_rgba(22,119,255,0.08)]`}
+        data-collapsed={collapsed}
+        className={`${open ? "translate-x-0" : "-translate-x-full"} fixed inset-y-0 left-0 z-50 flex w-[17.5rem] max-w-[82vw] flex-col overflow-hidden border-r border-[#1b2d47] bg-[radial-gradient(ellipse_120%_54%_at_0%_0%,rgba(22,119,255,0.28)_0%,rgba(22,119,255,0.15)_28%,rgba(22,119,255,0.055)_49%,transparent_72%),linear-gradient(180deg,rgba(6,9,15,0.72)_0%,rgba(5,7,11,0.68)_34%,rgba(5,6,7,0.62)_100%)] px-5 py-4 shadow-[18px_0_55px_rgba(0,0,0,0.35),inset_0_1px_0_rgba(93,168,255,0.10),inset_-1px_0_0_rgba(22,119,255,0.08)] backdrop-blur-xl transition-[width,transform,padding] duration-200 ease-out lg:fixed lg:top-0 lg:h-screen lg:w-[18.5rem] lg:max-w-none lg:shrink-0 lg:translate-x-0 lg:px-5 lg:shadow-[inset_0_1px_0_rgba(93,168,255,0.10),inset_-1px_0_0_rgba(22,119,255,0.08)] ${collapsed ? "lg:w-[4.5rem] lg:px-2" : ""}`}
       >
         <div
           aria-hidden="true"
@@ -352,17 +376,33 @@ function PainelLayout() {
         <Link
           to="/painel"
           onClick={beginNavigation}
-          className="group relative z-10 flex h-[5.25rem] shrink-0 items-center border-b border-[#25282c] px-1"
+          className={`group relative z-10 flex h-[5.25rem] shrink-0 items-center border-b border-[#25282c] px-1 ${collapsed ? "lg:justify-center" : ""}`}
         >
-          <img
-            src={brandLogo.url}
-            alt="Agenda Agora"
-            decoding="async"
-            className="h-11 w-auto max-w-[220px] object-contain object-left transition-transform duration-300 group-hover:scale-[1.01]"
-          />
+          {collapsed ? (
+            <span
+              className="hidden size-9 items-center justify-center rounded-lg bg-white lg:flex"
+              aria-label="Agenda Agora"
+            >
+              <img
+                src={brandLogo}
+                alt="Agenda Agora"
+                decoding="async"
+                className="size-7 object-contain"
+              />
+            </span>
+          ) : (
+            <img
+              src={brandLogo}
+              alt="Agenda Agora"
+              decoding="async"
+              className="h-11 w-auto max-w-[220px] object-contain object-left transition-transform duration-300 group-hover:scale-[1.01]"
+            />
+          )}
         </Link>
 
-        <div className="relative z-10 shrink-0 border-b border-[#25282c] px-1 py-3">
+        <div
+          className={`relative z-10 shrink-0 border-b border-[#25282c] px-1 py-3 ${collapsed ? "lg:hidden" : ""}`}
+        >
           <div className="flex items-center gap-2.5 rounded-xl px-1.5 py-1.5">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-[#f2f3f5] text-[11px] font-semibold text-[#111318] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">
               {(business?.name ?? user?.email ?? "A").charAt(0).toUpperCase()}
@@ -397,10 +437,14 @@ function PainelLayout() {
           )}
         </div>
 
-        <nav className="relative z-10 min-h-0 flex-1 space-y-6 overflow-y-auto py-5 pr-1">
+        <nav
+          className={`relative z-10 min-h-0 flex-1 overflow-y-auto pr-1 ${collapsed ? "space-y-2 py-2 lg:space-y-1" : "space-y-6 py-5"}`}
+        >
           {visibleNav.map((group) => (
             <section key={group.title}>
-              <p className="px-3 pb-2 text-[0.66rem] font-semibold uppercase tracking-[0.12em] text-[#4f5660]">
+              <p
+                className={`px-3 pb-2 text-[0.66rem] font-semibold uppercase tracking-[0.12em] text-[#4f5660] ${collapsed ? "lg:hidden" : ""}`}
+              >
                 {group.title}
               </p>
               <div className="space-y-1">
@@ -412,17 +456,16 @@ function PainelLayout() {
                       to={item.to}
                       activeOptions={{ exact: "exact" in item ? item.exact : false }}
                       onClick={beginNavigation}
-                      className="owner-nav-item group relative flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-[#7f8793] transition-all duration-200 hover:border-[#1677ff]/10 hover:bg-[#1677ff]/[0.055] hover:text-[#e5e7eb]"
+                      className={`owner-nav-item group relative flex items-center gap-3 rounded-xl border border-transparent py-2.5 text-[#7f8793] transition-all duration-200 hover:border-[#1677ff]/10 hover:bg-[#1677ff]/[0.055] hover:text-[#e5e7eb] ${collapsed ? "lg:justify-center lg:px-0" : "px-3"}`}
                       activeProps={{
-                        className:
-                          "owner-nav-item owner-nav-active group relative flex items-center gap-3 rounded-xl border border-[#1677ff]/15 bg-[#1677ff]/[0.09] px-3 py-2.5 text-[#f3f4f6] shadow-[0_8px_24px_rgba(0,0,0,0.12)]",
+                        className: `owner-nav-item owner-nav-active group relative flex items-center gap-3 rounded-xl border border-[#1677ff]/15 bg-[#1677ff]/[0.09] py-2.5 text-[#f3f4f6] shadow-[0_8px_24px_rgba(0,0,0,0.12)] ${collapsed ? "lg:justify-center lg:px-0" : "px-3"}`,
                       }}
                     >
                       <item.icon
                         className="size-5 shrink-0 transition-colors group-hover:text-[#5da8ff]"
                         strokeWidth={1.8}
                       />
-                      <span className="min-w-0 leading-[1.25]">
+                      <span className={`min-w-0 leading-[1.25] ${collapsed ? "lg:hidden" : ""}`}>
                         <span className="owner-nav-label block text-[0.86rem] font-medium">
                           {item.label}
                         </span>
@@ -437,7 +480,9 @@ function PainelLayout() {
           ))}
           {masterStatus?.isMaster && (
             <section>
-              <p className="px-3 pb-2 text-[0.66rem] font-semibold uppercase tracking-[0.12em] text-[#4f5660]">
+              <p
+                className={`px-3 pb-2 text-[0.66rem] font-semibold uppercase tracking-[0.12em] text-[#4f5660] ${collapsed ? "lg:hidden" : ""}`}
+              >
                 Plataforma
               </p>
               <Link
@@ -450,16 +495,24 @@ function PainelLayout() {
                 }}
               >
                 <ShieldCheck className="size-5 shrink-0" aria-hidden="true" />
-                <span className="owner-nav-label text-[0.86rem] font-medium">Painel Master</span>
+                <span
+                  className={`owner-nav-label text-[0.86rem] font-medium ${collapsed ? "lg:hidden" : ""}`}
+                >
+                  Painel Master
+                </span>
               </Link>
             </section>
           )}
         </nav>
 
-        <div className="relative z-20 shrink-0 border-t border-[#25282c] pt-3">
-          <div className="mb-2 flex items-center gap-3 px-3 py-2">
-            <UserCircle className="size-5 shrink-0 text-[#5da8ff]" />
-            <span className="min-w-0 flex-1">
+        <div
+          className={`relative z-20 shrink-0 border-t border-[#25282c] pt-3 ${collapsed ? "lg:px-0 lg:pt-2" : ""}`}
+        >
+          <div
+            className={`mb-2 flex items-center gap-3 px-3 py-2 ${collapsed ? "lg:justify-center lg:px-0" : ""}`}
+          >
+            <UserCircle className="size-5 shrink-0 text-[#5da8ff]" aria-label="Conta" />
+            <span className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
               <span className="block truncate text-[0.82rem] font-medium text-[#c8cdd4]">
                 {platformMode ? "Conta da plataforma" : "Conta do estabelecimento"}
               </span>
@@ -470,18 +523,23 @@ function PainelLayout() {
           </div>
           <Button
             variant="ghost"
-            className="mt-1 w-full justify-start rounded-xl text-[#c8cdd4] hover:bg-white/[0.035] hover:text-white"
+            aria-label="Sair"
+            title="Sair"
+            className={`mt-1 w-full rounded-xl text-[#c8cdd4] hover:bg-white/[0.035] hover:text-white ${collapsed ? "lg:justify-center lg:px-0" : "justify-start"}`}
             onClick={async () => {
               await signOut();
               void navigate({ to: "/auth" });
             }}
           >
-            <LogOut className="size-4" /> Sair
+            <LogOut className="size-4" />
+            <span className={collapsed ? "lg:hidden" : ""}>Sair</span>
           </Button>
         </div>
       </aside>
 
-      <div className="relative z-10 min-w-0 flex-1">
+      <div
+        className={`relative z-10 min-w-0 flex-1 transition-[padding] duration-200 ${collapsed ? "lg:pl-[4.5rem]" : "lg:pl-[18.5rem]"}`}
+      >
         <div
           aria-hidden="true"
           className={`owner-route-progress ${transitioning ? "is-visible" : ""}`}
@@ -491,8 +549,11 @@ function PainelLayout() {
             variant="ghost"
             size="icon"
             className="size-9 shrink-0 rounded-[11px] border border-[#2b2b2e] bg-[#0d0d10] text-[#e6e6e6] shadow-none hover:bg-[#121216] hover:text-white"
-            onClick={() => setOpen((v) => !v)}
-            aria-label="Abrir menu"
+            onClick={() => {
+              if (window.matchMedia("(min-width: 1024px)").matches) toggleCollapsed();
+              else setOpen((v) => !v);
+            }}
+            aria-label="Alternar menu lateral"
           >
             <Menu className="size-5" />
           </Button>

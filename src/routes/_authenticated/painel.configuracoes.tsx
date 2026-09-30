@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -21,11 +21,17 @@ import { useAuth } from "@/hooks/useAuth";
 import { useBusiness } from "@/lib/business";
 import { getPanel1Config, savePanel1Config } from "@/lib/panel1-config.functions";
 import {
+  resolveBusinessGreeting,
+  resolveBusinessTimezone,
+  updateBusinessProfile,
+} from "@/lib/business.functions";
+import {
   DEFAULT_EXTRA_REMINDER_TEMPLATE,
   DEFAULT_PANEL1_PREFERENCES,
   type Panel1Preferences as Preferences,
 } from "@/lib/panel1-config";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
+import { friendlyError } from "@/lib/error-page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,7 +44,12 @@ const AppearanceSettings = lazy(() =>
 
 export const Route = createFileRoute("/_authenticated/painel/configuracoes")({
   validateSearch: (search: Record<string, unknown>) => ({
-    secao: search["secao"] === "aparencia" ? "aparencia" : "preferencias",
+    secao:
+      search["secao"] === "aparencia"
+        ? "aparencia"
+        : search["secao"] === "preferencias"
+          ? "preferencias"
+          : undefined,
   }),
   head: () => ({
     meta: [
@@ -152,21 +163,99 @@ const RESCHEDULE_OPTIONS = CANCELLATION_OPTIONS;
 function ConfiguracoesPage() {
   const { businessId } = useBusiness();
   const { secao } = Route.useSearch();
+  const [appearanceSaveStatus, setAppearanceSaveStatus] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
+  const appearanceSavedTimerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (appearanceSavedTimerRef.current) window.clearTimeout(appearanceSavedTimerRef.current);
+    },
+    [],
+  );
+
+  const markAppearanceSaving = () => {
+    if (appearanceSavedTimerRef.current) window.clearTimeout(appearanceSavedTimerRef.current);
+    appearanceSavedTimerRef.current = null;
+    setAppearanceSaveStatus("saving");
+  };
+
+  const markAppearanceSaved = () => {
+    setAppearanceSaveStatus("saved");
+    if (appearanceSavedTimerRef.current) window.clearTimeout(appearanceSavedTimerRef.current);
+    appearanceSavedTimerRef.current = window.setTimeout(() => {
+      setAppearanceSaveStatus("idle");
+      appearanceSavedTimerRef.current = null;
+    }, 2_000);
+  };
 
   if (!businessId) return <NoBusiness />;
 
   if (secao === "aparencia") {
     return (
       <div className="space-y-6">
+        <SettingsSectionSwitcher activeSection="aparencia" />
         <PageHeader title="Configurações" subtitle="Personalize o Painel 1 que o cliente acessa." />
+        <p className="-mb-4 min-h-4 text-right text-xs text-muted-foreground" aria-live="polite">
+          {appearanceSaveStatus === "saving"
+            ? "Salvando..."
+            : appearanceSaveStatus === "saved"
+              ? "Salvo"
+              : null}
+        </p>
         <Suspense fallback={null}>
-          <AppearanceSettings businessId={businessId} />
+          <AppearanceSettings
+            businessId={businessId}
+            onSaveStart={markAppearanceSaving}
+            onSaveComplete={markAppearanceSaved}
+            onSaveError={() => setAppearanceSaveStatus("idle")}
+          />
         </Suspense>
       </div>
     );
   }
 
-  return <PreferencesSettings businessId={businessId} />;
+  return (
+    <div className="space-y-6">
+      <SettingsSectionSwitcher activeSection="preferencias" />
+      <PreferencesSettings businessId={businessId} />
+    </div>
+  );
+}
+
+function SettingsSectionSwitcher({
+  activeSection,
+}: {
+  activeSection: "preferencias" | "aparencia";
+}) {
+  const linkClass = (active: boolean) =>
+    `rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+      active
+        ? "border-primary bg-primary text-primary-foreground"
+        : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+    }`;
+
+  return (
+    <nav aria-label="Seções de configurações" className="flex gap-2">
+      <Link
+        to="/painel/configuracoes"
+        search={{ secao: undefined }}
+        aria-current={activeSection === "preferencias" ? "page" : undefined}
+        className={linkClass(activeSection === "preferencias")}
+      >
+        Preferências
+      </Link>
+      <Link
+        to="/painel/configuracoes"
+        search={{ secao: "aparencia" }}
+        aria-current={activeSection === "aparencia" ? "page" : undefined}
+        className={linkClass(activeSection === "aparencia")}
+      >
+        Aparência
+      </Link>
+    </nav>
+  );
 }
 
 function PreferencesSettings({ businessId }: { businessId: string }) {
@@ -174,30 +263,55 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   const queryClient = useQueryClient();
   const getConfigFn = useServerFn(getPanel1Config);
   const saveConfigFn = useServerFn(savePanel1Config);
+  const updateBusinessFn = useServerFn(updateBusinessProfile);
   const [selected, setSelected] = useState<PreferenceKey>("available");
   const [menuOpen, setMenuOpen] = useState(false);
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [ownerName, setOwnerName] = useState("");
+  const [loadedBusinessId, setLoadedBusinessId] = useState<string | null>(null);
 
-  const { data } = useQuery({
+  const loadPreferences = async () => {
+    const [config, businessResult] = await Promise.all([
+      getConfigFn({ data: { businessId } }),
+      supabase
+        .from("businesses")
+        .select("reminder_enabled, reminder_hours_before, greeting, timezone")
+        .eq("id", businessId)
+        .maybeSingle(),
+    ]);
+    if (businessResult.error) throw businessResult.error;
+    return {
+      preferences: {
+        ...config.preferences,
+        greeting: resolveBusinessGreeting(
+          businessResult.data?.greeting,
+          config.preferences.greeting,
+        ),
+        timezone: resolveBusinessTimezone(
+          businessResult.data?.timezone,
+          config.preferences.timezone,
+        ),
+      },
+      reminder_enabled: businessResult.data?.reminder_enabled,
+      reminder_hours_before: businessResult.data?.reminder_hours_before,
+    };
+  };
+
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["booking-preferences", businessId],
-    queryFn: async () => {
-      const [config, businessResult] = await Promise.all([
-        getConfigFn({ data: { businessId } }),
-        supabase
-          .from("businesses")
-          .select("reminder_enabled, reminder_hours_before")
-          .eq("id", businessId)
-          .maybeSingle(),
-      ]);
-      if (businessResult.error) throw businessResult.error;
-      return {
-        preferences: config.preferences,
-        reminder_enabled: businessResult.data?.reminder_enabled,
-        reminder_hours_before: businessResult.data?.reminder_hours_before,
-      };
-    },
+    queryFn: loadPreferences,
   });
+
+  const applyLoadedPreferences = (loaded: NonNullable<typeof data>) => {
+    setPrefs({
+      ...DEFAULT_PREFERENCES,
+      ...loaded.preferences,
+      notify_clients: loaded.reminder_enabled ?? loaded.preferences.notify_clients,
+      reminder_hours_before:
+        loaded.reminder_hours_before ?? loaded.preferences.reminder_hours_before,
+    });
+    setLoadedBusinessId(businessId);
+  };
 
   const { data: profile } = useQuery({
     queryKey: ["owner-greeting-name", user?.id],
@@ -214,17 +328,12 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   });
 
   useEffect(() => {
-    if (!data) return;
-    setPrefs({
-      ...DEFAULT_PREFERENCES,
-      ...data.preferences,
-      // FR-026: businesses.reminder_enabled/reminder_hours_before continuam a
-      // fonte de verdade (usada por painel.lembretes.tsx e o cron); os campos
-      // de Panel1Preferences só espelham na UI, nunca são persistidos aqui.
-      notify_clients: data.reminder_enabled ?? data.preferences.notify_clients,
-      reminder_hours_before: data.reminder_hours_before ?? data.preferences.reminder_hours_before,
-    });
-  }, [data]);
+    if (!data) {
+      setLoadedBusinessId(null);
+      return;
+    }
+    applyLoadedPreferences(data);
+  }, [data, businessId]);
 
   useEffect(() => {
     if (profile?.full_name !== undefined) setOwnerName(profile.full_name ?? "");
@@ -232,63 +341,122 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
   const save = useMutation({
     mutationFn: async () => {
-      const normalizedPrefs: Preferences = {
-        ...prefs,
-        list_dates_days: Math.max(
-          7,
-          Math.min(365, Math.floor(Number(prefs.list_dates_days) || 15)),
-        ),
-        cancellation_notice_minutes: Math.max(
-          0,
-          Math.min(1440, Math.floor(Number(prefs.cancellation_notice_minutes) || 0)),
-        ),
-        reschedule_notice_minutes: Math.max(
-          0,
-          Math.min(1440, Math.floor(Number(prefs.reschedule_notice_minutes) || 0)),
-        ),
-        extra_reminder_template: prefs.extra_reminder_template || DEFAULT_EXTRA_TEMPLATE,
-      };
-
-      // notify_clients/reminder_hours_before não entram no patch: a fonte de
-      // verdade é businesses.reminder_enabled/reminder_hours_before (FR-026),
-      // atualizada logo abaixo, exatamente como painel.lembretes.tsx já faz.
-      const { notify_clients: _notifyClients, ...preferencesPatch } = normalizedPrefs;
-      void _notifyClients;
-
-      await saveConfigFn({ data: { businessId, patch: { preferences: preferencesPatch } } });
-
-      const { data: updatedBusiness, error: reminderError } = await supabase
-        .from("businesses")
-        .update({
-          reminder_enabled: normalizedPrefs.notify_clients,
-          reminder_hours_before: normalizedPrefs.reminder_hours_before,
-        })
-        .eq("id", businessId)
-        .select("id")
-        .maybeSingle();
-      if (reminderError) throw reminderError;
-      if (!updatedBusiness) throw new Error("O negócio não foi encontrado para atualizar.");
-
-      if (selected === "greeting" && user?.id && ownerName.trim()) {
-        const { data: updatedProfile, error: profileError } = await supabase
-          .from("profiles")
-          .update({ full_name: ownerName.trim() })
-          .eq("id", user.id)
+      const savedParts: string[] = [];
+      let currentPart = "preferências do agendamento";
+      try {
+        const normalizedPrefs: Preferences = {
+          ...prefs,
+          list_dates_days: Math.max(
+            7,
+            Math.min(365, Math.floor(Number(prefs.list_dates_days) || 15)),
+          ),
+          cancellation_notice_minutes: Math.max(
+            0,
+            Math.min(1440, Math.floor(Number(prefs.cancellation_notice_minutes) || 0)),
+          ),
+          reschedule_notice_minutes: Math.max(
+            0,
+            Math.min(1440, Math.floor(Number(prefs.reschedule_notice_minutes) || 0)),
+          ),
+          extra_reminder_template: prefs.extra_reminder_template || DEFAULT_EXTRA_TEMPLATE,
+        };
+        // notify_clients/reminder_hours_before não entram no patch: a fonte de
+        // verdade é businesses.reminder_enabled/reminder_hours_before (FR-026),
+        // atualizada logo abaixo, exatamente como painel.lembretes.tsx já faz.
+        const { notify_clients: _notifyClients, ...preferencesPatch } = normalizedPrefs;
+        void _notifyClients;
+        await saveConfigFn({ data: { businessId, patch: { preferences: preferencesPatch } } });
+        savedParts.push("preferências do agendamento");
+        currentPart = "lembretes";
+        const { data: updatedBusiness, error: reminderError } = await supabase
+          .from("businesses")
+          .update({
+            reminder_enabled: normalizedPrefs.notify_clients,
+            reminder_hours_before: normalizedPrefs.reminder_hours_before,
+          })
+          .eq("id", businessId)
           .select("id")
           .maybeSingle();
-        if (profileError) throw profileError;
-        if (!updatedProfile) throw new Error("O perfil não foi encontrado para atualizar.");
+        if (reminderError) throw reminderError;
+        if (!updatedBusiness) throw new Error("O negócio não foi encontrado para atualizar.");
+        savedParts.push("lembretes");
+        currentPart = "saudação e fuso horário";
+        // A saudação antiga do arquivo é lida acima e migrada para a coluna do negócio
+        // no primeiro salvamento; essa é a fonte usada pelos lembretes de WhatsApp.
+        await updateBusinessFn({
+          data: {
+            businessId,
+            greeting: normalizedPrefs.greeting,
+            timezone: normalizedPrefs.timezone,
+          },
+        });
+        savedParts.push("saudação e fuso horário");
+        if (selected === "greeting" && user?.id) {
+          currentPart = "nome do perfil";
+          const { data: updatedProfile, error: profileError } = await supabase
+            .from("profiles")
+            .update({ full_name: ownerName.trim() })
+            .eq("id", user.id)
+            .select("id")
+            .maybeSingle();
+          if (profileError) throw profileError;
+          if (!updatedProfile) throw new Error("O perfil não foi encontrado para atualizar.");
+          savedParts.push("nome do perfil");
+        }
+      } catch {
+        const saved = savedParts.length ? `Salvo: ${savedParts.join(", ")}. ` : "";
+        throw new Error(
+          `${saved}Não foi salvo: ${currentPart}. Os dados do servidor serão recarregados.`,
+        );
       }
     },
-    onSuccess: () => {
-      toast.success("Configuração do Painel 1 salva");
-      void queryClient.invalidateQueries({ queryKey: ["booking-preferences", businessId] });
-      void queryClient.invalidateQueries({ queryKey: ["reminder-config", businessId] });
-      if (user?.id) {
-        void queryClient.invalidateQueries({ queryKey: ["owner-greeting-name", user.id] });
+    onSettled: async (_result, error) => {
+      const queryKeys: Array<readonly unknown[]> = [
+        ["booking-preferences", businessId],
+        ["panel1-config", businessId],
+        ["panel1-appearance", businessId],
+        ["reminder-config", businessId],
+        ...(user?.id ? [["owner-greeting-name", user.id]] : []),
+      ];
+
+      await Promise.all(
+        queryKeys.map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey, refetchType: "none" }),
+        ),
+      );
+      let preferencesRefreshFailed = false;
+      let refreshedPreferences: NonNullable<typeof data> | undefined;
+      try {
+        refreshedPreferences = await queryClient.fetchQuery({
+          queryKey: ["booking-preferences", businessId],
+          queryFn: loadPreferences,
+        });
+      } catch {
+        preferencesRefreshFailed = true;
+      }
+      await Promise.all(
+        queryKeys
+          .slice(1)
+          .map((queryKey) => queryClient.refetchQueries({ queryKey, type: "active" })),
+      );
+
+      if (!preferencesRefreshFailed && refreshedPreferences) {
+        applyLoadedPreferences(refreshedPreferences);
+      }
+
+      if (error) {
+        const message = friendlyError(error);
+        toast.error(
+          preferencesRefreshFailed
+            ? `${message} Não foi possível confirmar os dados atuais; atualize a página.`
+            : message,
+        );
+      } else if (preferencesRefreshFailed) {
+        toast.error("Salvo, mas não foi possível recarregar as configurações. Atualize a página.");
+      } else {
+        toast.success("Configurações salvas");
       }
     },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   const insertExtraToken = (token: string) => {
@@ -305,6 +473,29 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
     setMenuOpen(false);
   };
 
+  if (isError) {
+    return (
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-2xl border border-[#25282c] bg-[#090a0c] p-6 text-center">
+        <p className="text-sm text-[#a0a6af]">Não foi possível carregar as configurações.</p>
+        <Button variant="outline" onClick={() => void refetch()}>
+          Tentar novamente
+        </Button>
+      </div>
+    );
+  }
+
+  if (isLoading || !data || loadedBusinessId !== businessId) {
+    return (
+      <div
+        className="flex min-h-[620px] items-center justify-center rounded-2xl border border-[#25282c] bg-[#090a0c] p-6 text-sm text-[#a0a6af]"
+        role="status"
+        aria-live="polite"
+      >
+        Carregando configurações…
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-[620px] overflow-hidden rounded-2xl border border-[#25282c] bg-[#090a0c]">
       {menuOpen && (
@@ -318,7 +509,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
       <div className="grid min-h-[620px] lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside
-          className={`preferences-mini-sidebar fixed inset-y-0 left-0 z-[60] w-[260px] overflow-y-auto border-r border-[#18345d] bg-[radial-gradient(ellipse_120%_48%_at_0%_0%,rgba(22,119,255,0.30)_0%,rgba(22,119,255,0.12)_38%,transparent_72%),linear-gradient(180deg,#090d14_0%,#07090d_48%,#050607_100%)] px-3 pb-6 pt-4 shadow-[18px_0_55px_rgba(0,0,0,0.52),4px_0_28px_rgba(22,119,255,0.10)] backdrop-blur-xl transition-[transform,visibility,box-shadow] duration-300 ease-out lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:visible lg:pointer-events-auto lg:shadow-[inset_-1px_0_0_rgba(93,168,255,0.08)] ${
+          className={`preferences-mini-sidebar fixed inset-y-0 left-0 z-[60] w-[min(260px,100vw)] max-w-full overflow-x-hidden overflow-y-auto border-r border-[#18345d] bg-[radial-gradient(ellipse_120%_48%_at_0%_0%,rgba(22,119,255,0.30)_0%,rgba(22,119,255,0.12)_38%,transparent_72%),linear-gradient(180deg,#090d14_0%,#07090d_48%,#050607_100%)] px-3 pb-6 pt-4 shadow-[18px_0_55px_rgba(0,0,0,0.52),4px_0_28px_rgba(22,119,255,0.10)] backdrop-blur-xl transition-[transform,visibility,box-shadow] duration-300 ease-out lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:visible lg:pointer-events-auto lg:shadow-[inset_-1px_0_0_rgba(93,168,255,0.08)] ${
             menuOpen
               ? "preferences-mini-sidebar-open visible translate-x-0 pointer-events-auto"
               : "invisible -translate-x-full pointer-events-none"
@@ -398,12 +589,13 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
           <div className="mx-auto max-w-2xl">
             <button
               type="button"
-              className="mb-5 inline-flex size-10 items-center justify-center rounded-xl border border-[#367bdc]/35 bg-[#1677ff]/10 text-[#79b1ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_20px_rgba(22,119,255,0.12)] transition-all duration-200 hover:border-[#5da8ff]/55 hover:bg-[#1677ff]/15 hover:text-white hover:shadow-[0_0_24px_rgba(22,119,255,0.18)] lg:hidden"
+              className="mb-5 inline-flex h-10 items-center gap-2 rounded-xl border border-[#367bdc]/35 bg-[#1677ff]/10 px-4 text-sm font-medium text-[#79b1ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_20px_rgba(22,119,255,0.12)] transition-all duration-200 hover:border-[#5da8ff]/55 hover:bg-[#1677ff]/15 hover:text-white hover:shadow-[0_0_24px_rgba(22,119,255,0.18)] lg:hidden"
               aria-label="Abrir menu de preferências"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(true)}
             >
               <Menu className="size-5" />
+              Outras configurações
             </button>
 
             {selected === "available" && (
@@ -448,6 +640,21 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                   Escolha quanto tempo de antecedência seu cliente recebe o lembrete.
                 </p>
                 <div className="mt-12 space-y-3">
+                  <label className="block space-y-2">
+                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
+                      Enviar lembretes aos clientes
+                    </span>
+                    <NativeSelect
+                      value={prefs.notify_clients ? "ativo" : "desativado"}
+                      onChange={(value) =>
+                        setPrefs({ ...prefs, notify_clients: value === "ativo" })
+                      }
+                      options={[
+                        ["ativo", "Ativado"],
+                        ["desativado", "Desativado"],
+                      ]}
+                    />
+                  </label>
                   <NativeSelect
                     value={prefs.reminder_hours_before}
                     onChange={(value) =>

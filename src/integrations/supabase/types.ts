@@ -6,33 +6,56 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5";
   };
-  graphql_public: {
-    Tables: {
-      [_ in never]: never;
-    };
-    Views: {
-      [_ in never]: never;
-    };
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json;
-          operationName?: string;
-          query?: string;
-          variables?: Json;
-        };
-        Returns: Json;
-      };
-    };
-    Enums: {
-      [_ in never]: never;
-    };
-    CompositeTypes: {
-      [_ in never]: never;
-    };
-  };
   public: {
     Tables: {
+      agpay_webhook_events: {
+        Row: {
+          attempts: number;
+          available_at: string;
+          dedupe_hash: string;
+          event_type: string;
+          id: string;
+          last_error: string | null;
+          locked_at: string | null;
+          payload: Json;
+          processed_at: string | null;
+          received_at: string;
+          status: string;
+          transaction_uuid: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          attempts?: number;
+          available_at?: string;
+          dedupe_hash: string;
+          event_type: string;
+          id?: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          payload: Json;
+          processed_at?: string | null;
+          received_at?: string;
+          status?: string;
+          transaction_uuid?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          attempts?: number;
+          available_at?: string;
+          dedupe_hash?: string;
+          event_type?: string;
+          id?: string;
+          last_error?: string | null;
+          locked_at?: string | null;
+          payload?: Json;
+          processed_at?: string | null;
+          received_at?: string;
+          status?: string;
+          transaction_uuid?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       appointments: {
         Row: {
           business_id: string;
@@ -46,6 +69,7 @@ export type Database = {
           id: string;
           notes: string | null;
           professional_id: string | null;
+          public_code: string;
           service_id: string | null;
           starts_at: string;
           status: string;
@@ -63,6 +87,7 @@ export type Database = {
           id?: string;
           notes?: string | null;
           professional_id?: string | null;
+          public_code?: string;
           service_id?: string | null;
           starts_at: string;
           status?: string;
@@ -80,6 +105,7 @@ export type Database = {
           id?: string;
           notes?: string | null;
           professional_id?: string | null;
+          public_code?: string;
           service_id?: string | null;
           starts_at?: string;
           status?: string;
@@ -112,38 +138,6 @@ export type Database = {
             columns: ["service_id"];
             isOneToOne: false;
             referencedRelation: "services";
-            referencedColumns: ["id"];
-          },
-        ];
-      };
-      asaas_business_credentials: {
-        Row: {
-          api_key_encrypted: string;
-          asaas_account_id: string | null;
-          business_id: string;
-          created_at: string;
-          updated_at: string;
-        };
-        Insert: {
-          api_key_encrypted: string;
-          asaas_account_id?: string | null;
-          business_id: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Update: {
-          api_key_encrypted?: string;
-          asaas_account_id?: string | null;
-          business_id?: string;
-          created_at?: string;
-          updated_at?: string;
-        };
-        Relationships: [
-          {
-            foreignKeyName: "asaas_business_credentials_business_id_fkey";
-            columns: ["business_id"];
-            isOneToOne: true;
-            referencedRelation: "businesses";
             referencedColumns: ["id"];
           },
         ];
@@ -237,87 +231,147 @@ export type Database = {
           },
         ];
       };
+      business_outreach_overrides: {
+        Row: {
+          business_id: string;
+          design: Json;
+          id: string;
+          template_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          business_id: string;
+          design: Json;
+          id?: string;
+          template_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          business_id?: string;
+          design?: Json;
+          id?: string;
+          template_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "business_outreach_overrides_business_id_fkey";
+            columns: ["business_id"];
+            isOneToOne: false;
+            referencedRelation: "businesses";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "business_outreach_overrides_template_id_fkey";
+            columns: ["template_id"];
+            isOneToOne: false;
+            referencedRelation: "outreach_templates";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       businesses: {
         Row: {
           address: string | null;
-          asaas_commission_percent: number;
-          asaas_subaccount_status: string;
-          asaas_wallet_id: string | null;
+          agpay_commission_percent: number;
+          agpay_split_email: string | null;
+          agpay_split_status: string;
           brand_background: string | null;
+          brand_background_image: string | null;
           brand_primary: string | null;
           category: string;
           confirmation_template: string | null;
           created_at: string;
+          greeting: string | null;
           id: string;
           logo_url: string | null;
           monthly_fee_cents: number;
           name: string;
           owner_id: string;
+          payment_confirmation_template: string | null;
           phone: string | null;
           reminder_channel: string;
           reminder_enabled: boolean;
           reminder_hours_before: number;
           reminder_template: string | null;
+          selected_outreach_template_ids: string[];
           slug: string;
           status: string;
+          timezone: string;
           updated_at: string;
           whatsapp_instance: string | null;
+          whatsapp_instance_id: string | null;
+          whatsapp_instance_token: string | null;
           whatsapp_status: string;
           withdrawal_pix_key: string | null;
           withdrawal_pix_key_type: string | null;
         };
         Insert: {
           address?: string | null;
-          asaas_commission_percent?: number;
-          asaas_subaccount_status?: string;
-          asaas_wallet_id?: string | null;
+          agpay_commission_percent?: number;
+          agpay_split_email?: string | null;
+          agpay_split_status?: string;
           brand_background?: string | null;
+          brand_background_image?: string | null;
           brand_primary?: string | null;
           category?: string;
           confirmation_template?: string | null;
           created_at?: string;
+          greeting?: string | null;
           id?: string;
           logo_url?: string | null;
           monthly_fee_cents?: number;
           name: string;
           owner_id?: string;
+          payment_confirmation_template?: string | null;
           phone?: string | null;
           reminder_channel?: string;
           reminder_enabled?: boolean;
           reminder_hours_before?: number;
           reminder_template?: string | null;
+          selected_outreach_template_ids?: string[];
           slug: string;
           status?: string;
+          timezone?: string;
           updated_at?: string;
           whatsapp_instance?: string | null;
+          whatsapp_instance_id?: string | null;
+          whatsapp_instance_token?: string | null;
           whatsapp_status?: string;
           withdrawal_pix_key?: string | null;
           withdrawal_pix_key_type?: string | null;
         };
         Update: {
           address?: string | null;
-          asaas_commission_percent?: number;
-          asaas_subaccount_status?: string;
-          asaas_wallet_id?: string | null;
+          agpay_commission_percent?: number;
+          agpay_split_email?: string | null;
+          agpay_split_status?: string;
           brand_background?: string | null;
+          brand_background_image?: string | null;
           brand_primary?: string | null;
           category?: string;
           confirmation_template?: string | null;
           created_at?: string;
+          greeting?: string | null;
           id?: string;
           logo_url?: string | null;
           monthly_fee_cents?: number;
           name?: string;
           owner_id?: string;
+          payment_confirmation_template?: string | null;
           phone?: string | null;
           reminder_channel?: string;
           reminder_enabled?: boolean;
           reminder_hours_before?: number;
           reminder_template?: string | null;
+          selected_outreach_template_ids?: string[];
           slug?: string;
           status?: string;
+          timezone?: string;
           updated_at?: string;
           whatsapp_instance?: string | null;
+          whatsapp_instance_id?: string | null;
+          whatsapp_instance_token?: string | null;
           whatsapp_status?: string;
           withdrawal_pix_key?: string | null;
           withdrawal_pix_key_type?: string | null;
@@ -369,14 +423,15 @@ export type Database = {
         Row: {
           amount_cents: number;
           appointment_id: string | null;
-          asaas_account_id: string | null;
-          asaas_customer_id: string | null;
           business_id: string;
           created_at: string;
           expires_at: string | null;
+          gateway_fee_cents: number | null;
           id: string;
+          net_amount_cents: number | null;
           paid_at: string | null;
           payer_cpf_cnpj: string | null;
+          payer_email: string | null;
           payer_name: string | null;
           payer_phone: string | null;
           pix_attempt_state: string;
@@ -384,6 +439,9 @@ export type Database = {
           pix_claim_expires_at: string | null;
           pix_claim_token: string | null;
           pix_post_started_at: string | null;
+          platform_commission_cents: number | null;
+          platform_commission_flat_cents: number | null;
+          platform_commission_percent_snapshot: number | null;
           provider: string;
           provider_deleted_at: string | null;
           provider_payment_id: string | null;
@@ -397,14 +455,15 @@ export type Database = {
         Insert: {
           amount_cents?: number;
           appointment_id?: string | null;
-          asaas_account_id?: string | null;
-          asaas_customer_id?: string | null;
           business_id: string;
           created_at?: string;
           expires_at?: string | null;
+          gateway_fee_cents?: number | null;
           id?: string;
+          net_amount_cents?: number | null;
           paid_at?: string | null;
           payer_cpf_cnpj?: string | null;
+          payer_email?: string | null;
           payer_name?: string | null;
           payer_phone?: string | null;
           pix_attempt_state?: string;
@@ -412,6 +471,9 @@ export type Database = {
           pix_claim_expires_at?: string | null;
           pix_claim_token?: string | null;
           pix_post_started_at?: string | null;
+          platform_commission_cents?: number | null;
+          platform_commission_flat_cents?: number | null;
+          platform_commission_percent_snapshot?: number | null;
           provider?: string;
           provider_deleted_at?: string | null;
           provider_payment_id?: string | null;
@@ -425,14 +487,15 @@ export type Database = {
         Update: {
           amount_cents?: number;
           appointment_id?: string | null;
-          asaas_account_id?: string | null;
-          asaas_customer_id?: string | null;
           business_id?: string;
           created_at?: string;
           expires_at?: string | null;
+          gateway_fee_cents?: number | null;
           id?: string;
+          net_amount_cents?: number | null;
           paid_at?: string | null;
           payer_cpf_cnpj?: string | null;
+          payer_email?: string | null;
           payer_name?: string | null;
           payer_phone?: string | null;
           pix_attempt_state?: string;
@@ -440,6 +503,9 @@ export type Database = {
           pix_claim_expires_at?: string | null;
           pix_claim_token?: string | null;
           pix_post_started_at?: string | null;
+          platform_commission_cents?: number | null;
+          platform_commission_flat_cents?: number | null;
+          platform_commission_percent_snapshot?: number | null;
           provider?: string;
           provider_deleted_at?: string | null;
           provider_payment_id?: string | null;
@@ -467,13 +533,79 @@ export type Database = {
           },
         ];
       };
+      ledger_entries: {
+        Row: {
+          amount_cents: number;
+          business_id: string;
+          created_at: string;
+          description: string | null;
+          id: string;
+          idempotency_key: string;
+          metadata: Json;
+          payment_id: string | null;
+          status: string;
+          type: string;
+          withdrawal_id: string | null;
+        };
+        Insert: {
+          amount_cents: number;
+          business_id: string;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          idempotency_key: string;
+          metadata?: Json;
+          payment_id?: string | null;
+          status?: string;
+          type: string;
+          withdrawal_id?: string | null;
+        };
+        Update: {
+          amount_cents?: number;
+          business_id?: string;
+          created_at?: string;
+          description?: string | null;
+          id?: string;
+          idempotency_key?: string;
+          metadata?: Json;
+          payment_id?: string | null;
+          status?: string;
+          type?: string;
+          withdrawal_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ledger_entries_business_id_fkey";
+            columns: ["business_id"];
+            isOneToOne: false;
+            referencedRelation: "businesses";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ledger_entries_payment_id_fkey";
+            columns: ["payment_id"];
+            isOneToOne: false;
+            referencedRelation: "deposit_payments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ledger_entries_withdrawal_id_fkey";
+            columns: ["withdrawal_id"];
+            isOneToOne: false;
+            referencedRelation: "withdrawals";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       outreach_templates: {
         Row: {
           active: boolean;
           body: string;
           created_at: string;
           created_by: string | null;
+          design: Json;
           id: string;
+          is_default: boolean;
           title: string;
           updated_at: string;
           usage_type: string;
@@ -483,7 +615,9 @@ export type Database = {
           body: string;
           created_at?: string;
           created_by?: string | null;
+          design?: Json;
           id?: string;
+          is_default?: boolean;
           title: string;
           updated_at?: string;
           usage_type: string;
@@ -493,7 +627,9 @@ export type Database = {
           body?: string;
           created_at?: string;
           created_by?: string | null;
+          design?: Json;
           id?: string;
+          is_default?: boolean;
           title?: string;
           updated_at?: string;
           usage_type?: string;
@@ -864,6 +1000,85 @@ export type Database = {
         };
         Relationships: [];
       };
+      wallets: {
+        Row: {
+          available_cents: number;
+          business_id: string;
+          locked_cents: number;
+          pending_cents: number;
+          updated_at: string;
+        };
+        Insert: {
+          available_cents?: number;
+          business_id: string;
+          locked_cents?: number;
+          pending_cents?: number;
+          updated_at?: string;
+        };
+        Update: {
+          available_cents?: number;
+          business_id?: string;
+          locked_cents?: number;
+          pending_cents?: number;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "wallets_business_id_fkey";
+            columns: ["business_id"];
+            isOneToOne: true;
+            referencedRelation: "businesses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      withdrawals: {
+        Row: {
+          amount_cents: number;
+          business_id: string;
+          created_at: string;
+          id: string;
+          idempotency_key: string;
+          pix_key_snapshot: string;
+          provider_fee_cents: number | null;
+          provider_ref: string | null;
+          status: string;
+          updated_at: string;
+        };
+        Insert: {
+          amount_cents: number;
+          business_id: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key: string;
+          pix_key_snapshot: string;
+          provider_fee_cents?: number | null;
+          provider_ref?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          amount_cents?: number;
+          business_id?: string;
+          created_at?: string;
+          id?: string;
+          idempotency_key?: string;
+          pix_key_snapshot?: string;
+          provider_fee_cents?: number | null;
+          provider_ref?: string | null;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "withdrawals_business_id_fkey";
+            columns: ["business_id"];
+            isOneToOne: false;
+            referencedRelation: "businesses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -895,6 +1110,70 @@ export type Database = {
         Returns: boolean;
       };
       is_business_member: { Args: { _business_id: string }; Returns: boolean };
+      ledger_adjustment: {
+        Args: {
+          _amount_cents: number;
+          _business_id: string;
+          _description: string;
+          _idempotency_key: string;
+        };
+        Returns: {
+          created: boolean;
+          entry_id: string;
+        }[];
+      };
+      ledger_credit_payment: {
+        Args: {
+          _amount_cents: number;
+          _business_id: string;
+          _description: string;
+          _idempotency_key: string;
+          _metadata?: Json;
+          _payment_id: string;
+        };
+        Returns: {
+          created: boolean;
+          entry_id: string;
+        }[];
+      };
+      ledger_debit_refund: {
+        Args: {
+          _amount_cents: number;
+          _business_id: string;
+          _description: string;
+          _idempotency_key: string;
+          _payment_id: string;
+        };
+        Returns: {
+          created: boolean;
+          entry_id: string;
+        }[];
+      };
+      ledger_request_withdrawal: {
+        Args: {
+          _amount_cents: number;
+          _business_id: string;
+          _idempotency_key: string;
+          _withdrawal_id: string;
+        };
+        Returns: {
+          accepted: boolean;
+          available_cents: number;
+          entry_id: string;
+        }[];
+      };
+      ledger_reverse_withdrawal: {
+        Args: {
+          _amount_cents: number;
+          _business_id: string;
+          _idempotency_key: string;
+          _withdrawal_id: string;
+        };
+        Returns: {
+          created: boolean;
+          entry_id: string;
+        }[];
+      };
       mark_deposit_pix_post_started: {
         Args: {
           _charge_id: string;
@@ -1038,9 +1317,6 @@ export type CompositeTypes<
     : never;
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["super_admin", "owner", "professional"],

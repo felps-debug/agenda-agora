@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -71,7 +72,7 @@ function NegociosPage() {
       applyUpdatedBusiness(updated);
       void queryClient.invalidateQueries({ queryKey: ["public-business"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const edit = (b: Business) => {

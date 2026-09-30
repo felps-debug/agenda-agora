@@ -10,28 +10,67 @@ type UazapiInstance = {
 
 function config() {
   const baseUrl = process.env["UAZAPI_BASE_URL"];
-  const token = process.env["UAZAPI_TOKEN"];
-  if (!baseUrl || !token)
+  if (!baseUrl)
     throw new Error("A integração de WhatsApp ainda não foi configurada pela plataforma.");
-  return { baseUrl: baseUrl.replace(/\/$/, ""), token };
+  return { baseUrl: baseUrl.replace(/\/$/, "") };
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const { baseUrl, token } = config();
-  const res = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      token,
-      ...(init?.headers ?? {}),
-    },
-  });
+async function call<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  const { baseUrl } = config();
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        token,
+        ...(init?.headers ?? {}),
+      },
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new Error("A conexão com WhatsApp excedeu o tempo limite.");
+    throw new Error("Falha na integração de WhatsApp. Tente novamente.");
+  }
   const text = await res.text();
   if (!res.ok) {
-    console.error(`UazAPI [${res.status}] ${path}: ${text}`);
-    throw new Error(`Falha na integração de WhatsApp (${res.status}).`);
+    console.error(`UazAPI [${res.status}] ${path}.`);
+    if ([401, 403].includes(res.status)) {
+      const error = new Error("A credencial de WhatsApp é inválida ou não tem permissão.");
+      error.name = "UazapiCredentialError";
+      throw error;
+    }
+    throw new Error("Falha na integração de WhatsApp. Tente novamente.");
   }
   return (text ? JSON.parse(text) : {}) as T;
+}
+
+export async function createBusinessInstance(name: string) {
+  const { baseUrl } = config();
+  const adminToken = process.env["UAZAPI_ADMIN_TOKEN"]?.trim();
+  if (!adminToken) {
+    const error = new Error("A credencial administrativa de WhatsApp não está configurada.");
+    error.name = "UazapiCredentialError";
+    throw error;
+  }
+  const response = await fetch(`${baseUrl}/instance/init`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", admintoken: adminToken },
+    body: JSON.stringify({ name: name.slice(0, 80), systemName: "Agenda Agora" }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error("Não foi possível criar a instância de WhatsApp.");
+  const payload = (await response.json()) as {
+    token?: string;
+    name?: string;
+    instance?: { name?: string };
+  };
+  if (!payload.token) throw new Error("A resposta da integração de WhatsApp está incompleta.");
+  return {
+    instanceId: payload.name ?? payload.instance?.name ?? name,
+    instanceToken: payload.token,
+  };
 }
 
 /**
@@ -39,34 +78,43 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
  * Na UazAPI, pedir um QR novo é o mesmo endpoint que inicia a conexão
  * (POST /instance/connect sem `phone`) — não existe um GET separado só de QR.
  */
-export async function getQrCode(): Promise<string | null> {
+export async function getQrCode(instanceToken: string): Promise<string | null> {
   try {
-    const data = await call<{ instance?: UazapiInstance }>("/instance/connect", {
+    const data = await call<{ instance?: UazapiInstance }>("/instance/connect", instanceToken, {
       method: "POST",
       body: JSON.stringify({}),
     });
     return data.instance?.qrcode ?? null;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Error && error.name === "UazapiCredentialError") throw error;
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new Error("A conexão com WhatsApp excedeu o tempo limite.");
+    throw error;
   }
 }
 
 /** true quando o WhatsApp está conectado e pronto para enviar. */
-export async function isConnected(): Promise<boolean> {
+export async function isConnected(instanceToken: string): Promise<boolean> {
   try {
-    const data = await call<{ instance?: UazapiInstance }>("/instance/status");
+    const data = await call<{ instance?: UazapiInstance }>("/instance/status", instanceToken);
     return data.instance?.status === "connected";
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof Error && error.name === "UazapiCredentialError") throw error;
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new Error("A conexão com WhatsApp excedeu o tempo limite.");
+    throw error;
   }
 }
 
 /** Desconecta o aparelho vinculado (a instância continua existindo). */
-export async function disconnect(): Promise<void> {
+export async function disconnect(instanceToken: string): Promise<void> {
   try {
-    await call("/instance/disconnect", { method: "POST" });
-  } catch {
-    // ignora: instância pode já estar desconectada
+    await call("/instance/disconnect", instanceToken, { method: "POST" });
+  } catch (error) {
+    if (error instanceof Error && error.name === "UazapiCredentialError") throw error;
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new Error("A conexão com WhatsApp excedeu o tempo limite.");
+    throw error;
   }
 }
 
@@ -75,8 +123,12 @@ export function phoneToWhatsapp(phone: string): string {
   return digits.startsWith("55") ? digits : `55${digits}`;
 }
 
-export async function sendTextMessage(phone: string, message: string): Promise<void> {
-  await call("/send/text", {
+export async function sendTextMessage(
+  instanceToken: string,
+  phone: string,
+  message: string,
+): Promise<void> {
+  await call("/send/text", instanceToken, {
     method: "POST",
     body: JSON.stringify({
       number: phoneToWhatsapp(phone),

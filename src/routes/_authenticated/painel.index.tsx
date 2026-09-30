@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -17,6 +18,16 @@ import {
 } from "@/lib/format";
 import { NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -83,7 +94,12 @@ function AgendaPage() {
   const [day, setDay] = useState(() => toDateInput(new Date()));
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [formSnapshot, setFormSnapshot] = useState(emptyForm);
+  const [confirmDiscardNew, setConfirmDiscardNew] = useState(false);
+  const isNewFormDirty = JSON.stringify(form) !== JSON.stringify(formSnapshot);
 
   const { data: services } = useQuery({
     queryKey: ["services", businessId],
@@ -157,9 +173,10 @@ function AgendaPage() {
       toast.success("Agendamento criado!");
       setOpen(false);
       setForm(emptyForm);
+      setFormSnapshot(emptyForm);
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const blockSlot = useMutation({
@@ -178,7 +195,7 @@ function AgendaPage() {
       toast.success("Horário bloqueado.");
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const setStatus = useMutation({
@@ -188,7 +205,7 @@ function AgendaPage() {
       });
     },
     onSuccess: () => void invalidate(),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const remove = useMutation({
@@ -231,7 +248,9 @@ function AgendaPage() {
   const selected = (appointments ?? []).find((a) => a.id === detail) ?? null;
 
   const openNewAt = (time: string) => {
-    setForm({ ...emptyForm, time });
+    const next = { ...emptyForm, time };
+    setForm(next);
+    setFormSnapshot(next);
     setOpen(true);
   };
 
@@ -369,7 +388,21 @@ function AgendaPage() {
         {(appointments ?? []).length} agendamento(s) · {formatPrice(total)}
       </p>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(v) => {
+          if (v) {
+            setOpen(true);
+            return;
+          }
+          if (isNewFormDirty) {
+            setConfirmDiscardNew(true);
+            return;
+          }
+          setOpen(false);
+          setForm(emptyForm);
+        }}
+      >
         <DialogContent className="agenda-booking-dialog overflow-y-auto p-0">
           <DialogHeader className="agenda-booking-dialog-header">
             <div className="flex items-start gap-3 text-left">
@@ -508,7 +541,11 @@ function AgendaPage() {
                 <Label className="agenda-booking-label">Situação</Label>
                 <Select
                   value={selected.status}
-                  onValueChange={(status) => setStatus.mutate({ id: selected.id, status })}
+                  onValueChange={(status) =>
+                    status === "cancelado"
+                      ? setConfirmCancel(true)
+                      : setStatus.mutate({ id: selected.id, status })
+                  }
                 >
                   <SelectTrigger className="agenda-booking-input w-full">
                     <SelectValue>{statusLabel(selected.status)}</SelectValue>
@@ -527,7 +564,7 @@ function AgendaPage() {
           <DialogFooter className="agenda-booking-dialog-footer">
             <Button
               variant="destructive"
-              onClick={() => selected && remove.mutate(selected.id)}
+              onClick={() => setConfirmDelete(true)}
               disabled={remove.isPending}
             >
               <Trash2 className="size-4" /> Excluir
@@ -535,6 +572,77 @@ function AgendaPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O registro será removido permanentemente. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (selected)
+                  remove.mutate(selected.id, { onSettled: () => setConfirmDelete(false) });
+              }}
+              disabled={remove.isPending}
+            >
+              Excluir agendamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancelar agendamento?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O horário será liberado para outros clientes.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (selected)
+                  setStatus.mutate(
+                    { id: selected.id, status: "cancelado" },
+                    { onSettled: () => setConfirmCancel(false) },
+                  );
+              }}
+              disabled={setStatus.isPending}
+            >
+              Cancelar agendamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDiscardNew} onOpenChange={(v) => !v && setConfirmDiscardNew(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem alterações não salvas neste formulário. Se sair agora, elas serão perdidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmDiscardNew(false);
+                setOpen(false);
+                setForm(emptyForm);
+              }}
+            >
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -12,31 +13,25 @@ import {
   PlayCircle,
   Landmark,
   Megaphone,
-  Pencil,
 } from "lucide-react";
 import {
   createBusinessWithOwner,
   deleteBusiness,
   getMasterStatus,
+  getDepositPaymentDiagnostics,
   getPlatformMetrics,
   listAllBusinesses,
-  provisionAsaasSubaccount,
   registerSubscriptionCharge,
-  setAsaasSubaccountStatus,
+  setAgpaySplitStatus,
+  setBusinessAgpaySplit,
   setBusinessStatus,
   setMonthlyFee,
 } from "@/lib/admin.functions";
-import {
-  listOutreachTemplatesAdmin,
-  saveOutreachTemplate,
-  setOutreachTemplateActive,
-} from "@/lib/outreach-templates.functions";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { formatPrice } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -45,10 +40,36 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+
+const WithdrawalsAdmin = lazy(() =>
+  import("@/components/master/WithdrawalsAdmin").then((module) => ({
+    default: module.WithdrawalsAdmin,
+  })),
+);
+const LedgerReconciliation = lazy(() =>
+  import("@/components/master/LedgerReconciliation").then((module) => ({
+    default: module.LedgerReconciliation,
+  })),
+);
+const MasterTemplatesTab = lazy(() =>
+  import("@/components/template-editor/MasterTemplatesTab").then((module) => ({
+    default: module.MasterTemplatesTab,
+  })),
+);
 
 export const Route = createFileRoute("/_authenticated/painel/master")({
-  // A sessÃ£o Supabase fica no localStorage, indisponÃ­vel durante SSR. Cada server
-  // function da pÃ¡gina verifica a role e o AAL2 antes de ler ou gravar dados.
+  // A sessão Supabase fica no localStorage, indisponível durante SSR. Cada server
+  // function da página verifica a role e o AAL2 antes de ler ou gravar dados.
   loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
   head: () => ({
     meta: [
@@ -72,60 +93,22 @@ const emptyForm = {
   password: "",
 };
 
-type AsaasForm = {
+type AgpaySplitForm = {
   businessId: string;
-  name: string;
-  email: string;
-  cpfCnpj: string;
-  mobilePhone: string;
-  birthDate: string;
-  incomeValue: string;
-  address: string;
-  addressNumber: string;
-  province: string;
-  postalCode: string;
-  companyType: "MEI" | "LIMITED" | "INDIVIDUAL" | "ASSOCIATION";
+  splitEmail: string;
   commissionPercent: string;
 };
 
-type OutreachUsageType = "story" | "whatsapp" | "outro";
-
-type OutreachTemplateForm = {
-  id?: string;
-  title: string;
-  usageType: OutreachUsageType;
-  body: string;
-  active: boolean;
-};
-
-const emptyOutreachForm: OutreachTemplateForm = {
-  title: "",
-  usageType: "whatsapp",
-  body: "",
-  active: true,
-};
-
-const usageTypeLabel: Record<OutreachUsageType, string> = {
-  story: "Story",
-  whatsapp: "WhatsApp",
-  outro: "Outro",
-};
-
-const emptyAsaasForm: AsaasForm = {
+const emptyAgpaySplitForm: AgpaySplitForm = {
   businessId: "",
-  name: "",
-  email: "",
-  cpfCnpj: "",
-  mobilePhone: "",
-  birthDate: "",
-  incomeValue: "",
-  address: "",
-  addressNumber: "",
-  province: "",
-  postalCode: "",
-  companyType: "MEI",
+  splitEmail: "",
   commissionPercent: "0",
 };
+
+const formatBrazilianNumber = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+    value,
+  );
 
 const formatPhone = (value: string) => {
   const d = value.replace(/\D/g, "").slice(0, 11);
@@ -145,19 +128,24 @@ function MasterPage() {
   const statusUpdateFn = useServerFn(setBusinessStatus);
   const feeFn = useServerFn(setMonthlyFee);
   const chargeFn = useServerFn(registerSubscriptionCharge);
-  const provisionAsaasFn = useServerFn(provisionAsaasSubaccount);
-  const setAsaasStatusFn = useServerFn(setAsaasSubaccountStatus);
-  const listTemplatesFn = useServerFn(listOutreachTemplatesAdmin);
-  const saveTemplateFn = useServerFn(saveOutreachTemplate);
-  const setTemplateActiveFn = useServerFn(setOutreachTemplateActive);
+  const diagnosticsFn = useServerFn(getDepositPaymentDiagnostics);
+  const setBusinessAgpaySplitFn = useServerFn(setBusinessAgpaySplit);
+  const setAgpaySplitStatusFn = useServerFn(setAgpaySplitStatus);
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
-  const [asaasOpen, setAsaasOpen] = useState(false);
-  const [asaasForm, setAsaasForm] = useState(emptyAsaasForm);
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [templateForm, setTemplateForm] = useState<OutreachTemplateForm>(emptyOutreachForm);
+  const [agpaySplitOpen, setAgpaySplitOpen] = useState(false);
+  const [agpaySplitForm, setAgpaySplitForm] = useState(emptyAgpaySplitForm);
+  const [diagnosticChargeId, setDiagnosticChargeId] = useState("");
+  const [monthlyFeeTarget, setMonthlyFeeTarget] = useState<{ id: string; value: string } | null>(
+    null,
+  );
+  const [confirmAction, setConfirmAction] = useState<{
+    id: string;
+    action: "remove" | "suspend";
+    name: string;
+  } | null>(null);
 
   const status = useQuery({ queryKey: ["master-status"], queryFn: () => statusFn() });
 
@@ -175,7 +163,7 @@ function MasterPage() {
       setForm(emptyForm);
       void queryClient.invalidateQueries({ queryKey: ["master-businesses"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const remove = useMutation({
@@ -210,7 +198,7 @@ function MasterPage() {
       );
       refreshAll();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const fee = useMutation({
@@ -219,7 +207,7 @@ function MasterPage() {
       toast.success("Mensalidade atualizada.");
       refreshAll();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const charge = useMutation({
@@ -229,69 +217,40 @@ function MasterPage() {
       toast.success("Cobrança registrada como paga.");
       refreshAll();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
-  const provisionAsaas = useMutation({
+  const diagnostics = useMutation({
+    mutationFn: (chargeId: string) => diagnosticsFn({ data: { chargeId } }),
+    onError: (error: Error) => toast.error(friendlyError(error)),
+  });
+
+  const saveAgpaySplit = useMutation({
     mutationFn: () =>
-      provisionAsaasFn({
+      setBusinessAgpaySplitFn({
         data: {
-          ...asaasForm,
-          incomeValue: Number(asaasForm.incomeValue.replace(",", ".")),
-          commissionPercent: Number(asaasForm.commissionPercent.replace(",", ".")),
+          businessId: agpaySplitForm.businessId,
+          splitEmail: agpaySplitForm.splitEmail,
+          commissionPercent: Number(agpaySplitForm.commissionPercent.replace(",", ".")),
         },
       }),
     onSuccess: () => {
-      toast.success("Subconta Asaas criada. Conclua o onboarding antes de aprová-la.");
-      setAsaasOpen(false);
-      setAsaasForm(emptyAsaasForm);
+      toast.success("Dados de split AgPay atualizados.");
+      setAgpaySplitOpen(false);
+      setAgpaySplitForm(emptyAgpaySplitForm);
       refreshAll();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
-  const setAsaasStatus = useMutation({
-    mutationFn: (vars: { businessId: string; status: "em_analise" | "aprovada" | "bloqueada" }) =>
-      setAsaasStatusFn({ data: vars }),
+  const updateAgpaySplitStatus = useMutation({
+    mutationFn: (vars: { businessId: string; status: "pendente" | "aprovada" | "bloqueada" }) =>
+      setAgpaySplitStatusFn({ data: vars }),
     onSuccess: () => {
       toast.success("Situação da subconta atualizada.");
       refreshAll();
     },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const templates = useQuery({
-    queryKey: ["master-outreach-templates"],
-    enabled: !!status.data?.isMaster,
-    queryFn: () => listTemplatesFn(),
-  });
-
-  const saveTemplate = useMutation({
-    mutationFn: () =>
-      saveTemplateFn({
-        data: {
-          ...(templateForm.id ? { id: templateForm.id } : {}),
-          title: templateForm.title,
-          usageType: templateForm.usageType,
-          body: templateForm.body,
-          active: templateForm.active,
-        },
-      }),
-    onSuccess: () => {
-      toast.success(templateForm.id ? "Template atualizado." : "Template criado.");
-      setTemplateOpen(false);
-      setTemplateForm(emptyOutreachForm);
-      void queryClient.invalidateQueries({ queryKey: ["master-outreach-templates"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const toggleTemplateActive = useMutation({
-    mutationFn: (vars: { id: string; active: boolean }) => setTemplateActiveFn({ data: vars }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["master-outreach-templates"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   if (status.isLoading) {
@@ -313,7 +272,7 @@ function MasterPage() {
   const rows = businesses.data ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-5xl p-4 sm:p-8">
+    <div className="mx-auto w-full p-4 sm:p-8">
       <div className="flex flex-wrap items-center gap-3">
         <ShieldCheck className="size-6 text-primary" />
         <div>
@@ -330,10 +289,15 @@ function MasterPage() {
       </div>
 
       <Tabs defaultValue="negocios" className="mt-6">
-        <TabsList>
-          <TabsTrigger value="negocios">Estabelecimentos</TabsTrigger>
-          <TabsTrigger value="templates">
+        <TabsList className="w-full flex-wrap justify-start gap-1 h-auto">
+          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="negocios">
+            Estabelecimentos
+          </TabsTrigger>
+          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="templates">
             <Megaphone className="size-4" /> Templates de Divulgação
+          </TabsTrigger>
+          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="saques">
+            Saques
           </TabsTrigger>
         </TabsList>
 
@@ -367,13 +331,95 @@ function MasterPage() {
             />
           </div>
 
-          <div className="mt-6 overflow-x-auto rounded-md border border-border">
-            <table className="w-full min-w-[860px] text-sm">
+          <section className="mt-6 rounded-md border border-border bg-card p-4">
+            <h2 className="font-semibold">Diagnóstico de cobrança Pix</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Consulte a cobrança e os webhooks recebidos usando o ID da cobrança.
+            </p>
+            <form
+              className="mt-3 flex flex-wrap gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                diagnostics.mutate(diagnosticChargeId.trim());
+              }}
+            >
+              <Input
+                aria-label="ID da cobrança"
+                placeholder="UUID da cobrança"
+                value={diagnosticChargeId}
+                onChange={(event) => setDiagnosticChargeId(event.target.value)}
+                className="min-w-64 flex-1"
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                disabled={diagnostics.isPending || !diagnosticChargeId.trim()}
+              >
+                {diagnostics.isPending ? "Consultando…" : "Consultar"}
+              </Button>
+            </form>
+            {diagnostics.data && (
+              <div className="mt-4 space-y-3 text-sm">
+                <div className="rounded-md bg-secondary/50 p-3">
+                  <p>
+                    <span className="font-medium">Cobrança:</span> {diagnostics.data.charge.id}
+                  </p>
+                  <p>
+                    <span className="font-medium">Status:</span> {diagnostics.data.charge.status}
+                    {diagnostics.data.charge.provider_status
+                      ? ` (${diagnostics.data.charge.provider_status})`
+                      : ""}
+                  </p>
+                  <p>
+                    <span className="font-medium">ID AgPay:</span>{" "}
+                    {diagnostics.data.charge.provider_payment_id ?? "—"}
+                  </p>
+                  <p>
+                    <span className="font-medium">Valor:</span>{" "}
+                    {formatPrice(diagnostics.data.charge.amount_cents)}
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-medium">Eventos de webhook</h3>
+                  {diagnostics.data.events.length ? (
+                    <ul className="mt-2 space-y-2">
+                      {diagnostics.data.events.map((webhookEvent) => (
+                        <li key={webhookEvent.id} className="rounded-md border border-border p-3">
+                          <p>
+                            {webhookEvent.event_type} · {webhookEvent.status} ·{" "}
+                            {new Date(webhookEvent.received_at).toLocaleString()}
+                          </p>
+                          {webhookEvent.last_error && (
+                            <p className="mt-1 break-words text-destructive">
+                              Erro: {webhookEvent.last_error}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-muted-foreground">Nenhum evento recebido.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {businesses.isError && (
+            <p
+              role="alert"
+              className="mt-6 rounded-md border border-destructive/40 p-4 text-sm text-destructive"
+            >
+              Não foi possível carregar os estabelecimentos. Atualize a página e tente novamente.
+            </p>
+          )}
+          <div className="master-business-table mt-6 rounded-md border border-border">
+            <table className="w-full table-fixed text-sm">
               <thead className="bg-secondary text-left text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Estabelecimento</th>
                   <th className="px-4 py-3">Dono</th>
-                  <th className="px-4 py-3">Asaas</th>
+                  <th className="px-4 py-3">AgPay</th>
                   <th className="px-4 py-3">Mensalidade</th>
                   <th className="px-4 py-3">Mês atual</th>
                   <th className="px-4 py-3">Situação</th>
@@ -401,18 +447,20 @@ function MasterPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3">
-                        {b.asaas_subaccount_status === "pendente" ? (
+                        {!b.agpay_schema_ready ? (
+                          <span className="text-xs text-muted-foreground">
+                            Migração AgPay pendente
+                          </span>
+                        ) : b.agpay_split_status === "pendente" && !b.agpay_split_email ? (
                           <Button
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              setAsaasForm({
-                                ...emptyAsaasForm,
+                              setAgpaySplitForm({
+                                ...emptyAgpaySplitForm,
                                 businessId: b.id,
-                                name: b.name,
-                                mobilePhone: b.phone ?? "",
                               });
-                              setAsaasOpen(true);
+                              setAgpaySplitOpen(true);
                             }}
                           >
                             <Landmark className="size-4" /> Configurar
@@ -420,25 +468,45 @@ function MasterPage() {
                         ) : (
                           <div className="space-y-1">
                             <span className="block text-xs font-semibold">
-                              {b.asaas_subaccount_status === "aprovada"
+                              {b.agpay_split_status === "aprovada"
                                 ? "Aprovada"
-                                : b.asaas_subaccount_status === "bloqueada"
+                                : b.agpay_split_status === "bloqueada"
                                   ? "Bloqueada"
                                   : "Em análise"}
                             </span>
-                            {b.asaas_subaccount_status === "em_analise" && (
-                              <button
-                                type="button"
-                                className="text-xs text-primary hover:underline"
-                                onClick={() =>
-                                  setAsaasStatus.mutate({ businessId: b.id, status: "aprovada" })
-                                }
-                              >
-                                marcar onboarding concluído
-                              </button>
+                            {b.agpay_split_status === "pendente" && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="block text-xs text-primary hover:underline"
+                                  onClick={() => {
+                                    setAgpaySplitForm({
+                                      businessId: b.id,
+                                      splitEmail: b.agpay_split_email ?? "",
+                                      commissionPercent: String(b.agpay_commission_percent ?? 0),
+                                    });
+                                    setAgpaySplitOpen(true);
+                                  }}
+                                >
+                                  Editar configuração
+                                </button>
+                                <button
+                                  type="button"
+                                  className="block text-xs text-primary hover:underline"
+                                  onClick={() =>
+                                    updateAgpaySplitStatus.mutate({
+                                      businessId: b.id,
+                                      status: "aprovada",
+                                    })
+                                  }
+                                >
+                                  marcar aprovado
+                                </button>
+                              </>
                             )}
                             <span className="block text-xs text-muted-foreground">
-                              Comissão: {Number(b.asaas_commission_percent ?? 0).toFixed(2)}%
+                              Comissão:{" "}
+                              {formatBrazilianNumber(Number(b.agpay_commission_percent ?? 0))}%
                             </span>
                           </div>
                         )}
@@ -447,19 +515,12 @@ function MasterPage() {
                         <button
                           type="button"
                           className="text-primary hover:underline"
-                          onClick={() => {
-                            const input = window.prompt(
-                              "Valor da mensalidade em reais",
-                              ((b.monthly_fee_cents ?? 0) / 100).toFixed(2),
-                            );
-                            if (input === null) return;
-                            const amount = Math.round(Number(input.replace(",", ".")) * 100);
-                            if (!Number.isFinite(amount) || amount < 0) {
-                              toast.error("Valor inválido");
-                              return;
-                            }
-                            fee.mutate({ id: b.id, amountCents: amount });
-                          }}
+                          onClick={() =>
+                            setMonthlyFeeTarget({
+                              id: b.id,
+                              value: formatBrazilianNumber((b.monthly_fee_cents ?? 0) / 100),
+                            })
+                          }
                         >
                           {formatPrice(b.monthly_fee_cents ?? 0)}
                         </button>
@@ -495,10 +556,9 @@ function MasterPage() {
                           variant={suspended ? "secondary" : "ghost"}
                           size="sm"
                           onClick={() =>
-                            setStatus.mutate({
-                              id: b.id,
-                              status: suspended ? "ativo" : "suspenso",
-                            })
+                            suspended
+                              ? setStatus.mutate({ id: b.id, status: "ativo" })
+                              : setConfirmAction({ id: b.id, action: "suspend", name: b.name })
                           }
                         >
                           {suspended ? (
@@ -542,7 +602,10 @@ function MasterPage() {
                           variant="ghost"
                           size="icon"
                           aria-label={`Remover ${b.name}`}
-                          onClick={() => remove.mutate(b.id)}
+                          className="master-business-remove"
+                          onClick={() =>
+                            setConfirmAction({ id: b.id, action: "remove", name: b.name })
+                          }
                         >
                           <Trash2 className="size-4" />
                         </Button>
@@ -550,7 +613,7 @@ function MasterPage() {
                     </tr>
                   );
                 })}
-                {!rows.length && (
+                {!businesses.isPending && !businesses.isError && !rows.length && (
                   <tr>
                     <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
                       Nenhum estabelecimento cadastrado ainda.
@@ -563,73 +626,30 @@ function MasterPage() {
         </TabsContent>
 
         <TabsContent value="templates">
-          <div className="flex justify-end">
-            <Button
-              onClick={() => {
-                setTemplateForm(emptyOutreachForm);
-                setTemplateOpen(true);
-              }}
-            >
-              <Plus className="size-4" /> Novo template
-            </Button>
-          </div>
-
-          <div className="mt-6 space-y-3">
-            {(templates.data ?? []).map((t) => (
-              <div
-                key={t.id}
-                className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border bg-card p-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium">{t.title}</p>
-                    <span className="rounded-full bg-secondary px-2 py-0.5 text-xs text-muted-foreground">
-                      {usageTypeLabel[t.usage_type as OutreachUsageType]}
-                    </span>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        t.active ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {t.active ? "Ativo" : "Inativo"}
-                    </span>
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{t.body}</p>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Editar ${t.title}`}
-                    onClick={() => {
-                      setTemplateForm({
-                        id: t.id,
-                        title: t.title,
-                        usageType: t.usage_type as OutreachUsageType,
-                        body: t.body,
-                        active: t.active,
-                      });
-                      setTemplateOpen(true);
-                    }}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant={t.active ? "ghost" : "secondary"}
-                    size="sm"
-                    onClick={() => toggleTemplateActive.mutate({ id: t.id, active: !t.active })}
-                  >
-                    {t.active ? "Desativar" : "Ativar"}
-                  </Button>
-                </div>
-              </div>
-            ))}
-            {!templates.data?.length && (
-              <p className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                Nenhum template cadastrado ainda.
+          <Suspense
+            fallback={
+              <p role="status" className="p-4 text-sm text-muted-foreground">
+                Carregando templates...
               </p>
-            )}
-          </div>
+            }
+          >
+            <MasterTemplatesTab />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="saques" className="master-withdrawals">
+          <Suspense
+            fallback={
+              <p role="status" className="p-4 text-sm text-muted-foreground">
+                Carregando saques...
+              </p>
+            }
+          >
+            <div className="space-y-8">
+              <LedgerReconciliation />
+              <WithdrawalsAdmin />
+            </div>
+          </Suspense>
         </TabsContent>
       </Tabs>
 
@@ -712,186 +732,147 @@ function MasterPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={asaasOpen} onOpenChange={setAsaasOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <Dialog open={agpaySplitOpen} onOpenChange={setAgpaySplitOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>Criar subconta Asaas</DialogTitle>
+            <DialogTitle>Configurar split AgPay</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-4">
             <Field
-              label="Razão social / nome"
-              id="asaas-name"
-              value={asaasForm.name}
-              onChange={(value) => setAsaasForm({ ...asaasForm, name: value })}
-            />
-            <Field
-              label="E-mail"
-              id="asaas-email"
+              label="E-mail da conta AgPay"
+              id="agpay-split-email"
               type="email"
-              value={asaasForm.email}
-              onChange={(value) => setAsaasForm({ ...asaasForm, email: value })}
+              value={agpaySplitForm.splitEmail}
+              onChange={(splitEmail) => setAgpaySplitForm({ ...agpaySplitForm, splitEmail })}
             />
-            <Field
-              label="CPF/CNPJ"
-              id="asaas-document"
-              value={asaasForm.cpfCnpj}
-              onChange={(value) => setAsaasForm({ ...asaasForm, cpfCnpj: value })}
-            />
-            <Field
-              label="Celular"
-              id="asaas-phone"
-              value={asaasForm.mobilePhone}
-              onChange={(value) => setAsaasForm({ ...asaasForm, mobilePhone: value })}
-            />
-            <Field
-              label="Data de nascimento"
-              id="asaas-birthdate"
-              type="date"
-              value={asaasForm.birthDate}
-              onChange={(value) => setAsaasForm({ ...asaasForm, birthDate: value })}
-            />
-            <Field
-              label="Renda/faturamento mensal (R$)"
-              id="asaas-income"
-              value={asaasForm.incomeValue}
-              onChange={(value) => setAsaasForm({ ...asaasForm, incomeValue: value })}
-            />
+            {!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agpaySplitForm.splitEmail) && (
+              <p className="-mt-3 text-sm text-destructive" role="alert">
+                Informe um e-mail válido.
+              </p>
+            )}
             <Field
               label="Comissão Agenda Agora (%)"
-              id="asaas-commission"
-              value={asaasForm.commissionPercent}
-              onChange={(value) => setAsaasForm({ ...asaasForm, commissionPercent: value })}
+              id="agpay-commission"
+              inputMode="decimal"
+              value={agpaySplitForm.commissionPercent}
+              onChange={(commissionPercent) =>
+                setAgpaySplitForm({ ...agpaySplitForm, commissionPercent })
+              }
             />
-            <div className="space-y-2">
-              <Label htmlFor="asaas-company-type">Tipo de empresa</Label>
-              <select
-                id="asaas-company-type"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={asaasForm.companyType}
-                onChange={(event) =>
-                  setAsaasForm({
-                    ...asaasForm,
-                    companyType: event.target.value as AsaasForm["companyType"],
-                  })
-                }
-              >
-                <option value="MEI">MEI</option>
-                <option value="LIMITED">Limitada</option>
-                <option value="INDIVIDUAL">Individual</option>
-                <option value="ASSOCIATION">Associação</option>
-              </select>
-            </div>
-            <Field
-              label="Endereço"
-              id="asaas-address"
-              value={asaasForm.address}
-              onChange={(value) => setAsaasForm({ ...asaasForm, address: value })}
-            />
-            <Field
-              label="Número"
-              id="asaas-number"
-              value={asaasForm.addressNumber}
-              onChange={(value) => setAsaasForm({ ...asaasForm, addressNumber: value })}
-            />
-            <Field
-              label="Bairro"
-              id="asaas-province"
-              value={asaasForm.province}
-              onChange={(value) => setAsaasForm({ ...asaasForm, province: value })}
-            />
-            <Field
-              label="CEP"
-              id="asaas-postal"
-              value={asaasForm.postalCode}
-              onChange={(value) => setAsaasForm({ ...asaasForm, postalCode: value })}
-            />
+            {(!Number.isFinite(Number(agpaySplitForm.commissionPercent.replace(",", "."))) ||
+              Number(agpaySplitForm.commissionPercent.replace(",", ".")) < 0 ||
+              Number(agpaySplitForm.commissionPercent.replace(",", ".")) > 100) && (
+              <p className="-mt-3 text-sm text-destructive" role="alert">
+                A comissão deve ficar entre 0 e 100.
+              </p>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground">
-            O Webhook será cadastrado junto com a subconta. A API key retornada será criptografada e
-            nunca exibida no navegador.
-          </p>
           <DialogFooter>
             <Button
-              onClick={() => provisionAsaas.mutate()}
+              onClick={() => saveAgpaySplit.mutate()}
               disabled={
-                provisionAsaas.isPending ||
-                !asaasForm.email.includes("@") ||
-                asaasForm.cpfCnpj.replace(/\D/g, "").length < 11 ||
-                !asaasForm.birthDate ||
-                !Number(asaasForm.incomeValue.replace(",", ".")) ||
-                asaasForm.postalCode.replace(/\D/g, "").length !== 8
+                saveAgpaySplit.isPending ||
+                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agpaySplitForm.splitEmail) ||
+                !Number.isFinite(Number(agpaySplitForm.commissionPercent.replace(",", "."))) ||
+                Number(agpaySplitForm.commissionPercent.replace(",", ".")) < 0 ||
+                Number(agpaySplitForm.commissionPercent.replace(",", ".")) > 100
               }
             >
-              Criar subconta
+              Salvar configuração
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!monthlyFeeTarget}
+        onOpenChange={(isOpen) => !isOpen && setMonthlyFeeTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar mensalidade</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="master-monthly-fee">Valor mensal (R$)</Label>
+            <Input
+              id="master-monthly-fee"
+              type="text"
+              inputMode="decimal"
+              value={monthlyFeeTarget?.value ?? ""}
+              onChange={(event) =>
+                setMonthlyFeeTarget((target) =>
+                  target ? { ...target, value: event.target.value } : target,
+                )
+              }
+            />
+            {monthlyFeeTarget &&
+              (!Number.isFinite(Number(monthlyFeeTarget.value.replace(",", "."))) ||
+                Number(monthlyFeeTarget.value.replace(",", ".")) <= 0) && (
+                <p className="text-sm text-destructive" role="alert">
+                  Informe um valor numérico maior que zero.
+                </p>
+              )}
+            <p className="text-xs text-muted-foreground">
+              Use vírgula ou ponto para separar os centavos.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMonthlyFeeTarget(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={
+                fee.isPending ||
+                !monthlyFeeTarget ||
+                !Number.isFinite(Number(monthlyFeeTarget.value.replace(",", "."))) ||
+                Number(monthlyFeeTarget.value.replace(",", ".")) <= 0
+              }
+              onClick={() => {
+                if (!monthlyFeeTarget) return;
+                fee.mutate({
+                  id: monthlyFeeTarget.id,
+                  amountCents: Math.round(Number(monthlyFeeTarget.value.replace(",", ".")) * 100),
+                });
+                setMonthlyFeeTarget(null);
+              }}
+            >
+              Salvar mensalidade
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={templateOpen} onOpenChange={setTemplateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{templateForm.id ? "Editar template" : "Novo template"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="tpl-title">Nome interno</Label>
-              <Input
-                id="tpl-title"
-                value={templateForm.title}
-                onChange={(e) => setTemplateForm({ ...templateForm, title: e.target.value })}
-                placeholder="Ex.: Divulgação de agendamento online"
-                maxLength={80}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tpl-usage">Tipo de uso</Label>
-              <select
-                id="tpl-usage"
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={templateForm.usageType}
-                onChange={(e) =>
-                  setTemplateForm({
-                    ...templateForm,
-                    usageType: e.target.value as OutreachUsageType,
-                  })
-                }
-              >
-                <option value="story">Story</option>
-                <option value="whatsapp">WhatsApp</option>
-                <option value="outro">Outro</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tpl-body">Texto</Label>
-              <Textarea
-                id="tpl-body"
-                rows={6}
-                value={templateForm.body}
-                onChange={(e) => setTemplateForm({ ...templateForm, body: e.target.value })}
-                placeholder="Use {nome_empresa}, {categoria}, {telefone}, {endereco} ou {link_publico}"
-                maxLength={2000}
-              />
-              <p className="text-xs text-muted-foreground">
-                Placeholders disponíveis: {"{nome_empresa}"}, {"{categoria}"}, {"{telefone}"},{" "}
-                {"{endereco}"}, {"{link_publico}"}.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={() => saveTemplate.mutate()}
-              disabled={
-                saveTemplate.isPending ||
-                templateForm.title.trim().length < 2 ||
-                templateForm.body.trim().length < 1
-              }
+      <AlertDialog
+        open={!!confirmAction}
+        onOpenChange={(isOpen) => !isOpen && setConfirmAction(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmAction?.action === "remove"
+                ? "Remover estabelecimento?"
+                : "Suspender estabelecimento?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction?.action === "remove"
+                ? `O estabelecimento ${confirmAction.name} será removido. Esta ação não pode ser desfeita.`
+                : `A página de agendamento de ${confirmAction?.name} ficará indisponível até a reativação.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!confirmAction) return;
+                if (confirmAction.action === "remove") remove.mutate(confirmAction.id);
+                else setStatus.mutate({ id: confirmAction.id, status: "suspenso" });
+                setConfirmAction(null);
+              }}
             >
-              {templateForm.id ? "Salvar alterações" : "Criar template"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -902,17 +883,25 @@ function Field({
   value,
   onChange,
   type = "text",
+  inputMode,
 }: {
   label: string;
   id: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  inputMode?: "decimal" | "email" | "numeric" | "text";
 }) {
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+      <Input
+        id={id}
+        type={type}
+        inputMode={inputMode}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </div>
   );
 }

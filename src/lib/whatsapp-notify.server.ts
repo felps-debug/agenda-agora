@@ -2,17 +2,17 @@
 // (X horas antes do horário, disparado pelo agendador).
 import { sendTextMessage } from "./uazapi.server";
 
-function formatDatePtBr(iso: string) {
+function formatDatePtBr(iso: string, timezone: string) {
   return new Date(iso).toLocaleDateString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: timezone,
     day: "2-digit",
     month: "2-digit",
   });
 }
 
-function formatTimePtBr(iso: string) {
+function formatTimePtBr(iso: string, timezone: string) {
   return new Date(iso).toLocaleTimeString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
+    timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -49,11 +49,23 @@ async function loadContext(appointmentId: string) {
   const { data: business } = await supabaseAdmin
     .from("businesses")
     .select(
-      "id, name, whatsapp_instance, whatsapp_status, confirmation_template, reminder_template",
+      "id, name, timezone, greeting, whatsapp_instance, whatsapp_status, whatsapp_instance_token, confirmation_template, reminder_template, payment_confirmation_template",
     )
     .eq("id", appt.business_id)
     .maybeSingle();
-  if (!business?.whatsapp_instance || business.whatsapp_status !== "conectado") return null;
+  if (!business?.whatsapp_instance || !business.whatsapp_instance_token) return null;
+
+  // whatsapp_status no banco só é atualizado quando o dono visita /painel/integracoes;
+  // checar a sessão ao vivo aqui evita descartar notificações por status desatualizado.
+  const { isConnected } = await import("./uazapi.server");
+  const online = await isConnected(business.whatsapp_instance_token).catch(() => false);
+  if (!online) return null;
+  if (business.whatsapp_status !== "conectado") {
+    await supabaseAdmin
+      .from("businesses")
+      .update({ whatsapp_status: "conectado" })
+      .eq("id", business.id);
+  }
 
   let serviceName = "serviço";
   if ((appt as AppointmentRow).service_id) {
@@ -67,14 +79,21 @@ async function loadContext(appointmentId: string) {
 
   const row = appt as AppointmentRow;
   const firstName = row.customer_name.split(" ")[0] ?? row.customer_name;
+  const timezone = business.timezone || "America/Sao_Paulo";
   const vars = {
     nome: firstName,
     servico: serviceName,
-    data: formatDatePtBr(row.starts_at),
-    hora: formatTimePtBr(row.starts_at),
+    data: formatDatePtBr(row.starts_at, timezone),
+    hora: formatTimePtBr(row.starts_at, timezone),
     negocio: business.name,
   };
-  return { row, business, vars };
+  return {
+    row,
+    business,
+    vars,
+    greeting: business.greeting,
+    instanceToken: business.whatsapp_instance_token,
+  };
 }
 
 /**
@@ -86,7 +105,11 @@ export async function sendBookingConfirmation(appointmentId: string) {
     const ctx = await loadContext(appointmentId);
     if (!ctx) return;
     const template = ctx.business.confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
-    await sendTextMessage(ctx.row.customer_phone!, renderMessage(template, ctx.vars));
+    await sendTextMessage(
+      ctx.instanceToken,
+      ctx.row.customer_phone!,
+      [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
+    );
   } catch (err) {
     console.error("Falha ao enviar WhatsApp de confirmação:", err);
   }
@@ -100,5 +123,39 @@ export async function sendBookingReminder(appointmentId: string) {
   const ctx = await loadContext(appointmentId);
   if (!ctx) throw new Error("Agendamento sem telefone ou WhatsApp desconectado.");
   const template = ctx.business.reminder_template || DEFAULT_REMINDER_MESSAGE;
-  await sendTextMessage(ctx.row.customer_phone!, renderMessage(template, ctx.vars));
+  await sendTextMessage(
+    ctx.instanceToken,
+    ctx.row.customer_phone!,
+    [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
+  );
+}
+
+export function isReminderDue(startsAt: string, now: Date, leadMinutes: number) {
+  const remaining = new Date(startsAt).getTime() - now.getTime();
+  return remaining > 0 && remaining <= leadMinutes * 60_000;
+}
+
+export async function sendExtraBookingReminder(appointmentId: string, template: string) {
+  const ctx = await loadContext(appointmentId);
+  if (!ctx) throw new Error("Agendamento sem telefone ou WhatsApp conectado.");
+  await sendTextMessage(
+    ctx.instanceToken,
+    ctx.row.customer_phone!,
+    [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
+  );
+}
+
+export async function sendPaymentConfirmation(appointmentId: string) {
+  try {
+    const ctx = await loadContext(appointmentId);
+    if (!ctx) return;
+    const template = ctx.business.payment_confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
+    await sendTextMessage(
+      ctx.instanceToken,
+      ctx.row.customer_phone!,
+      [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
+    );
+  } catch (err) {
+    console.error("Falha ao enviar confirmação de pagamento pelo WhatsApp:", err);
+  }
 }

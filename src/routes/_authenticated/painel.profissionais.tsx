@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -13,6 +14,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -85,6 +96,10 @@ function ProfissionaisPage() {
   const deleteFn = useServerFn(deleteProfessional);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(empty);
+  const [formSnapshot, setFormSnapshot] = useState<Form>(empty);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [professionalToRemove, setProfessionalToRemove] = useState<string | null>(null);
+  const isFormDirty = JSON.stringify(form) !== JSON.stringify(formSnapshot);
 
   const peopleQuery = useQuery({
     queryKey: ["professionals", businessId],
@@ -151,9 +166,10 @@ function ProfissionaisPage() {
       );
       setOpen(false);
       setForm(empty);
+      setFormSnapshot(empty);
       void refresh();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const toggle = useMutation({
@@ -169,7 +185,7 @@ function ProfissionaisPage() {
       if (!data) throw new Error("O profissional não foi encontrado para atualizar.");
     },
     onSuccess: () => void refresh(),
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(friendlyError(error)),
   });
 
   const remove = useMutation({
@@ -178,7 +194,7 @@ function ProfissionaisPage() {
       toast.success("Profissional e acesso removidos.");
       void refresh();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const edit = (p: NonNullable<typeof people>[number]) => {
@@ -190,7 +206,7 @@ function ProfissionaisPage() {
       typeof p.permissions === "object" && p.permissions && !Array.isArray(p.permissions)
         ? (p.permissions as Record<string, boolean>)
         : {};
-    setForm({
+    const next: Form = {
       id: p.id,
       name: p.name,
       role: p.role ?? "",
@@ -203,7 +219,9 @@ function ProfissionaisPage() {
       workingDays: p.working_days,
       permissions,
       serviceIds: (links ?? []).filter((l) => l.professional_id === p.id).map((l) => l.service_id),
-    });
+    };
+    setForm(next);
+    setFormSnapshot(next);
     setOpen(true);
   };
 
@@ -218,8 +236,18 @@ function ProfissionaisPage() {
           <Dialog
             open={open}
             onOpenChange={(v) => {
-              setOpen(v);
-              if (!v) setForm(empty);
+              if (v) {
+                setForm(empty);
+                setFormSnapshot(empty);
+                setOpen(true);
+                return;
+              }
+              if (isFormDirty) {
+                setConfirmDiscard(true);
+                return;
+              }
+              setOpen(false);
+              setForm(empty);
             }}
           >
             <DialogTrigger asChild>
@@ -433,7 +461,7 @@ function ProfissionaisPage() {
                 variant="ghost"
                 size="icon"
                 className="professional-icon-action hover:!text-red-400"
-                onClick={() => remove.mutate(p.id)}
+                onClick={() => setProfessionalToRemove(p.id)}
                 aria-label={`Remover ${p.name}`}
               >
                 <Trash2 className="size-4 text-destructive" />
@@ -442,6 +470,57 @@ function ProfissionaisPage() {
           ))}
         </ul>
       )}
+      <AlertDialog
+        open={professionalToRemove !== null}
+        onOpenChange={(open) => !open && setProfessionalToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover profissional?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O profissional e o acesso associado serão removidos. Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (professionalToRemove)
+                  remove.mutate(professionalToRemove, {
+                    onSettled: () => setProfessionalToRemove(null),
+                  });
+              }}
+              disabled={remove.isPending}
+            >
+              Remover profissional
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDiscard} onOpenChange={(v) => !v && setConfirmDiscard(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem alterações não salvas neste formulário. Se sair agora, elas serão perdidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmDiscard(false);
+                setOpen(false);
+                setForm(empty);
+                setFormSnapshot(empty);
+              }}
+            >
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

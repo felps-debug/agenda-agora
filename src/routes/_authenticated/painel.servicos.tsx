@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -7,11 +8,21 @@ import { ImagePlus, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
-import { LOGO_BUCKET } from "@/lib/logo";
+import { LOGO_BUCKET, decodeBusinessImageFile, validateLogoFile } from "@/lib/logo";
 import { effectiveDepositCents, percentToBps, type DepositMode } from "@/lib/deposit-amount";
 import { saveService } from "@/lib/services.functions";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -73,7 +84,7 @@ const empty: Form = {
   deposit: "0",
   depositMode: "fixed",
   depositPercent: "0",
-  requiresDeposit: true,
+  requiresDeposit: false,
   description: "",
   isCombo: false,
   showPrice: true,
@@ -86,7 +97,7 @@ const empty: Form = {
 const money = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 const percentText = (bps: number) => String(bps / 100).replace(".", ",");
 
-// Confirmado no Sandbox real: o Asaas rejeita cobrança Pix abaixo de R$ 5,00.
+// O provedor Pix exige cobrança mínima de R$ 5,00.
 const MIN_PIX_DEPOSIT_CENTS = 500;
 
 function parseCents(value: string) {
@@ -111,39 +122,36 @@ function depositDraft(form: Form): DepositDraft {
     } catch (error) {
       return {
         ok: false,
-        error: error instanceof RangeError ? error.message : "Percentual inválido.",
+        error: friendlyError(error, "validar o percentual"),
       };
     }
   }
   const effectiveCents = effectiveDepositCents({
-    requires_deposit: true,
+    requires_deposit: form.requiresDeposit,
     deposit_mode: form.depositMode,
     deposit_percent_bps: bps,
     price_cents: priceCents,
     deposit_cents: depositCents,
   });
+  if (form.requiresDeposit && effectiveCents === 0) {
+    return {
+      ok: false,
+      error: "Informe um valor de sinal maior que R$ 0,00 ou desative a exigência de sinal.",
+    };
+  }
   return { ok: true, priceCents, depositCents, bps, effectiveCents };
 }
 
 // Mesmos tipos/limite do bucket business-logos; a extensão vem do tipo para casar com a política.
-const IMAGE_EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/webp": "webp",
-};
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
-function imageFileError(file: File) {
-  if (!IMAGE_EXTENSIONS[file.type]) return "Use uma imagem PNG, JPEG ou WebP.";
-  if (file.size > MAX_IMAGE_BYTES) return "A imagem deve ter no máximo 5 MB.";
-  return null;
-}
-
 function ServicosPage() {
   const { businessId } = useBusiness();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Form>(empty);
+  const [formSnapshot, setFormSnapshot] = useState<Form>(empty);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const isFormDirty = JSON.stringify(form) !== JSON.stringify(formSnapshot);
+  const [serviceToRemove, setServiceToRemove] = useState<string | null>(null);
   const saveServiceFn = useServerFn(saveService);
   const deposit = depositDraft(form);
   const [uploading, setUploading] = useState(false);
@@ -267,10 +275,11 @@ function ServicosPage() {
       toast.success(form.id ? "Serviço atualizado!" : "Serviço cadastrado!");
       setOpen(false);
       setForm(empty);
+      setFormSnapshot(empty);
       resetImageState();
       void refresh();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
   const toggle = useMutation({
@@ -286,7 +295,7 @@ function ServicosPage() {
       if (!data) throw new Error("O serviço não foi encontrado para atualizar.");
     },
     onSuccess: () => void refresh(),
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) => toast.error(friendlyError(error)),
   });
 
   const remove = useMutation({
@@ -309,7 +318,7 @@ function ServicosPage() {
     // da migration service_deposit_percent o serviço é tratado como valor fixo.
     const depositColumns = s as typeof s &
       Partial<{ deposit_mode: DepositMode; deposit_percent_bps: number }>;
-    setForm({
+    const next: Form = {
       id: s.id,
       name: s.name,
       duration: String(s.duration_minutes),
@@ -320,14 +329,16 @@ function ServicosPage() {
       requiresDeposit: s.requires_deposit,
       description: s.description ?? "",
       isCombo: s.is_combo ?? false,
-      showPrice: s.show_price,
-      showDuration: s.show_duration,
-      showService: s.show_service,
+      showPrice: s.show_price ?? true,
+      showDuration: s.show_duration ?? true,
+      showService: s.show_service ?? true,
       imagePath: s.image_path ?? null,
       professionalIds: (links ?? [])
         .filter((l) => l.service_id === s.id)
         .map((l) => l.professional_id),
-    });
+    };
+    setForm(next);
+    setFormSnapshot(next);
     resetImageState();
     setOpen(true);
   };
@@ -335,14 +346,18 @@ function ServicosPage() {
   // O caminho só entra no formulário (e em services.image_path ao salvar) após upload bem-sucedido.
   const upload = async (file?: File) => {
     if (!file || !businessId) return;
-    const invalid = imageFileError(file);
-    if (invalid) {
-      setImageError(invalid);
+    const signature = await validateLogoFile(file, "service");
+    if (!signature.valid) {
+      setImageError(signature.message);
+      return;
+    }
+    if (!(await decodeBusinessImageFile(file))) {
+      setImageError("O arquivo não contém uma imagem válida. Escolha outra imagem.");
       return;
     }
     setImageError(null);
     setUploading(true);
-    const path = `${businessId}/services/${crypto.randomUUID()}.${IMAGE_EXTENSIONS[file.type]}`;
+    const path = `${businessId}/services/${crypto.randomUUID()}.${signature.extension}`;
     const { error } = await supabase.storage
       .from(LOGO_BUCKET)
       .upload(path, file, { upsert: false, contentType: file.type });
@@ -366,11 +381,19 @@ function ServicosPage() {
           <Dialog
             open={open}
             onOpenChange={(v) => {
-              setOpen(v);
-              if (!v) {
+              if (v) {
                 setForm(empty);
-                resetImageState();
+                setFormSnapshot(empty);
+                setOpen(true);
+                return;
               }
+              if (isFormDirty) {
+                setConfirmDiscard(true);
+                return;
+              }
+              setOpen(false);
+              setForm(empty);
+              resetImageState();
             }}
           >
             <DialogTrigger asChild>
@@ -470,7 +493,7 @@ function ServicosPage() {
                           : deposit.effectiveCents === 0
                             ? "Sinal efetivo de R$ 0,00: nenhum Pix será gerado e a reserva é confirmada sem pagamento."
                             : deposit.effectiveCents < MIN_PIX_DEPOSIT_CENTS
-                              ? `Sinal efetivo de ${formatPrice(deposit.effectiveCents)}: o Asaas não aceita cobrança Pix abaixo de R$ 5,00, então o pagamento sempre vai falhar. Ajuste o sinal para R$ 0,00 ou para R$ 5,00 ou mais.`
+                              ? `Sinal efetivo de ${formatPrice(deposit.effectiveCents)}: o valor mínimo para pagamento Pix é R$ 5,00. Ajuste o sinal para R$ 0,00 ou para R$ 5,00 ou mais.`
                               : `Sinal cobrado: ${formatPrice(deposit.effectiveCents)}${
                                   form.depositMode === "percent"
                                     ? " (calculado sobre o valor atual)"
@@ -479,9 +502,9 @@ function ServicosPage() {
                     </p>
                   </div>
                   <Toggle
-                    label="Não exigir sinal"
-                    checked={!form.requiresDeposit}
-                    onChange={(notRequired) => setForm({ ...form, requiresDeposit: !notRequired })}
+                    label="Exigir sinal"
+                    checked={form.requiresDeposit}
+                    onChange={(required) => setForm({ ...form, requiresDeposit: required })}
                   />
                   <div className="space-y-2">
                     <Label className="professional-section-label">Descrição</Label>
@@ -513,6 +536,11 @@ function ServicosPage() {
                       onChange={(showDuration) => setForm({ ...form, showDuration })}
                     />
                   </div>
+                  {!form.showService && (
+                    <p className="text-sm text-amber-400">
+                      Serviço oculto não aparece no link de agendamento.
+                    </p>
+                  )}
                 </TabsContent>
 
                 <TabsContent value="vinculos" className="professional-form-section space-y-3 pt-5">
@@ -621,7 +649,13 @@ function ServicosPage() {
                   {s.is_combo && <span className="professional-badge">Combo</span>}
                 </p>
                 <p className="text-sm text-[#777d87]">
-                  {s.duration_minutes} min · {formatPrice(s.price_cents)}
+                  {Number.isFinite(s.duration_minutes)
+                    ? `${s.duration_minutes} min`
+                    : "Duração não informada"}
+                  {" · "}
+                  {Number.isFinite(s.price_cents)
+                    ? formatPrice(s.price_cents)
+                    : "Valor não informado"}
                   {!s.requires_deposit ? " · sem sinal" : ""}
                 </p>
               </div>
@@ -645,7 +679,7 @@ function ServicosPage() {
                 variant="ghost"
                 size="icon"
                 className="professional-icon-action hover:!text-red-400"
-                onClick={() => remove.mutate(s.id)}
+                onClick={() => setServiceToRemove(s.id)}
                 aria-label={`Remover ${s.name}`}
               >
                 <Trash2 className="size-4 text-destructive" />
@@ -654,6 +688,56 @@ function ServicosPage() {
           ))}
         </ul>
       )}
+      <AlertDialog
+        open={serviceToRemove !== null}
+        onOpenChange={(open) => !open && setServiceToRemove(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir serviço?</AlertDialogTitle>
+            <AlertDialogDescription>
+              O serviço será removido e deixará de aparecer para novos agendamentos. Essa ação não
+              pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                if (serviceToRemove)
+                  remove.mutate(serviceToRemove, { onSettled: () => setServiceToRemove(null) });
+              }}
+              disabled={remove.isPending}
+            >
+              Excluir serviço
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDiscard} onOpenChange={(v) => !v && setConfirmDiscard(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Descartar alterações?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Você tem alterações não salvas neste formulário. Se sair agora, elas serão perdidas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar editando</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmDiscard(false);
+                setOpen(false);
+                setForm(empty);
+                resetImageState();
+              }}
+            >
+              Descartar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
