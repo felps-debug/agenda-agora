@@ -17,6 +17,7 @@ import {
 } from "./booking.functions";
 import { DEFAULT_PANEL1_APPEARANCE, defaultPanel1Config } from "./panel1-config";
 import { formatAppointmentDateTime } from "./booking-history";
+import { resetRateLimits } from "./rate-limit.server";
 
 const pixRuntime = vi.hoisted(() => ({
   db: { from: vi.fn(), rpc: vi.fn() },
@@ -47,6 +48,13 @@ vi.mock("./agpay.server", () => ({
 vi.mock("@/lib/panel1-config.storage", () => ({
   loadPanel1Config: async () => pixRuntime.panel1Config ?? defaultPanel1Config(),
 }));
+
+// Todos os testes chamam as functions fora do runtime de requisição, então o
+// limitador cai na chave "sem-request" e a cota de 10 reservas acabaria no meio
+// da suíte. Resetar por teste mantém cada caso independente.
+beforeEach(() => {
+  resetRateLimits();
+});
 
 describe("isValidCpfCnpj", () => {
   it("valida dígitos verificadores e rejeita sequências", () => {
@@ -900,9 +908,15 @@ function setupReserve(
     deposit_cents: number;
   }> = {},
   timezone = "America/Sao_Paulo",
+  availability: {
+    hours?: { starts_at: string; ends_at: string }[];
+    blocks?: Record<string, unknown>[];
+    minimumNoticeHours?: number;
+  } = {},
 ) {
   const config = defaultPanel1Config();
   config.preferences.timezone = timezone;
+  config.preferences.minimum_notice_hours = availability.minimumNoticeHours ?? 0;
   pixRuntime.panel1Config = config;
   const calls: Call[] = [];
   const results: Record<string, unknown> = {
@@ -925,18 +939,20 @@ function setupReserve(
       error: null,
     },
     service_professionals: { data: [], error: null },
-    appointments: { data: { id: appointmentId }, error: null },
+    // reserveBooking valida expediente/bloqueio antes de gravar. `appointments`
+    // volta vazio: a leitura de disponibilidade não encontra conflito e a
+    // checagem seguinte também — um `select` do Supabase sempre devolve array.
+    business_hours: {
+      data: availability.hours ?? [{ starts_at: "00:00", ends_at: "23:59" }],
+      error: null,
+    },
+    time_blocks: { data: availability.blocks ?? [], error: null },
+    appointments: { data: [], error: null },
     deposit_payments: { data: { id: chargeId }, error: null },
   };
   pixRuntime.db.from.mockImplementation((table: string) => {
     if (!(table in results)) throw new Error(`Tabela inesperada no teste: ${table}`);
-    // A primeira leitura de `appointments` é a checagem de conflito: lista vazia.
-    const firstAppointmentsRead = table === "appointments" && !calls.some((c) => c.table === table);
-    return fakeQuery(
-      table,
-      firstAppointmentsRead ? { data: [], error: null } : results[table],
-      calls,
-    );
+    return fakeQuery(table, results[table], calls);
   });
   const inserted = (table: string) =>
     calls
@@ -1142,6 +1158,106 @@ describe("reserveBooking: CPF/CNPJ condicional ao sinal efetivo (T038)", () => {
     await expect(
       reserveBooking({ data: { ...reserveInput, customerEmail: "email-invalido" } }),
     ).rejects.toThrow("E-mail inválido");
+  });
+});
+
+/**
+ * BUG-4 (auditoria QA 03/10/2026): as regras de expediente, bloqueio e
+ * antecedência existiam apenas em `getAvailability` (isto é, apenas na UI).
+ * `reserveBooking` era um endpoint público que aceitava qualquer horário.
+ */
+describe("reserveBooking: as regras de agenda valem no servidor, não só na UI", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  const BARBEARIA = { hours: [{ starts_at: "08:30", ends_at: "19:00" }] };
+
+  const dayOffset = (days: number) =>
+    new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", {
+      timeZone: "America/Sao_Paulo",
+    });
+
+  it("recusa horário fora do expediente", async () => {
+    // A auditoria reproduziu reserva aceita às 03:00 com expediente 08:30-19:00.
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", BARBEARIA);
+
+    await expect(reserveBooking({ data: { ...reserveInput, time: "03:00" } })).rejects.toThrow(
+      /não está mais disponível/i,
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("recusa data que já passou", async () => {
+    // A auditoria reproduziu reserva de 01/09 aceita como 'agendado' no banco.
+    const db = setupReserve({ requires_deposit: false });
+
+    await expect(
+      reserveBooking({ data: { ...reserveInput, date: "2020-01-05", time: "10:30" } }),
+    ).rejects.toThrow(/não está mais disponível/i);
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("recusa horário dentro de um bloqueio", async () => {
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", {
+      hours: [{ starts_at: "00:00", ends_at: "23:59" }],
+      blocks: [
+        {
+          starts_at: "09:00",
+          ends_at: "11:00",
+          recurring: false,
+          block_date: "2099-01-05",
+          professional_id: null,
+        },
+      ],
+    });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      /não está mais disponível/i,
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("recusa quando o dia não tem expediente cadastrado", async () => {
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", { hours: [] });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      /não está mais disponível/i,
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("respeita a antecedência mínima configurada", async () => {
+    // 72h de antecedência com reserva em 2 dias: a data inteira cai dentro da
+    // janela, então não sobra horário nenhum.
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", {
+      hours: [{ starts_at: "00:00", ends_at: "23:59" }],
+      minimumNoticeHours: 72,
+    });
+
+    await expect(reserveBooking({ data: { ...reserveInput, date: dayOffset(2) } })).rejects.toThrow(
+      /não está mais disponível/i,
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("aceita e grava horário válido dentro do expediente", async () => {
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", BARBEARIA);
+
+    await reserveBooking({ data: reserveInput });
+
+    expect(db.inserted("appointments")[0]).toMatchObject({
+      starts_at: "2099-01-05T13:00:00.000Z",
+      status: "agendado",
+    });
+  });
+
+  it("aceita minuto fora da grade de exibição, desde que dentro do expediente", async () => {
+    // A tela lista de 30 em 30, mas o servidor valida a regra, não a grade:
+    // 10:20 é um horário legítimo e não pode ser recusado.
+    const db = setupReserve({ requires_deposit: false }, "America/Sao_Paulo", BARBEARIA);
+
+    await reserveBooking({ data: { ...reserveInput, time: "10:20" } });
+
+    expect(db.inserted("appointments")).toHaveLength(1);
   });
 });
 

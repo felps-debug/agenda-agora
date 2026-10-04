@@ -4,6 +4,7 @@ import { loadPanel1Config } from "@/lib/panel1-config.storage";
 import { DEFAULT_PANEL1_APPEARANCE, type Panel1Appearance } from "@/lib/panel1-config";
 import { isBusinessImagePath } from "@/lib/business-image-path";
 import { effectiveDepositCents, type ServiceDepositConfig } from "@/lib/deposit-amount";
+import { enforceRateLimit, PUBLIC_RATE_LIMITS } from "@/lib/rate-limit.server";
 
 const slugSchema = z.object({
   slug: z.string().min(1),
@@ -195,6 +196,7 @@ async function signedPublicAssetUrl(
 export const getPublicBookingCatalog = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicCatalogSchema.parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.catalog);
     const supabase = await admin();
     const { data: business, error: businessError } = await supabase
       .from("businesses")
@@ -266,6 +268,7 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       services: publicServices,
       appearance: config.appearance ?? DEFAULT_PANEL1_APPEARANCE,
       preferences: config.preferences,
+      visual: config.visual,
     };
   });
 
@@ -273,6 +276,7 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
 export const getPublicBookingProfessionals = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicProfessionalsSchema.parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.professionals);
     const supabase = await admin();
     const { data: service, error: serviceError } = await supabase
       .from("services")
@@ -435,6 +439,7 @@ const publicCodeInput = z.object({ publicCode: z.string().uuid() });
 export const cancelAppointmentPublic = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicCodeInput.parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.cancel);
     const db = await admin();
     const appointment = await findAppointmentByPublicCode(db, data.publicCode);
     if (!appointment) throw new Error("Agendamento não encontrado.");
@@ -474,6 +479,7 @@ export const rescheduleAppointmentPublic = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.reschedule);
     const db = await admin();
     const appointment = await findAppointmentByPublicCode(db, data.publicCode);
     if (!appointment) throw new Error("Agendamento não encontrado.");
@@ -549,84 +555,114 @@ async function validateProfessional(
   return professional;
 }
 
+/**
+ * Núcleo de disponibilidade de uma data: expediente do negócio, dias de trabalho
+ * do profissional, bloqueios, agendamentos existentes e antecedência mínima.
+ *
+ * Antes isto só existia dentro de `getAvailability`, ou seja, as regras valiam
+ * apenas na UI — `reserveBooking` aceitava reserva fora do expediente, em dia
+ * bloqueado e em data passada, porque chamava o endpoint público direto. As duas
+ * functions usam esta função para que a regra viva no servidor.
+ */
+async function computeAvailableSlots(params: {
+  businessId: string;
+  durationMinutes: number;
+  date: string;
+  timezone: string;
+  minimumNoticeHours: number;
+  listingIntervalMinutes: number;
+  professionalId?: string | null | undefined;
+  /** `working_days` do profissional; null quando o serviço não tem profissionais vinculados. */
+  workingDays?: number[] | null | undefined;
+}): Promise<string[]> {
+  const db = await admin();
+  const weekday = weekdayInTimezone(params.date, params.timezone);
+  if (params.workingDays && !params.workingDays.includes(weekday)) return [];
+
+  const { data: hours } = await db
+    .from("business_hours")
+    .select("starts_at, ends_at")
+    .eq("business_id", params.businessId)
+    .eq("weekday", weekday);
+  if (!hours?.length) return [];
+
+  const { data: blocks } = await db
+    .from("time_blocks")
+    .select("starts_at, ends_at, recurring, weekday, block_date, professional_id")
+    .eq("business_id", params.businessId);
+
+  const dayStart = toIso(params.date, "00:00", params.timezone);
+  const dayEnd = toIso(params.date, "23:59", params.timezone);
+  const { data: appts } = await db
+    .from("appointments")
+    .select("starts_at, ends_at, status, professional_id")
+    .eq("business_id", params.businessId)
+    .gte("starts_at", dayStart)
+    .lte("starts_at", dayEnd);
+
+  const busy: [number, number][] = [];
+  for (const b of blocks ?? []) {
+    const matches = b.recurring ? b.weekday === weekday : b.block_date === params.date;
+    const sameProf = !b.professional_id || b.professional_id === params.professionalId;
+    if (matches && sameProf)
+      busy.push([minutesOf(b.starts_at.slice(0, 5)), minutesOf(b.ends_at.slice(0, 5))]);
+  }
+  for (const a of appts ?? []) {
+    if (a.status === "cancelado" || a.status === "aguardando_sinal") continue;
+    if (params.professionalId && a.professional_id && a.professional_id !== params.professionalId)
+      continue;
+    const off = (d: Date) =>
+      Number(
+        d
+          .toLocaleTimeString("pt-BR", {
+            timeZone: params.timezone,
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+          .slice(0, 2),
+      ) *
+        60 +
+      Number(
+        d
+          .toLocaleTimeString("pt-BR", {
+            timeZone: params.timezone,
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          })
+          .slice(3, 5),
+      );
+    busy.push([off(new Date(a.starts_at)), off(new Date(a.ends_at))]);
+  }
+
+  const nowMin = computeNowMin(params.date, params.timezone, params.minimumNoticeHours);
+
+  return computeSlots({
+    hours,
+    busy,
+    durationMinutes: params.durationMinutes,
+    nowMin,
+    listingIntervalMinutes: params.listingIntervalMinutes,
+  });
+}
+
 export const getAvailability = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => slugSchema.parse(d))
   .handler(async ({ data }) => {
-    const db = await admin();
+    enforceRateLimit(PUBLIC_RATE_LIMITS.availability);
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const preferences = await loadPreferences(businessId);
-    const weekday = weekdayInTimezone(data.date, preferences.timezone);
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
-    if (professional && !professional.working_days.includes(weekday))
-      return { slots: [] as string[], depositCents: service.depositCents };
-
-    const { data: hours } = await db
-      .from("business_hours")
-      .select("starts_at, ends_at")
-      .eq("business_id", businessId)
-      .eq("weekday", weekday);
-    if (!hours?.length) return { slots: [] as string[], depositCents: service.depositCents };
-
-    const { data: blocks } = await db
-      .from("time_blocks")
-      .select("starts_at, ends_at, recurring, weekday, block_date, professional_id")
-      .eq("business_id", businessId);
-
-    const dayStart = toIso(data.date, "00:00", preferences.timezone);
-    const dayEnd = toIso(data.date, "23:59", preferences.timezone);
-    const { data: appts } = await db
-      .from("appointments")
-      .select("starts_at, ends_at, status, professional_id")
-      .eq("business_id", businessId)
-      .gte("starts_at", dayStart)
-      .lte("starts_at", dayEnd);
-
-    const busy: [number, number][] = [];
-    for (const b of blocks ?? []) {
-      const matches = b.recurring ? b.weekday === weekday : b.block_date === data.date;
-      const sameProf = !b.professional_id || b.professional_id === data.professionalId;
-      if (matches && sameProf)
-        busy.push([minutesOf(b.starts_at.slice(0, 5)), minutesOf(b.ends_at.slice(0, 5))]);
-    }
-    for (const a of appts ?? []) {
-      if (a.status === "cancelado" || a.status === "aguardando_sinal") continue;
-      if (data.professionalId && a.professional_id && a.professional_id !== data.professionalId)
-        continue;
-      const s = new Date(a.starts_at);
-      const e = new Date(a.ends_at);
-      const off = (d: Date) =>
-        Number(
-          d
-            .toLocaleTimeString("pt-BR", {
-              timeZone: preferences.timezone,
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            })
-            .slice(0, 2),
-        ) *
-          60 +
-        Number(
-          d
-            .toLocaleTimeString("pt-BR", {
-              timeZone: preferences.timezone,
-              hour: "2-digit",
-              minute: "2-digit",
-              hour12: false,
-            })
-            .slice(3, 5),
-        );
-      busy.push([off(s), off(e)]);
-    }
-
-    const nowMin = computeNowMin(data.date, preferences.timezone, preferences.minimum_notice_hours);
-
-    const slots = computeSlots({
-      hours,
-      busy,
+    const slots = await computeAvailableSlots({
+      businessId,
       durationMinutes: service.duration_minutes,
-      nowMin,
+      date: data.date,
+      timezone: preferences.timezone,
+      minimumNoticeHours: preferences.minimum_notice_hours,
       listingIntervalMinutes: preferences.listing_time_minutes,
+      professionalId: data.professionalId,
+      workingDays: professional?.working_days ?? null,
     });
     return { slots, depositCents: service.depositCents };
   });
@@ -634,6 +670,7 @@ export const getAvailability = createServerFn({ method: "POST" })
 export const getOpenDays = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ slug: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.openDays);
     const db = await admin();
     const { data: business } = await db
       .from("businesses")
@@ -675,10 +712,31 @@ export const reserveBooking = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.reserve);
     const db = await admin();
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const preferences = await loadPreferences(businessId);
-    await validateProfessional(businessId, service.id, data.professionalId);
+    const professional = await validateProfessional(businessId, service.id, data.professionalId);
+
+    // Expediente, bloqueio e antecedência precisam valer no servidor. Esconder o
+    // horário na UI não impede ninguém de chamar este endpoint público direto —
+    // foi exatamente assim que a auditoria criou reserva às 03:00, em dia
+    // bloqueado e em data passada.
+    const available = await computeAvailableSlots({
+      businessId,
+      durationMinutes: service.duration_minutes,
+      date: data.date,
+      timezone: preferences.timezone,
+      minimumNoticeHours: preferences.minimum_notice_hours,
+      // Valida a regra, não a grade de exibição: qualquer minuto dentro do
+      // expediente e fora dos bloqueios é aceito, mesmo que a tela só ofereça
+      // slots de 30 ou 60 em 30/60.
+      listingIntervalMinutes: 1,
+      professionalId: data.professionalId,
+      workingDays: professional?.working_days ?? null,
+    });
+    if (!available.includes(data.time))
+      throw new Error("Esse horário não está mais disponível. Escolha outro.");
     // Snapshot único do sinal: o mesmo valor vai para appointments.deposit_cents,
     // deposit_payments.amount_cents e para a resposta. Sinal efetivo zero (0% ou
     // preço zero no modo percentual) confirma o horário sem cobrança.
@@ -813,6 +871,7 @@ const isChargeExpired = (expiresAt: string | null) => {
 export const generateDepositPix = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.depositPix);
     const running = inFlightPix.get(data.chargeId);
     if (running) return running;
     const attempt = (async (): Promise<DepositPixResult> => {
@@ -1009,6 +1068,7 @@ export const generateDepositPix = createServerFn({ method: "POST" })
 export const cancelDepositBooking = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.cancelDeposit);
     const { cancelPendingDeposit } = await import("./agpay-events.server");
     const result = await cancelPendingDeposit(data.chargeId);
     if (result.status === "pendente") {
@@ -1029,6 +1089,7 @@ export const getMyBookings = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.myBookings);
     if (!data.chargeIds.length && !data.publicCodes.length) return { bookings: [] };
     const db = await admin();
     const { data: chargeRows } = data.chargeIds.length
@@ -1109,6 +1170,7 @@ export const getMyBookings = createServerFn({ method: "POST" })
 export const getDepositStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.depositStatus);
     const { synchronizeDepositPayment } = await import("./agpay-events.server");
     return synchronizeDepositPayment(data.chargeId);
   });
