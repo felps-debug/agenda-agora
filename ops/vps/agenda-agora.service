@@ -1,0 +1,33 @@
+[Unit]
+Description=Agenda Agora web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agenda
+Group=agenda
+WorkingDirectory=/opt/agenda-agora/current
+EnvironmentFile=/etc/agenda-agora.env
+# A VPS tem IPv4 e IPv6, e agpay.services responde em ambas as familias. O Node
+# usa Happy Eyeballs e acabava saindo por um caminho que o AgPay nao reconhece
+# como o IP liberado na credencial: POST /cashout/pix devolvia 403 "IP nao
+# autorizado". Forcar IPv4 elimina o 403 (auditoria 04/10/2026).
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first --no-network-family-autoselection
+ExecStart=/usr/bin/node .output/server/index.mjs
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
