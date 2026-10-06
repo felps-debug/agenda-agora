@@ -34,7 +34,7 @@ export async function createWithdrawal(
   if (!business.withdrawal_pix_key)
     throw new Error("Cadastre uma chave Pix antes de solicitar o saque.");
   if (!Number.isInteger(amountCents) || amountCents < MIN_WITHDRAWAL_CENTS)
-    throw new Error("O saque mínimo é R$ 13,00 (R$ 10,00 líquidos + taxa de R$ 3,00).");
+    throw new Error("O saque mínimo é R$ 13,00.");
   const { supabaseAdmin: supabase } = await import("@/integrations/supabase/client.server");
   const { data: existing } = await supabase
     .from("withdrawals")

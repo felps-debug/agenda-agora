@@ -250,9 +250,7 @@ function AsPayPage() {
       <section className="report-luminous-card report-effect-medium as-pay-card mx-auto mt-3 max-w-2xl p-4 sm:p-5">
         <div className="relative z-10">
           <h2 className="font-semibold">Solicitar saque</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Saque mínimo de R$ 13,00 (R$ 10,00 líquidos + taxa de R$ 3,00).
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">Saque mínimo de R$ 13,00.</p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <div className="flex-1 space-y-2">
               <Label htmlFor="withdrawal-amount">Valor em reais</Label>
