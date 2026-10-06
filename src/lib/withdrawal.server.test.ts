@@ -254,7 +254,7 @@ describe("solicitação de saque", () => {
 
   it("desconta a taxa fixa de R$ 3,00 do Pix enviado e registra a taxa, qualquer que seja o valor", async () => {
     for (const [amount, key] of [
-      [1000, "13131313-1313-4131-8131-131313131313"],
+      [1300, "13131313-1313-4131-8131-131313131313"],
       [5000, "14141414-1414-4141-8141-141414141414"],
       [10000, "15151515-1515-4151-8151-151515151515"],
     ] as const) {
@@ -279,6 +279,27 @@ describe("solicitação de saque", () => {
         amount_cents: amount,
         platform_fee_cents: 300,
       });
+    }
+  });
+
+  it("recusa pedido cujo Pix líquido ficaria abaixo do mínimo de R$ 10,00 da AgPay", async () => {
+    for (const amount of [1000, 1299]) {
+      financeRuntime.createCashoutPix.mockClear();
+      financeRuntime.requestWithdrawal.mockClear();
+      const { client, state } = makeFinanceDb();
+      financeRuntime.adminDb = client;
+      await expect(
+        createWithdrawal(
+          client,
+          "user-dono",
+          "biz-1",
+          amount,
+          "16161616-1616-4161-8161-161616161616",
+        ),
+      ).rejects.toThrow("O saque mínimo é R$ 13,00");
+      expect(state["withdrawals"]).toHaveLength(0);
+      expect(financeRuntime.requestWithdrawal).not.toHaveBeenCalled();
+      expect(financeRuntime.createCashoutPix).not.toHaveBeenCalled();
     }
   });
 
@@ -453,11 +474,13 @@ describe("solicitação de saque", () => {
     vi.clearAllMocks();
     const { client, state } = makeFinanceDb();
     financeRuntime.adminDb = client;
-    financeRuntime.createCashoutPix.mockRejectedValue(new Error("O saque mínimo é R$ 10,00."));
+    financeRuntime.createCashoutPix.mockRejectedValue(
+      new Error("O valor mínimo do saque Pix é R$ 10,00."),
+    );
 
     await expect(
       createWithdrawal(client, "user-dono", "biz-1", 2500, "55555555-5555-4555-8555-555555555555"),
-    ).rejects.toThrow("O saque mínimo é R$ 10,00.");
+    ).rejects.toThrow("O valor mínimo do saque Pix é R$ 10,00.");
     expect(state["withdrawals"]?.[0]?.["status"]).toBe("requested");
     expect(financeRuntime.settleWithdrawal).toHaveBeenCalledWith(client, {
       withdrawalId: "wd-1",

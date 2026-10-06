@@ -191,10 +191,11 @@ export async function createCashoutPix(input: {
   amountCents: number;
   pixKey: string;
 }): Promise<CashoutPix> {
-  // O mínimo de R$ 10,00 do saque é regra da plataforma (createWithdrawal) sobre o valor
-  // pedido; o Pix enviado já vem com a taxa de saque descontada. Aqui vale o mínimo da AgPay.
-  if (!Number.isInteger(input.amountCents) || input.amountCents < 1) {
-    throw new Error("O valor mínimo do Pix é R$ 0,01.");
+  // A documentação da AgPay define `amount` como valor líquido com mínimo de R$ 10,00. Abaixo
+  // disso a API responde "aceito" mas o saque nunca é executado (saque 630, 06/10/2026), então
+  // a validação precisa acontecer aqui, antes da chamada.
+  if (!Number.isInteger(input.amountCents) || input.amountCents < 1000) {
+    throw new Error("O valor mínimo do saque Pix é R$ 10,00.");
   }
   // A documentação atual do AgPay devolve o saque em `withdrawal` (não em
   // `data`). Mantemos `data` como compatibilidade defensiva com respostas

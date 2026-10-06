@@ -1,15 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { saveWithdrawalPixKeyInput } from "@/lib/withdrawal.functions";
+import {
+  MIN_WITHDRAWAL_CENTS,
+  WITHDRAWAL_FEE_CENTS,
+  saveWithdrawalPixKeyInput,
+} from "@/lib/withdrawal.functions";
 import { AgpayApiError, createCashoutPix } from "@/lib/agpay.server";
 import { requestWithdrawal, settleWithdrawal } from "@/lib/ledger.server";
 
 /**
  * Taxa fixa de saque da plataforma: R$ 3,00, independente do valor (decisão comercial de
  * 05/10/2026). O valor pedido sai inteiro da carteira; o Pix enviado ao dono é o valor
- * menos esta taxa. Estorno de saque falho devolve o valor pedido inteiro.
+ * menos esta taxa. Estorno de saque falho devolve o valor pedido inteiro. A AgPay exige
+ * Pix líquido de no mínimo R$ 10,00, por isso o pedido mínimo é R$ 13,00.
  */
-export const WITHDRAWAL_FEE_CENTS = 300;
+export { WITHDRAWAL_FEE_CENTS };
 
 export async function createWithdrawal(
   client: SupabaseClient<Database>,
@@ -28,8 +33,8 @@ export async function createWithdrawal(
   if (error || !business) throw new Error("Negócio não encontrado.");
   if (!business.withdrawal_pix_key)
     throw new Error("Cadastre uma chave Pix antes de solicitar o saque.");
-  if (!Number.isInteger(amountCents) || amountCents < 1000)
-    throw new Error("O saque mínimo é R$ 10,00.");
+  if (!Number.isInteger(amountCents) || amountCents < MIN_WITHDRAWAL_CENTS)
+    throw new Error("O saque mínimo é R$ 13,00 (R$ 10,00 líquidos + taxa de R$ 3,00).");
   const { supabaseAdmin: supabase } = await import("@/integrations/supabase/client.server");
   const { data: existing } = await supabase
     .from("withdrawals")

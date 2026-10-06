@@ -4,6 +4,13 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const withdrawalPixKeyTypes = ["cpf", "cnpj", "email", "telefone", "aleatoria"] as const;
 
+/** Taxa fixa de saque da plataforma (decisão comercial de 05/10/2026). */
+export const WITHDRAWAL_FEE_CENTS = 300;
+/** Mínimo do `amount` (valor líquido) do POST /cashout/pix, conforme a documentação da AgPay. */
+export const AGPAY_MIN_PAYOUT_CENTS = 1000;
+/** O Pix enviado é o valor pedido menos a taxa; por isso o pedido mínimo inclui a taxa. */
+export const MIN_WITHDRAWAL_CENTS = AGPAY_MIN_PAYOUT_CENTS + WITHDRAWAL_FEE_CENTS;
+
 const cpfDigits = (value: string) => value.replace(/\D/g, "");
 
 function isValidCpf(value: string) {
@@ -157,7 +164,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
     z
       .object({
         businessId: z.string().uuid(),
-        amountCents: z.number().int().min(1000),
+        amountCents: z.number().int().min(MIN_WITHDRAWAL_CENTS),
         idempotencyKey: z.string().uuid(),
       })
       .parse(data),

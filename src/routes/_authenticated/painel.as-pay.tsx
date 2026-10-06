@@ -251,7 +251,7 @@ function AsPayPage() {
         <div className="relative z-10">
           <h2 className="font-semibold">Solicitar saque</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Saque mínimo de R$ 10,00.
+            Saque mínimo de R$ 13,00 (R$ 10,00 líquidos + taxa de R$ 3,00).
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <div className="flex-1 space-y-2">
@@ -259,7 +259,7 @@ function AsPayPage() {
               <Input
                 id="withdrawal-amount"
                 inputMode="decimal"
-                placeholder="10,00"
+                placeholder="13,00"
                 value={withdrawalAmount}
                 onChange={(event) => setWithdrawalAmount(event.target.value)}
               />
@@ -269,7 +269,7 @@ function AsPayPage() {
               disabled={
                 withdraw.isPending ||
                 !withdrawalPixKey?.withdrawal_pix_key ||
-                Number(withdrawalAmount.replace(",", ".")) < 10
+                Number(withdrawalAmount.replace(",", ".")) < 13
               }
               onClick={() => withdraw.mutate()}
             >
