@@ -425,12 +425,7 @@ function PainelLayout() {
               </span>
             </span>
           </div>
-          {business ? (
-            <div className="mt-2 rounded-xl border border-[#262a30] bg-[#111317] px-3 py-2 text-[11px] text-[#646b75]">
-              <span className="block font-medium text-[#cfd3d9]">Estabelecimento configurado</span>
-              <span className="block truncate">{business.slug}</span>
-            </div>
-          ) : (
+          {!business && (
             <div className="mt-2 rounded-xl border border-dashed border-[#262a30] px-3 py-2 text-[11px] text-[#646b75]">
               {platformMode
                 ? "Acesso de plataforma; use o Painel Master para gerenciar estabelecimentos."
