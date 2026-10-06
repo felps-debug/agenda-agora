@@ -17,6 +17,7 @@ import {
   formatPrice,
 } from "@/lib/format";
 import { NoBusiness } from "@/components/painel/PageHeader";
+import { ProfessionalAvatar, ProfessionalBubbles } from "@/components/painel/ProfessionalBubbles";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -92,6 +93,7 @@ function AgendaPage() {
   const queryClient = useQueryClient();
   const setAppointmentStatusFn = useServerFn(setAppointmentStatus);
   const [day, setDay] = useState(() => toDateInput(new Date()));
+  const [pickedProfessionalId, setPickedProfessionalId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -131,20 +133,29 @@ function AgendaPage() {
     },
   });
 
+  // Sem escolha explícita, vale o primeiro profissional; se o escolhido sumiu, volta ao primeiro.
+  const selectedProfessionalId =
+    professionals?.find((p) => p.id === pickedProfessionalId)?.id ?? professionals?.[0]?.id ?? null;
+  const selectedProfessional = professionals?.find((p) => p.id === selectedProfessionalId) ?? null;
+
   const { data: appointments } = useQuery({
-    queryKey: ["appointments", businessId, day],
-    enabled: !!businessId,
+    queryKey: ["appointments", businessId, day, selectedProfessionalId],
+    enabled: !!businessId && professionals !== undefined,
     queryFn: async () => {
       const start = new Date(`${day}T00:00:00`).toISOString();
       const end = new Date(`${day}T23:59:59`).toISOString();
-      const { data, error } = await supabase
+      let query = supabase
         .from("appointments")
         .select("*, services(name, price_cents), professionals(name)")
         .eq("business_id", businessId!)
         .gte("starts_at", start)
         .lte("starts_at", end)
-        .neq("status", "aguardando_sinal")
-        .order("starts_at");
+        .not("status", "in", "(aguardando_sinal,cancelado)");
+      // Itens sem profissional (ex.: horário bloqueado) valem para todos.
+      if (selectedProfessionalId) {
+        query = query.or(`professional_id.eq.${selectedProfessionalId},professional_id.is.null`);
+      }
+      const { data, error } = await query.order("starts_at");
       if (error) throw error;
       return data;
     },
@@ -248,7 +259,7 @@ function AgendaPage() {
   const selected = (appointments ?? []).find((a) => a.id === detail) ?? null;
 
   const openNewAt = (time: string) => {
-    const next = { ...emptyForm, time };
+    const next = { ...emptyForm, time, professional_id: selectedProfessionalId ?? "" };
     setForm(next);
     setFormSnapshot(next);
     setOpen(true);
@@ -291,6 +302,12 @@ function AgendaPage() {
         </Button>
       </div>
 
+      <ProfessionalBubbles
+        professionals={professionals ?? []}
+        selectedId={selectedProfessionalId}
+        onSelect={setPickedProfessionalId}
+      />
+
       <button
         type="button"
         onClick={() => openNewAt("09:00")}
@@ -313,7 +330,17 @@ function AgendaPage() {
       </div>
 
       <div className="mt-3 overflow-hidden rounded-md border border-border">
-        <div className="h-8 bg-secondary" />
+        <div className="flex h-12 items-center gap-3 bg-secondary px-3 text-sm">
+          {selectedProfessional ? (
+            <>
+              <span className="size-8 shrink-0 overflow-hidden rounded-full">
+                <ProfessionalAvatar professional={selectedProfessional} />
+              </span>
+              <span className="min-w-0 truncate font-medium">{selectedProfessional.name}</span>
+            </>
+          ) : null}
+          <span className="ml-auto capitalize text-muted-foreground">{weekday}</span>
+        </div>
         <ul>
           {SLOTS.map((slot) => {
             const items = bySlot.get(slot) ?? [];

@@ -34,8 +34,12 @@ coverage/
 *.sw?
 .vercel
 .env*
+test-results/
 !.env.example
 supabase/.temp/
 
 # Maestri canvas local state (agent roles, scratch scripts)
 .maestri/
+
+# Local deployment and diagnostic artifacts
+.tmp/

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { CircleDollarSign, Clock3, History, KeyRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
-import { formatPrice, formatTime } from "@/lib/format";
+import { formatPrice } from "@/lib/format";
 import { getLedgerStatement } from "@/lib/ledger.functions";
 import {
   getWithdrawalPixKeyValidationError,
@@ -15,7 +15,7 @@ import {
   saveWithdrawalPixKey,
   withdrawalPixKeyTypes,
 } from "@/lib/withdrawal.functions";
-import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
+import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,44 +29,6 @@ const pixKeyTypeLabel: Record<WithdrawalPixKeyType, string> = {
   telefone: "Telefone",
   aleatoria: "Chave aleatória",
 };
-
-type StatementEntry = Awaited<ReturnType<typeof getLedgerStatement>>["entries"][number];
-
-function entryTitle(entry: StatementEntry) {
-  switch (entry.type) {
-    case "payment_credit":
-      return entry.description || "Sinal recebido";
-    case "withdrawal_debit":
-      return "Saque Pix";
-    case "withdrawal_reversal":
-      return "Saque devolvido ao saldo";
-    case "refund_debit":
-      return entry.description || "Estorno de sinal";
-    default:
-      return entry.description || "Ajuste";
-  }
-}
-
-function entryBadge(entry: StatementEntry) {
-  const paid = "bg-primary/15 text-primary";
-  const neutral = "bg-muted text-muted-foreground";
-  switch (entry.type) {
-    case "payment_credit":
-      return { label: "Pago", className: paid };
-    case "withdrawal_debit":
-      return entry.withdrawalStatus === "paid"
-        ? { label: "Pago", className: paid }
-        : entry.withdrawalStatus === "failed" || entry.withdrawalStatus === "canceled"
-          ? { label: "Falhou", className: neutral }
-          : { label: "Em processamento", className: neutral };
-    case "withdrawal_reversal":
-      return { label: "Devolvido", className: neutral };
-    case "refund_debit":
-      return { label: "Estornado", className: neutral };
-    default:
-      return { label: "Ajuste", className: neutral };
-  }
-}
 
 export const Route = createFileRoute("/_authenticated/painel/as-pay")({
   head: () => ({
@@ -107,10 +69,12 @@ function AsPayPage() {
           idempotencyKey: crypto.randomUUID(),
         },
       }),
-    onSuccess: () => {
+    onSuccess: ({ withdrawal }) => {
       setWithdrawalAmount("");
       toast.success(
-        "Solicitação de saque registrada. O valor ficará em processamento até a confirmação.",
+        withdrawal?.status === "paid"
+          ? "Saque concluído via Pix."
+          : "Saque enviado para processamento. Aguarde a confirmação do Pix.",
       );
       void queryClient.invalidateQueries({ queryKey: ["wallet-statement", businessId] });
     },
@@ -287,7 +251,7 @@ function AsPayPage() {
         <div className="relative z-10">
           <h2 className="font-semibold">Solicitar saque</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Mínimo de R$ 10,00. A taxa do envio é coberta pela plataforma.
+            Saque mínimo de R$ 10,00.
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <div className="flex-1 space-y-2">
@@ -323,62 +287,6 @@ function AsPayPage() {
             </p>
           )}
         </div>
-      </section>
-
-      <section className="report-luminous-card report-effect-none as-pay-card as-pay-history-card mx-auto mt-3 max-w-2xl">
-        <div className="as-pay-history-header relative z-10">
-          <h2 className="flex items-center gap-2">
-            <History className="size-[0.9rem] text-[#5d6570]" aria-hidden="true" />
-            Últimos sinais
-          </h2>
-          <p>Entradas e saques, ordenados por data</p>
-        </div>
-        {statementLoading ? (
-          <p className="relative z-10 p-4 text-sm text-muted-foreground">Carregando extrato…</p>
-        ) : !statement?.entries.length ? (
-          <div className="relative z-10 p-4">
-            <EmptyList text="Nenhum sinal recebido ainda." />
-          </div>
-        ) : (
-          <ul className="relative z-10 divide-y divide-white/[0.065]">
-            {statement?.entries.map((entry) => {
-              const badge = entryBadge(entry);
-              return (
-                <li key={entry.id} className="flex flex-wrap items-center gap-4 px-4 py-3">
-                  <div className="flex-1">
-                    <p className="font-semibold">{entryTitle(entry)}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(entry.date).toLocaleDateString("pt-BR")} · {formatTime(entry.date)}
-                    </p>
-                    {entry.type === "payment_credit" && entry.grossCents !== null && (
-                      <p className="text-xs text-muted-foreground">
-                        Sinal {formatPrice(entry.grossCents)} − taxa do Pix{" "}
-                        {formatPrice(entry.gatewayFeeCents ?? 0)} − comissão{" "}
-                        {formatPrice(entry.platformCommissionCents ?? 0)}
-                      </p>
-                    )}
-                    {entry.type === "withdrawal_debit" && entry.withdrawalFeeCents ? (
-                      <p className="text-xs text-muted-foreground">
-                        Taxa de envio {formatPrice(entry.withdrawalFeeCents)}
-                      </p>
-                    ) : null}
-                  </div>
-                  <span
-                    className={`font-semibold ${entry.amountCents < 0 ? "text-muted-foreground" : ""}`}
-                  >
-                    {entry.amountCents < 0 ? "−" : "+"}
-                    {formatPrice(Math.abs(entry.amountCents))}
-                  </span>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.className}`}
-                  >
-                    {badge.label}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
       </section>
     </div>
   );

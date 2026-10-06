@@ -24,12 +24,15 @@ describe("normalização de aparência do painel", () => {
     expect(config.appearance.service_price_text).toBe(DEFAULT_PANEL1_APPEARANCE.service_price_text);
   });
 
-  it("aplica um preset aos campos visuais globais e preserva os demais", () => {
+  it("aplica um tema completo e preserva somente o formato da logo", () => {
     const current = { ...DEFAULT_PANEL1_APPEARANCE, page_text: "#123456" };
     const result = applyPanel1AppearancePreset(current, "classico");
     expect(result.header_background).toBe("#3a261d");
     expect(result.service_name_text).toBe("#2c211b");
-    expect(result.page_text).toBe("#123456");
+    expect(result.page_text).toBe("#2c211b");
+    expect(result.modal_active_background).toBe("#765333");
+    expect(result.font_family).toBe("playfair-display");
+    expect(result.logo_fit).toBe(current.logo_fit);
   });
 
   it("aceita fonte e tamanho de foto válidos", () => {
@@ -52,5 +55,23 @@ describe("normalização de aparência do painel", () => {
     const config = normalizePanel1Config({});
     expect(config.appearance.font_family).toBe("inter");
     expect(config.appearance.logo_fit).toBe("quadrado");
+  });
+
+  it("normaliza modelo e nicho visuais sem quebrar documentos antigos", () => {
+    expect(normalizePanel1Config({}).visual).toEqual({
+      layout_key: "classic",
+      niche_id: "outro",
+    });
+    expect(
+      normalizePanel1Config({
+        visual: { layout_key: "liquid_glass", niche_id: "barbearia" },
+      }).visual,
+    ).toEqual({ layout_key: "liquid_glass", niche_id: "barbearia" });
+    expect(
+      normalizePanel1Config({ visual: { layout_key: "other", niche_id: "x" } }).visual,
+    ).toEqual({
+      layout_key: "classic",
+      niche_id: "outro",
+    });
   });
 });

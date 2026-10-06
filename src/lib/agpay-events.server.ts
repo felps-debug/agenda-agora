@@ -366,23 +366,28 @@ export async function synchronizeDepositPayment(chargeId: string) {
   }
   if (charge.status !== "pendente") return { status: "expirado" as const };
 
+  // Consulta o status real no AgPay antes de decidir por expiração: um Pix pode ser
+  // confirmado no gateway perto do fim da janela e só chegar aqui depois de expirar
+  // localmente (webhook atrasado/ausente). Cancelar sem checar perderia um pagamento já recebido.
+  if (charge.provider_payment_id) {
+    const status = await fetchPaymentStatus(charge.provider_payment_id);
+    await db.from("deposit_payments").update({ provider_status: status }).eq("id", charge.id);
+    if (status === "completed") {
+      await confirmDepositPayment(charge.provider_payment_id, status);
+      return { status: "pago" as const };
+    }
+    if (status === "failed") {
+      await expireLocalCharge(charge.id, charge.appointment_id, status);
+      return { status: "expirado" as const };
+    }
+  }
+
   if (charge.expires_at && new Date(charge.expires_at).getTime() <= Date.now()) {
     const cancelled = await cancelPendingDeposit(charge.id);
     if (cancelled.status === "pendente") return { status: "pendente" as const };
     return { status: "expirado" as const };
   }
-  if (!charge.provider_payment_id) return { status: "pendente" as const };
 
-  const status = await fetchPaymentStatus(charge.provider_payment_id);
-  await db.from("deposit_payments").update({ provider_status: status }).eq("id", charge.id);
-  if (status === "completed") {
-    await confirmDepositPayment(charge.provider_payment_id, status);
-    return { status: "pago" as const };
-  }
-  if (status === "failed") {
-    await expireLocalCharge(charge.id, charge.appointment_id, status);
-    return { status: "expirado" as const };
-  }
   return { status: "pendente" as const };
 }
 
@@ -558,17 +563,21 @@ export async function expirePendingDeposits(limit = 25) {
   if (error) throw new Error(error.message);
 
   let expired = 0;
+  let recovered = 0;
   let deferred = 0;
   let failed = 0;
   for (const charge of charges ?? []) {
     try {
-      const result = await cancelPendingDeposit(charge.id);
+      // synchronizeDepositPayment checa o status real no AgPay antes de expirar: evita
+      // cancelar uma cobrança que já foi paga no gateway mas não teve o webhook processado a tempo.
+      const result = await synchronizeDepositPayment(charge.id);
       if (result.status === "expirado") expired++;
       else if (result.status === "pendente") deferred++;
+      else if (result.status === "pago") recovered++;
     } catch (expireError) {
       console.error(`Falha ao expirar cobrança ${charge.id}:`, expireError);
       failed++;
     }
   }
-  return { expired, waitingReceipt: 0, deferred, failed };
+  return { expired, recovered, waitingReceipt: 0, deferred, failed };
 }

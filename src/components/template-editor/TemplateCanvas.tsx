@@ -74,7 +74,7 @@ export function TemplateCanvas({
       viewBox={`0 0 ${design.width} ${design.height}`}
       role="img"
       aria-label="Prévia da arte de divulgação"
-      className={className}
+      className={`touch-none select-none ${className ?? ""}`}
       style={style}
       onPointerMove={interactive ? handlePointerMove : undefined}
       onPointerUp={interactive ? endDrag : undefined}
@@ -181,6 +181,7 @@ export function TemplateCanvas({
             className="outline-none focus-visible:outline-none"
             onPointerDown={(event) => {
               event.stopPropagation();
+              event.preventDefault();
               onSelect?.(index);
               startDrag(index, { type: "move" }, event);
             }}
@@ -229,6 +230,7 @@ export function TemplateCanvas({
               style={{ cursor: `${edge}-resize` }}
               onPointerDown={(event) => {
                 event.stopPropagation();
+                event.preventDefault();
                 startDrag(selectedLayerIndex, { type: "resize", edge }, event);
               }}
               onClick={(event) => event.stopPropagation()}

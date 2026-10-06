@@ -8,9 +8,11 @@ const runtime = vi.hoisted(() => ({
   timezone: "America/Fortaleza",
   startsAt: "2026-09-28T15:00:00.000Z",
 }));
-vi.mock("./uazapi.server", () => ({
-  sendTextMessage: runtime.sendTextMessage,
-  isConnected: runtime.isConnected,
+vi.mock("./whatsapp-provider.server", () => ({
+  loadWhatsappProvider: async () => ({
+    sendTextMessage: runtime.sendTextMessage,
+    isConnected: runtime.isConnected,
+  }),
 }));
 vi.mock("@/integrations/supabase/client.server", () => ({
   supabaseAdmin: {

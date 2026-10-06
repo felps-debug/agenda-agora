@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Agenda Agora AgPay worker every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+RandomizedDelaySec=5
+
+[Install]
+WantedBy=timers.target

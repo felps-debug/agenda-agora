@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ImageIcon, Plus, Search, Trash2 } from "lucide-react";
+import { ImageIcon, Plus, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import type { OutreachDesign, OutreachDesignLayer } from "@/lib/outreach-design";
 import { OUTREACH_FONTS, OUTREACH_ICON_KEYS } from "@/lib/outreach-design";
 import { outreachFontFamily } from "./fonts";
@@ -98,6 +98,7 @@ export function EditorPanel({
 }) {
   const selected = selectedLayerIndex === null ? undefined : design.layers[selectedLayerIndex];
   const [bgImageError, setBgImageError] = useState<string | null>(null);
+  const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const patchLayer = (patch: Partial<OutreachDesignLayer>) => {
     if (!selected || selectedLayerIndex === null) return;
@@ -129,25 +130,61 @@ export function EditorPanel({
           : { ...base, type, shape: "rectangle", fill: "#ffffff", strokeWidth: 0, radius: 12 };
     onChange({ ...design, layers: [...design.layers, layer] });
     onSelect(design.layers.length);
+    setMobileControlsOpen(true);
+  };
+  const selectLayer = (index: number | null) => {
+    onSelect(index);
   };
 
   return (
-    <div className="grid min-h-[70vh] gap-5 lg:h-[70vh] lg:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="flex min-h-[520px] flex-col items-center justify-center gap-2 overflow-auto rounded-xl border border-border bg-muted/40 p-5 lg:h-full">
+    <div className="grid min-h-[70vh] gap-5 pb-20 lg:grid-cols-[320px_minmax(0,1fr)] lg:pb-0">
+      <div
+        id="art-editor-preview"
+        tabIndex={-1}
+        className="flex min-h-[calc(100dvh-12rem)] flex-col items-center justify-center gap-2 overflow-auto rounded-2xl border border-border bg-muted/40 p-3 shadow-inner outline-none sm:p-5 lg:order-2 lg:sticky lg:top-[5.75rem] lg:min-h-[520px] lg:self-start lg:rounded-3xl"
+      >
         <TemplateCanvas
           design={design}
           className="max-h-[68vh] max-w-full shadow-xl"
           style={{ aspectRatio: `${design.width} / ${design.height}` }}
           selectedLayerIndex={selectedLayerIndex}
-          onSelect={onSelect}
+          onSelect={selectLayer}
           onChange={onChange}
         />
         <p className="text-center text-xs text-muted-foreground">
-          Arraste para mover, puxe as alças para redimensionar. Com uma camada selecionada: setas
-          movem 1px, Shift+setas redimensiona.
+          Toque para selecionar. Arraste para mover diretamente na arte e puxe as alças para
+          redimensionar. Com uma camada selecionada: setas movem 1px, Shift+setas redimensiona.
         </p>
       </div>
-      <aside className="space-y-5 overflow-y-auto rounded-xl border border-border bg-card p-4 lg:h-full">
+      {mobileControlsOpen ? (
+        <button
+          type="button"
+          aria-label="Fechar edição"
+          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          onClick={() => {
+            setMobileControlsOpen(false);
+            requestAnimationFrame(() => document.getElementById("art-editor-preview")?.focus());
+          }}
+        />
+      ) : null}
+      <aside
+        className={`${mobileControlsOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[82dvh] overflow-y-auto rounded-t-2xl border border-border bg-card p-4 shadow-2xl" : "hidden"} space-y-5 lg:static lg:order-1 lg:block lg:max-h-none lg:overflow-visible lg:rounded-2xl lg:shadow-none`}
+      >
+        <div className="flex items-center justify-between lg:hidden">
+          <h2 className="font-semibold">Editar arte</h2>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label="Fechar edição"
+            onClick={() => {
+              setMobileControlsOpen(false);
+              requestAnimationFrame(() => document.getElementById("art-editor-preview")?.focus());
+            }}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
         <div>
           <h2 className="font-semibold">Camadas</h2>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -175,7 +212,7 @@ export function EditorPanel({
                   key={`${index}:${layer.id}`}
                   type="button"
                   aria-pressed={selectedLayerIndex === index}
-                  onClick={() => onSelect(index)}
+                  onClick={() => selectLayer(index)}
                   className={`w-full rounded-md px-3 py-2 text-left text-sm ${selectedLayerIndex === index ? "bg-primary/15 text-primary" : "hover:bg-muted"}`}
                 >
                   {layer.type === "text"
@@ -382,6 +419,13 @@ export function EditorPanel({
           </div>
         )}
       </aside>
+      <Button
+        type="button"
+        className="fixed bottom-4 left-4 right-4 z-30 h-12 shadow-xl lg:hidden"
+        onClick={() => setMobileControlsOpen(true)}
+      >
+        <SlidersHorizontal className="size-4" /> Editar arte
+      </Button>
     </div>
   );
 }

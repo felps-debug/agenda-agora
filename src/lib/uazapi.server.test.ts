@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createBusinessInstance, sendTextMessage } from "./uazapi.server";
+import {
+  createBusinessInstance,
+  normalizePairingPhone,
+  sendTextMessage,
+  startWhatsappConnection,
+} from "./uazapi.server";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -71,5 +76,42 @@ describe("cliente UazAPI", () => {
     await sendTextMessage("token-negocio-b", "98999990001", "B");
     expect(new Headers(fetchMock.mock.calls[0]![1]!.headers).get("token")).toBe("token-negocio-a");
     expect(new Headers(fetchMock.mock.calls[1]![1]!.headers).get("token")).toBe("token-negocio-b");
+  });
+
+  it("gera pairing code sem expor token", async () => {
+    process.env["UAZAPI_BASE_URL"] = "https://uazapi.test";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ instance: { paircode: "ABCD-EFGH" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const artifact = await startWhatsappConnection("token-secreto", {
+      method: "pairing_code",
+      phone: "(98) 99999-0000",
+    });
+    expect(artifact).toEqual({ method: "pairing_code", pairingCode: "ABCD-EFGH" });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({
+      phone: "5598999990000",
+    });
+    expect(JSON.stringify(artifact)).not.toContain("token-secreto");
+  });
+
+  it("aceita o formato camelCase devolvido por versões compatíveis do provedor", async () => {
+    process.env["UAZAPI_BASE_URL"] = "https://uazapi.test";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ instance: { pairCode: "ABCD-EFGH" } }))),
+    );
+    await expect(
+      startWhatsappConnection("token-secreto", {
+        method: "pairing_code",
+        phone: "(98) 99999-0000",
+      }),
+    ).resolves.toEqual({ method: "pairing_code", pairingCode: "ABCD-EFGH" });
+  });
+
+  it("rejeita telefone de pareamento incompleto", () => {
+    expect(() => normalizePairingPhone("9999")).toThrow("telefone brasileiro com DDD");
   });
 });

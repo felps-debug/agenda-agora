@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Eye, EyeOff, UserRound } from "lucide-react";
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { friendlyError } from "@/lib/error-page";
+import { APP_HOSTS, appSurfaceForHostname, isLocalAppHost } from "@/lib/app-hosts";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -66,6 +67,11 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
+  const surface = useSyncExternalStore(
+    () => () => {},
+    () => appSurfaceForHostname(window.location.hostname),
+    () => null,
+  );
 
   const passwordMode = loginInputMode(identifier);
   const emailMode = passwordMode.email;
@@ -73,14 +79,26 @@ function AuthPage() {
   const goTo = (destination: PostLoginDestination) =>
     void navigate({ to: destination as "/painel" });
 
+  const destinationAllowedHere = (destination: PostLoginDestination) => {
+    // No localhost os três hosts de produção compartilham a mesma origem. Permitir
+    // ambos os destinos aqui torna o Master verificável sem relaxar a separação real.
+    if (isLocalAppHost(window.location.hostname)) return true;
+    if (surface === "public") return false;
+    return surface !== "admin"
+      ? destination !== "/painel/master"
+      : destination === "/painel/master";
+  };
+
   useEffect(() => {
     if (loading || !user) return;
     void (async () => {
       const destination = await destinationFor(user.id).catch(() => null);
-      if (destination) goTo(destination);
+      if (!destination) return;
+      if (destinationAllowedHere(destination)) goTo(destination);
+      else void supabase.auth.signOut();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, user]);
+  }, [loading, surface, user]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -119,6 +137,14 @@ function AuthPage() {
         await supabase.auth.signOut();
         throw new Error("Esta conta não possui acesso ao painel.");
       }
+      if (!destinationAllowedHere(destination)) {
+        await supabase.auth.signOut();
+        throw new Error(
+          destination === "/painel/master"
+            ? `O administrador entra em admin.agendagora.company.`
+            : `Este acesso pertence ao painel do estabelecimento em painel.agendagora.company.`,
+        );
+      }
       toast.success("Bem-vindo de volta!");
       goTo(destination);
     } catch (error) {
@@ -127,6 +153,8 @@ function AuthPage() {
       setBusy(false);
     }
   };
+
+  if (surface === "public") return <AccessChooser />;
 
   return (
     <div className="flex min-h-screen items-center justify-center hero-wash px-6 py-12">
@@ -138,10 +166,13 @@ function AuthPage() {
           className="mx-auto mb-6 block h-auto w-full max-w-[10rem]"
         />
         <div className="surface p-7">
-          <h1 className="text-2xl font-bold">Entrar no painel</h1>
+          <h1 className="text-2xl font-bold">
+            {surface === "admin" ? "Entrar na administração" : "Entrar no painel"}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Estabelecimentos entram com telefone e senha de 4 dígitos; administradores, com e-mail e
-            senha.
+            {surface === "admin"
+              ? "Acesso exclusivo para administradores da plataforma."
+              : "Estabelecimentos entram com telefone e senha de 4 dígitos; profissionais, com seu e-mail."}
           </p>
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div className="space-y-2">
@@ -197,6 +228,34 @@ function AuthPage() {
               {busy ? "Aguarde..." : "Entrar"}
             </Button>
           </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AccessChooser() {
+  return (
+    <div className="flex min-h-screen items-center justify-center hero-wash px-6 py-12">
+      <div className="w-full max-w-md">
+        <img
+          src="/agenda-agora-logo.svg"
+          alt="Agenda Agora"
+          className="mx-auto mb-6 block h-auto w-full max-w-[10rem]"
+        />
+        <div className="surface space-y-4 p-7">
+          <div>
+            <h1 className="text-2xl font-bold">Escolha seu acesso</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Os painéis do estabelecimento e da plataforma são separados.
+            </p>
+          </div>
+          <Button asChild className="w-full">
+            <a href={`https://${APP_HOSTS.panel}/auth`}>Painel do estabelecimento</a>
+          </Button>
+          <Button asChild variant="secondary" className="w-full">
+            <a href={`https://${APP_HOSTS.admin}/auth`}>Administração da plataforma</a>
+          </Button>
         </div>
       </div>
     </div>

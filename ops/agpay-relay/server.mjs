@@ -7,7 +7,6 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const RELAY_PATH = "/api/v1/relay";
 const ALLOWED_HEADERS = new Map([
   ["authorization", "Authorization"],
-  ["x-client-id", "X-Client-ID"],
   ["accept", "Accept"],
   ["content-type", "Content-Type"],
 ]);
@@ -39,7 +38,7 @@ function safeHeaders(value) {
     if (!allowedName || typeof headerValue !== "string" || /[\r\n]/.test(headerValue)) return null;
     result[allowedName] = headerValue;
   }
-  if (!/^Bearer \S+$/.test(result.Authorization ?? "") || !result["X-Client-ID"]) return null;
+  if (!/^Bearer \S+$/.test(result.Authorization ?? "")) return null;
   return result;
 }
 

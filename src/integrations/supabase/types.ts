@@ -378,6 +378,62 @@ export type Database = {
         };
         Relationships: [];
       };
+      business_visual_settings: {
+        Row: {
+          appearance: Json;
+          business_id: string;
+          content: Json;
+          created_at: string;
+          layout_key: "classic" | "liquid_glass";
+          niche_id: string;
+          palette_id: string | null;
+          revision: number;
+          schema_version: number;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          appearance?: Json;
+          business_id: string;
+          content?: Json;
+          layout_key?: "classic" | "liquid_glass";
+          niche_id?: string;
+          palette_id?: string | null;
+          revision?: number;
+          schema_version?: number;
+          updated_by?: string | null;
+        };
+        Update: {
+          appearance?: Json;
+          content?: Json;
+          layout_key?: "classic" | "liquid_glass";
+          niche_id?: string;
+          palette_id?: string | null;
+          revision?: number;
+          schema_version?: number;
+          updated_by?: string | null;
+        };
+        Relationships: [];
+      };
+      business_whatsapp_credentials: {
+        Row: {
+          business_id: string;
+          created_at: string;
+          instance_id: string;
+          instance_token: string;
+          updated_at: string;
+        };
+        Insert: {
+          business_id: string;
+          instance_id: string;
+          instance_token: string;
+        };
+        Update: {
+          instance_id?: string;
+          instance_token?: string;
+        };
+        Relationships: [];
+      };
       customers: {
         Row: {
           business_id: string;
@@ -1041,6 +1097,7 @@ export type Database = {
           idempotency_key: string;
           pix_key_snapshot: string;
           provider_fee_cents: number | null;
+          platform_fee_cents: number;
           provider_ref: string | null;
           status: string;
           updated_at: string;
@@ -1053,6 +1110,7 @@ export type Database = {
           idempotency_key: string;
           pix_key_snapshot: string;
           provider_fee_cents?: number | null;
+          platform_fee_cents?: number;
           provider_ref?: string | null;
           status?: string;
           updated_at?: string;
@@ -1065,6 +1123,7 @@ export type Database = {
           idempotency_key?: string;
           pix_key_snapshot?: string;
           provider_fee_cents?: number | null;
+          platform_fee_cents?: number;
           provider_ref?: string | null;
           status?: string;
           updated_at?: string;

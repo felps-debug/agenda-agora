@@ -107,47 +107,54 @@ function OutreachTemplateEditorPage() {
     );
 
   return (
-    <main className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" aria-label="Voltar para templates">
-            <Link
-              to="/painel/templates"
-              onClick={(event) => {
-                if (dirty && !window.confirm("Você tem alterações não salvas. Sair mesmo assim?")) {
-                  event.preventDefault();
-                }
-              }}
-            >
-              <ArrowLeft />
-            </Link>
-          </Button>
-          <div>
-            <h1 className="text-xl font-bold">Editar arte: {template.title}</h1>
-            <p className="text-sm text-muted-foreground">
-              As alterações só são gravadas ao salvar.
-            </p>
+    <main className="min-h-[calc(100vh-4rem)] bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+      <header className="sticky top-0 z-20 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
+        <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Button asChild variant="ghost" size="icon" aria-label="Voltar para templates">
+              <Link
+                to="/painel/templates"
+                onClick={(event) => {
+                  if (
+                    dirty &&
+                    !window.confirm("Você tem alterações não salvas. Sair mesmo assim?")
+                  ) {
+                    event.preventDefault();
+                  }
+                }}
+              >
+                <ArrowLeft />
+              </Link>
+            </Button>
+            <div>
+              <h1 className="text-xl font-bold">Editar arte: {template.title}</h1>
+              <p className="text-sm text-muted-foreground">
+                As alterações só são gravadas ao salvar.
+              </p>
+            </div>
           </div>
+          <Button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+            <Save />
+            {save.isPending ? "Salvando..." : "Salvar"}
+          </Button>
         </div>
-        <Button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-          <Save />
-          {save.isPending ? "Salvando..." : "Salvar"}
-        </Button>
       </header>
-      {save.isError && (
-        <p
-          role="alert"
-          className="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
-        >
-          Não foi possível salvar a arte. Tente novamente.
-        </p>
-      )}
-      <EditorPanel
-        design={design}
-        selectedLayerIndex={selectedLayerIndex}
-        onSelect={setSelectedLayerIndex}
-        onChange={(next) => setDesigns((current) => ({ ...current, [id]: next }))}
-      />
+      <div className="mx-auto max-w-[1600px] space-y-5 p-4 lg:p-6">
+        {save.isError && (
+          <p
+            role="alert"
+            className="rounded-md border border-destructive/40 p-3 text-sm text-destructive"
+          >
+            Não foi possível salvar a arte. Tente novamente.
+          </p>
+        )}
+        <EditorPanel
+          design={design}
+          selectedLayerIndex={selectedLayerIndex}
+          onSelect={setSelectedLayerIndex}
+          onChange={(next) => setDesigns((current) => ({ ...current, [id]: next }))}
+        />
+      </div>
     </main>
   );
 }

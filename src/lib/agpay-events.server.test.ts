@@ -171,6 +171,7 @@ vi.mock("./whatsapp-notify.server", () => ({
 const {
   cancelPendingDeposit,
   confirmDepositPayment,
+  expirePendingDeposits,
   persistAgpayWebhookEvent,
   processAgpayWebhookEvents,
   synchronizeDepositPayment,
@@ -241,13 +242,13 @@ describe("eventos de pagamento AgPay", () => {
     expect(charge()).toMatchObject({
       gateway_fee_cents: 448,
       platform_commission_percent_snapshot: 0,
-      platform_commission_flat_cents: 25,
-      platform_commission_cents: 25,
-      net_amount_cents: 9527,
+      platform_commission_flat_cents: 20,
+      platform_commission_cents: 20,
+      net_amount_cents: 9532,
     });
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9527);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9527, description: "Sinal de Maria" },
+      { type: "payment_credit", amount_cents: 9532, description: "Sinal de Maria" },
     ]);
   });
 
@@ -265,7 +266,7 @@ describe("eventos de pagamento AgPay", () => {
 
     expect(charge()).toMatchObject(frozen);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9527);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
@@ -275,7 +276,7 @@ describe("eventos de pagamento AgPay", () => {
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
     expect(charge()["status"]).toBe("pago");
-    expect(charge()["net_amount_cents"]).toBe(9527);
+    expect(charge()["net_amount_cents"]).toBe(9532);
     expect(runtime.tables["ledger_entries"]).toHaveLength(0);
     expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("failed");
 
@@ -284,7 +285,7 @@ describe("eventos de pagamento AgPay", () => {
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
     expect(charge()["platform_commission_percent_snapshot"]).toBe(0);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9527);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
@@ -292,9 +293,9 @@ describe("eventos de pagamento AgPay", () => {
     seed({ status: "pago" });
     await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "pago" });
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9527 },
+      { type: "payment_credit", amount_cents: 9532 },
     ]);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9527);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
   });
 
   it("transaction.refunded debita o líquido original uma vez sem tratar transaction.failed como estorno", async () => {
@@ -307,8 +308,8 @@ describe("eventos de pagamento AgPay", () => {
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
     expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(0);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9527 },
-      { type: "refund_debit", amount_cents: -9527 },
+      { type: "payment_credit", amount_cents: 9532 },
+      { type: "refund_debit", amount_cents: -9532 },
     ]);
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 0 });
@@ -446,5 +447,49 @@ describe("eventos de pagamento AgPay", () => {
     await expect(cancelPendingDeposit(CHARGE)).resolves.toEqual({ status: "pendente" });
     expect(runtime.fetchPaymentStatus).not.toHaveBeenCalled();
     expect(charge()["status"]).toBe("pendente");
+  });
+
+  it("sincronização consulta o AgPay antes de expirar e recupera pagamento tardio", async () => {
+    seed();
+    runtime.fetchPaymentStatus.mockResolvedValue("completed");
+    await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "pago" });
+    expect(runtime.fetchPaymentStatus).toHaveBeenCalledWith(PAYMENT);
+    expect(charge()["status"]).toBe("pago");
+    expect(appointment()["status"]).toBe("agendado");
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+  });
+
+  it("sincronização ainda expira localmente quando o AgPay segue pendente", async () => {
+    seed();
+    runtime.fetchPaymentStatus.mockResolvedValue("pending");
+    await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "expirado" });
+    expect(charge()["status"]).toBe("expirado");
+    expect(appointment()["status"]).toBe("cancelado");
+  });
+
+  it("expirePendingDeposits recupera cobrança paga no gateway em vez de cancelar", async () => {
+    seed();
+    runtime.fetchPaymentStatus.mockResolvedValue("completed");
+    await expect(expirePendingDeposits()).resolves.toEqual({
+      expired: 0,
+      recovered: 1,
+      waitingReceipt: 0,
+      deferred: 0,
+      failed: 0,
+    });
+    expect(charge()["status"]).toBe("pago");
+  });
+
+  it("expirePendingDeposits continua cancelando quando o AgPay não confirma o pagamento", async () => {
+    seed();
+    runtime.fetchPaymentStatus.mockResolvedValue("pending");
+    await expect(expirePendingDeposits()).resolves.toEqual({
+      expired: 1,
+      recovered: 0,
+      waitingReceipt: 0,
+      deferred: 0,
+      failed: 0,
+    });
+    expect(charge()["status"]).toBe("expirado");
   });
 });

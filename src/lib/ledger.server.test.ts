@@ -29,11 +29,11 @@ describe("gatewayFeeCents", () => {
 describe("platformCommissionCents", () => {
   it("cobra só a taxa fixa quando o percentual é 0%", () => {
     expect(platformCommissionCents(10000, 0)).toBe(PLATFORM_FLAT_FEE_CENTS);
-    expect(PLATFORM_FLAT_FEE_CENTS).toBe(25);
+    expect(PLATFORM_FLAT_FEE_CENTS).toBe(20);
   });
 
   it("soma o percentual à taxa fixa", () => {
-    expect(platformCommissionCents(10000, 10)).toBe(1000 + 25);
+    expect(platformCommissionCents(10000, 10)).toBe(1000 + 20);
   });
 
   it("rejeita percentual fora de 0..100 ou bruto inválido", () => {
@@ -44,14 +44,14 @@ describe("platformCommissionCents", () => {
 });
 
 describe("computePaymentBreakdown", () => {
-  it("decompõe R$ 100,00 com comissão 0% em líquido de R$ 95,27", () => {
+  it("decompõe R$ 100,00 com comissão 0% em líquido de R$ 95,32", () => {
     expect(computePaymentBreakdown(10000, 0)).toEqual({
       grossCents: 10000,
       gatewayFeeCents: 448,
       platformCommissionPercentSnapshot: 0,
-      platformCommissionFlatCents: 25,
-      platformCommissionCents: 25,
-      netAmountCents: 9527,
+      platformCommissionFlatCents: 20,
+      platformCommissionCents: 20,
+      netAmountCents: 9532,
     });
   });
 
@@ -109,7 +109,7 @@ describe.skipIf(!TEST_BUSINESS_ID || !process.env["SUPABASE_SERVICE_ROLE_KEY"])(
       };
     }
 
-    it("credita o líquido decomposto e soma na wallet (R$ 100,00 → R$ 95,27)", async () => {
+    it("credita o líquido decomposto e soma na wallet (R$ 100,00 → R$ 95,32)", async () => {
       const t = await context();
       const before = await t.wallet();
       const paymentId = await t.newPayment(10000);
@@ -123,15 +123,15 @@ describe.skipIf(!TEST_BUSINESS_ID || !process.env["SUPABASE_SERVICE_ROLE_KEY"])(
       });
 
       expect(result.created).toBe(true);
-      expect(breakdown.netAmountCents).toBe(9527);
+      expect(breakdown.netAmountCents).toBe(9532);
       const after = await t.wallet();
-      expect(after.available - before.available).toBe(9527);
+      expect(after.available - before.available).toBe(9532);
       const { data: entry } = await t.db
         .from("ledger_entries")
         .select("type, amount_cents, payment_id")
         .eq("id", result.entryId)
         .single();
-      expect(entry).toEqual({ type: "payment_credit", amount_cents: 9527, payment_id: paymentId });
+      expect(entry).toEqual({ type: "payment_credit", amount_cents: 9532, payment_id: paymentId });
     });
 
     it("não duplica lançamento nem saldo ao repetir o mesmo pagamento (idempotência)", async () => {

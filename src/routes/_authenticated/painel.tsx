@@ -30,10 +30,12 @@ import { getMasterStatus } from "@/lib/admin.functions";
 import { getWhatsappStatus } from "@/lib/whatsapp.functions";
 import { useBusiness } from "@/lib/business";
 import { publicBookingUrl } from "@/lib/public-booking-link";
+import { panelPathHref, publicBookingOrigin } from "@/lib/app-hosts";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 
-const brandLogo = "/agenda-agora-logo.svg";
+const brandLogo = "/agenda-agora-sidebar-logo-v2.png";
+const brandMark = "/favicon-256.png";
 
 export const Route = createFileRoute("/_authenticated/painel")({
   head: () => ({
@@ -189,7 +191,7 @@ function useBrowserOrigin() {
 function PublicBookingLinkCard({ slug }: { slug: string | null | undefined }) {
   const origin = useBrowserOrigin();
   const [feedback, setFeedback] = useState<"idle" | "copied" | "failed">("idle");
-  const url = publicBookingUrl(origin, slug);
+  const url = publicBookingUrl(publicBookingOrigin(origin), slug);
 
   useEffect(() => {
     setFeedback("idle");
@@ -204,7 +206,7 @@ function PublicBookingLinkCard({ slug }: { slug: string | null | undefined }) {
   if (!url) return null;
 
   const copy = async () => {
-    const absolute = publicBookingUrl(window.location.origin, slug);
+    const absolute = publicBookingUrl(publicBookingOrigin(window.location.origin), slug);
     try {
       if (!absolute || !navigator.clipboard) throw new Error("Clipboard indisponível");
       await navigator.clipboard.writeText(absolute);
@@ -319,6 +321,12 @@ function PainelLayout() {
     !permissions || !!permissions["admin"] || !!permissions[routePermission[to] ?? "admin"];
 
   useEffect(() => {
+    if (!masterStatus) return;
+    const href = panelPathHref(pathname, window.location);
+    if (!href.startsWith("/") && href !== window.location.href) window.location.replace(href);
+  }, [masterStatus, pathname]);
+
+  useEffect(() => {
     if (!transitioning) return;
     const timer = window.setTimeout(() => setTransitioning(false), 360);
     return () => window.clearTimeout(timer);
@@ -380,14 +388,14 @@ function PainelLayout() {
         >
           {collapsed ? (
             <span
-              className="hidden size-9 items-center justify-center rounded-lg bg-white lg:flex"
+              className="hidden size-10 items-center justify-center lg:flex"
               aria-label="Agenda Agora"
             >
               <img
-                src={brandLogo}
+                src={brandMark}
                 alt="Agenda Agora"
                 decoding="async"
-                className="size-7 object-contain"
+                className="size-9 object-contain"
               />
             </span>
           ) : (
@@ -395,7 +403,7 @@ function PainelLayout() {
               src={brandLogo}
               alt="Agenda Agora"
               decoding="async"
-              className="h-11 w-auto max-w-[220px] object-contain object-left transition-transform duration-300 group-hover:scale-[1.01]"
+              className="h-12 w-auto max-w-[210px] object-contain object-left px-2 transition-transform duration-300 group-hover:scale-[1.01]"
             />
           )}
         </Link>
@@ -487,7 +495,15 @@ function PainelLayout() {
               </p>
               <Link
                 to="/painel/master"
-                onClick={beginNavigation}
+                onClick={(event) => {
+                  const href = panelPathHref("/painel/master", window.location);
+                  if (!href.startsWith("/")) {
+                    event.preventDefault();
+                    window.location.assign(href);
+                    return;
+                  }
+                  beginNavigation();
+                }}
                 className="owner-nav-item group relative flex items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-[#7f8793] transition-all hover:border-[#1677ff]/10 hover:bg-[#1677ff]/[0.055] hover:text-[#e5e7eb]"
                 activeProps={{
                   className:

@@ -9,6 +9,7 @@ import {
   PANEL1_LOGO_FITS,
   type Panel1Appearance,
   type Panel1Preferences,
+  type Panel1VisualPreferences,
 } from "@/lib/panel1-config";
 import {
   loadPanel1Config,
@@ -16,6 +17,13 @@ import {
 } from "@/lib/panel1-config.storage";
 
 const businessIdInput = z.object({ businessId: z.string().uuid() });
+
+const visualSettingsInput = z.object({ businessId: z.string().uuid() });
+const publishVisualSettingsInput = z.object({
+  businessId: z.string().uuid(),
+  expectedRevision: z.number().int().min(0),
+  config: z.unknown(),
+});
 
 async function assertBusinessPermission(supabase: SupabaseClient<Database>, businessId: string) {
   const { data: allowed, error } = await supabase.rpc("has_business_permission", {
@@ -25,6 +33,55 @@ async function assertBusinessPermission(supabase: SupabaseClient<Database>, busi
   if (error) throw new Error(error.message);
   if (!allowed) throw new Error("Você não tem permissão para configurar este negócio.");
 }
+
+async function assertAppearancePermission(supabase: SupabaseClient<Database>, businessId: string) {
+  const { data: allowed, error } = await supabase.rpc("has_business_permission", {
+    _business_id: businessId,
+    _permission: "manage_appearance",
+  });
+  if (error) throw new Error(error.message);
+  if (!allowed) {
+    const forbidden = new Error("Você não tem permissão para editar a aparência deste negócio.");
+    forbidden.name = "FORBIDDEN";
+    throw forbidden;
+  }
+}
+
+/** V2 read never creates a row; legacy JSON remains a read-only fallback. */
+export const getVisualSettings = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => visualSettingsInput.parse(data))
+  .handler(async ({ context, data }) => {
+    await assertAppearancePermission(context.supabase, data.businessId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { loadVisualSettings } = await import("@/lib/visual-settings.server");
+    return loadVisualSettings(supabaseAdmin, data.businessId);
+  });
+
+export const publishVisualSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => publishVisualSettingsInput.parse(data))
+  .handler(async ({ context, data }) => {
+    await assertAppearancePermission(context.supabase, data.businessId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { normalizePanel1Config } = await import("@/lib/panel1-config");
+    const { publishVisualSettings: publish } = await import("@/lib/visual-settings.server");
+    try {
+      return await publish(supabaseAdmin, {
+        businessId: data.businessId,
+        userId: context.userId,
+        expectedRevision: data.expectedRevision,
+        config: normalizePanel1Config(data.config),
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "VisualSettingsConflictError") {
+        const conflict = new Error(error.message);
+        conflict.name = "REVISION_CONFLICT";
+        throw conflict;
+      }
+      throw error;
+    }
+  });
 
 /** Lê a configuração de Preferências/Aparência do Painel 1; retorna defaults se nunca salva. */
 export const getPanel1Config = createServerFn({ method: "GET" })
@@ -66,6 +123,13 @@ export const preferencesPatch = z
   })
   .partial()
   .strict();
+export const visualPreferencesPatch = z
+  .object({
+    layout_key: z.enum(["classic", "liquid_glass"]),
+    niche_id: z.enum(["barbearia", "salao", "consultorio", "estetica", "pet", "outro"]),
+  })
+  .partial()
+  .strict();
 
 const patchInput = z.object({
   businessId: z.string().uuid(),
@@ -73,6 +137,7 @@ const patchInput = z.object({
     .object({
       appearance: appearancePatch.optional(),
       preferences: preferencesPatch.optional(),
+      visual: visualPreferencesPatch.optional(),
     })
     .strict(),
 });
@@ -90,6 +155,9 @@ export const savePanel1Config = createServerFn({ method: "POST" })
         : {}),
       ...(data.patch.preferences
         ? { preferences: data.patch.preferences as Partial<Panel1Preferences> }
+        : {}),
+      ...(data.patch.visual
+        ? { visual: data.patch.visual as Partial<Panel1VisualPreferences> }
         : {}),
     });
   });

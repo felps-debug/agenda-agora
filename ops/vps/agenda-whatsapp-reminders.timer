@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Agenda Agora WhatsApp reminders hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

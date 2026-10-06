@@ -97,7 +97,12 @@ export async function agpayFetch<T>(path: string, init: AgpayRequest = {}): Prom
     } catch {
       // Keep non-JSON provider response bodies out of logs and user-facing errors.
     }
-    console.error(`AgPay falhou [${response.status}] ${method} ${safePath}.`);
+    console.error("AgPay falhou", {
+      status: response.status,
+      method,
+      path: safePath,
+      providerMessage,
+    });
     throw new AgpayApiError(response.status, safePath, providerMessage, errors);
   }
 
@@ -186,23 +191,42 @@ export async function createCashoutPix(input: {
   amountCents: number;
   pixKey: string;
 }): Promise<CashoutPix> {
-  if (!Number.isInteger(input.amountCents) || input.amountCents < 1000) {
-    throw new Error("O saque mínimo é R$ 10,00.");
+  // O mínimo de R$ 10,00 do saque é regra da plataforma (createWithdrawal) sobre o valor
+  // pedido; o Pix enviado já vem com a taxa de saque descontada. Aqui vale o mínimo da AgPay.
+  if (!Number.isInteger(input.amountCents) || input.amountCents < 1) {
+    throw new Error("O valor mínimo do Pix é R$ 0,01.");
   }
+  // A documentação atual do AgPay devolve o saque em `withdrawal` (não em
+  // `data`). Mantemos `data` como compatibilidade defensiva com respostas
+  // antigas, mas a ausência de `withdrawal` não pode transformar um saque
+  // aceito pelo provedor em uma falha local.
   const response = await agpayFetch<{
     success?: boolean;
-    data?: { uuid?: string; id?: string; status?: string; fee?: number | string };
+    withdrawal?: {
+      uuid?: string | number;
+      id?: string | number;
+      status?: string;
+      fee?: number | string;
+    };
+    data?: { uuid?: string | number; id?: string | number; status?: string; fee?: number | string };
   }>("/cashout/pix", {
     method: "POST",
     body: JSON.stringify({ amount: input.amountCents / 100, pix_key: input.pixKey }),
   });
-  if (response.success === false || !(response.data?.uuid ?? response.data?.id)) {
+  const withdrawal = response.withdrawal ?? response.data;
+  const providerRef = withdrawal?.uuid ?? withdrawal?.id;
+  if (
+    response.success === false ||
+    !withdrawal ||
+    providerRef === undefined ||
+    providerRef === null
+  ) {
     throw new AgpayApiError(422, "/cashout/pix");
   }
-  const fee = Number(response.data?.fee);
+  const fee = Number(withdrawal.fee);
   return {
-    providerRef: response.data?.uuid ?? response.data?.id ?? null,
-    status: response.data?.status ?? null,
+    providerRef: String(providerRef),
+    status: withdrawal.status ?? null,
     providerFeeCents: Number.isFinite(fee) ? Math.round(fee * 100) : null,
   };
 }

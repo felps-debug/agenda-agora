@@ -45,7 +45,12 @@ export default defineConfig(({ mode }) => {
               {
                 name: "radix",
                 test: /node_modules[\\/]@radix-ui[\\/]/,
-                includeDependenciesRecursively: false,
+                // Os primitivos Radix dependem uns dos outros. Separar somente
+                // os pacotes @radix-ui criou um ciclo entre os chunks `radix`
+                // e `select` em produção, deixando SelectPrimitive.Trigger
+                // indefinido durante a hidratação. Mantê-los com as
+                // dependências compartilhadas elimina esse ciclo.
+                includeDependenciesRecursively: true,
                 priority: 15,
               },
               {

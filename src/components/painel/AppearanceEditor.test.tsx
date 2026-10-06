@@ -46,6 +46,10 @@ describe("AppearanceEditor contraste", () => {
         onApplyPreset: () => {},
         onSave: () => {},
         saving: false,
+        layoutKey: "classic",
+        onLayoutKeyChange: () => {},
+        nicheId: "barbearia",
+        onNicheIdChange: () => {},
         businessName: "Barbearia teste",
         businessLogoUrl: null,
         businessAddress: null,
@@ -63,7 +67,7 @@ describe("AppearanceEditor contraste", () => {
 
     expect(markup).toContain('role="status"');
     expect(markup).toContain("O texto será ajustado automaticamente");
-    expect(markup).toMatch(/<button[^>]*>[^<]*Salvar/);
+    expect(markup).toContain("Aplicar alterações");
   });
 
   it("mostra o negócio e os serviços reais, não o mockup fixo (US1)", () => {
@@ -74,6 +78,10 @@ describe("AppearanceEditor contraste", () => {
         onApplyPreset: () => {},
         onSave: () => {},
         saving: false,
+        layoutKey: "classic",
+        onLayoutKeyChange: () => {},
+        nicheId: "barbearia",
+        onNicheIdChange: () => {},
         businessName: "Barbearia felipe",
         businessLogoUrl: null,
         businessAddress: null,

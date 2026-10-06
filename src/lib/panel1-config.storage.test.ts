@@ -161,4 +161,16 @@ describe("panel1-config storage", () => {
       expect.objectContaining({ cacheControl: "0" }),
     );
   });
+
+  it("persists layout and niche with the same explicit save", async () => {
+    const storage = fakeStorage(JSON.stringify(defaultPanel1Config()));
+
+    await savePanel1Config(storage.client, businessId, {
+      visual: { layout_key: "liquid_glass", niche_id: "barbearia" },
+    });
+
+    await expect(loadPanel1Config(storage.client, businessId)).resolves.toMatchObject({
+      visual: { layout_key: "liquid_glass", niche_id: "barbearia" },
+    });
+  });
 });

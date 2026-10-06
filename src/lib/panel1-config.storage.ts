@@ -8,6 +8,7 @@ import {
   type Panel1Appearance,
   type Panel1Config,
   type Panel1Preferences,
+  type Panel1VisualPreferences,
 } from "@/lib/panel1-config";
 
 const configSaveQueues = new WeakMap<SupabaseClient<Database>, Map<string, Promise<void>>>();
@@ -76,7 +77,11 @@ export async function loadPanel1Config(
 export async function savePanel1Config(
   supabase: SupabaseClient<Database>,
   businessId: string,
-  patch: { appearance?: Partial<Panel1Appearance>; preferences?: Partial<Panel1Preferences> },
+  patch: {
+    appearance?: Partial<Panel1Appearance>;
+    preferences?: Partial<Panel1Preferences>;
+    visual?: Partial<Panel1VisualPreferences>;
+  },
 ): Promise<Panel1Config> {
   return withBusinessSaveLock(supabase, businessId, async () => {
     const current = await loadPanel1Config(supabase, businessId);
@@ -89,6 +94,10 @@ export async function savePanel1Config(
       preferences: {
         ...current.preferences,
         ...(patch.preferences ?? {}),
+      },
+      visual: {
+        ...current.visual,
+        ...(patch.visual ?? {}),
       },
       updated_at: new Date().toISOString(),
     });

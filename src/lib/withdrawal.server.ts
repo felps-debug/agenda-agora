@@ -4,6 +4,13 @@ import { saveWithdrawalPixKeyInput } from "@/lib/withdrawal.functions";
 import { AgpayApiError, createCashoutPix } from "@/lib/agpay.server";
 import { requestWithdrawal, settleWithdrawal } from "@/lib/ledger.server";
 
+/**
+ * Taxa fixa de saque da plataforma: R$ 3,00, independente do valor (decisão comercial de
+ * 05/10/2026). O valor pedido sai inteiro da carteira; o Pix enviado ao dono é o valor
+ * menos esta taxa. Estorno de saque falho devolve o valor pedido inteiro.
+ */
+export const WITHDRAWAL_FEE_CENTS = 300;
+
 export async function createWithdrawal(
   client: SupabaseClient<Database>,
   userId: string,
@@ -38,6 +45,7 @@ export async function createWithdrawal(
       status: "requested",
       idempotency_key: idempotencyKey,
       pix_key_snapshot: business.withdrawal_pix_key,
+      platform_fee_cents: WITHDRAWAL_FEE_CENTS,
     })
     .select("*")
     .single();
@@ -79,7 +87,10 @@ export async function createWithdrawal(
     );
   }
   try {
-    const payout = await createCashoutPix({ amountCents, pixKey: business.withdrawal_pix_key });
+    const payout = await createCashoutPix({
+      amountCents: amountCents - WITHDRAWAL_FEE_CENTS,
+      pixKey: business.withdrawal_pix_key,
+    });
     const { data: updated, error: updateError } = await supabase
       .from("withdrawals")
       .update({
@@ -92,6 +103,29 @@ export async function createWithdrawal(
       .select("*")
       .single();
     if (updateError) throw new Error("Saque registrado e aguardando confirmação.");
+    const providerStatus = payout.status?.trim().toLowerCase();
+    // Em contas configuradas para saída automática, o provedor pode confirmar o
+    // Pix na própria resposta. Não deixe o ledger local preso esperando um
+    // webhook que pode chegar depois (ou nunca chegar).
+    if (["completed", "paid", "success"].includes(providerStatus ?? "")) {
+      await settleWithdrawal(supabase, {
+        withdrawalId: inserted.id,
+        outcome: "paid",
+        providerRef: payout.providerRef,
+      });
+      return { withdrawal: { ...updated, status: "paid" } };
+    }
+    if (["failed", "rejected", "canceled", "cancelled"].includes(providerStatus ?? "")) {
+      await settleWithdrawal(supabase, {
+        withdrawalId: inserted.id,
+        outcome: "failed",
+        providerRef: payout.providerRef,
+      });
+      // Usa o mesmo caminho de rejeição HTTP abaixo. A settlement é idempotente;
+      // assim uma resposta 2xx com status de falha nunca cai no ramo de timeout
+      // ambíguo, que manteria o saque como processing por engano.
+      throw new AgpayApiError(422, "/cashout/pix");
+    }
     return { withdrawal: updated };
   } catch (cause) {
     // A chamada pode ter sido aceita antes do timeout. Nunca repetir automaticamente.
@@ -100,7 +134,13 @@ export async function createWithdrawal(
       (cause instanceof Error && cause.message.includes("mínimo"))
     ) {
       await settleWithdrawal(supabase, { withdrawalId: inserted.id, outcome: "failed" });
-      if (cause instanceof AgpayApiError) return { withdrawal: { ...inserted, status: "failed" } };
+      if (cause instanceof AgpayApiError) {
+        // Uma rejeição HTTP do provedor não é sucesso de saque. Propagar a falha
+        // evita que a UI mostre o toast verde enquanto o saldo já foi estornado.
+        throw new Error(
+          "O provedor de pagamento recusou o saque. Confirme a configuração de saque automático e tente novamente.",
+        );
+      }
       throw cause;
     }
     await supabase.from("withdrawals").update({ status: "processing" }).eq("id", inserted.id);

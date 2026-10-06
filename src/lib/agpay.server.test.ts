@@ -20,12 +20,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete process.env["AGPAY_API_TOKEN"];
+  delete process.env["AGPAY_CLIENT_ID"];
   delete process.env["AGPAY_EGRESS_PROXY_URL"];
   delete process.env["AGPAY_EGRESS_PROXY_SECRET"];
 });
 
 describe("cliente HTTP AgPay", () => {
-  it("envia os dois headers obrigatórios", async () => {
+  it("envia somente os headers aceitos pela API", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
     vi.stubGlobal("fetch", fetchMock);
@@ -37,12 +38,13 @@ describe("cliente HTTP AgPay", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("Authorization")).toBe("Bearer token-plataforma");
     expect(headers.get("Accept")).toBe("application/json");
-    expect(headers.has("X-Client-ID")).toBe(false);
+    expect(headers.get("X-Client-ID")).toBeNull();
     expect(init.redirect).toBe("manual");
   });
 
   it("trata resposta 3xx como erro explícito", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 302 })));
 
@@ -56,6 +58,7 @@ describe("cliente HTTP AgPay", () => {
 
   it("limita a cobrança a oito segundos e sanitiza timeout de rede", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
     const timeout = new Error("deadline exceeded");
     timeout.name = "TimeoutError";
@@ -68,6 +71,7 @@ describe("cliente HTTP AgPay", () => {
 
   it("encaminha chamadas pelo proxy com segredo e destino AgPay", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     process.env["AGPAY_EGRESS_PROXY_URL"] = "https://proxy.example.test/forward";
     process.env["AGPAY_EGRESS_PROXY_SECRET"] = "segredo-proxy";
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
@@ -85,6 +89,7 @@ describe("cliente HTTP AgPay", () => {
 
   it("extrai message e errors de um 422 JSON sem expor o corpo na mensagem", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.stubGlobal(
       "fetch",
@@ -141,6 +146,7 @@ describe("assinatura do webhook AgPay", () => {
 describe("cobranças Pix AgPay", () => {
   it("envia o sinal integral à plataforma e normaliza a resposta do POST", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     const fetchMock = vi.fn().mockResolvedValue(
       jsonResponse(
         {
@@ -186,6 +192,7 @@ describe("cobranças Pix AgPay", () => {
 
   it("normaliza uuid do GET e fetchPaymentStatus expõe somente o status", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     const fetchMock = vi.fn().mockImplementation(async () =>
       jsonResponse({
         success: true,
@@ -222,22 +229,27 @@ describe("cobranças Pix AgPay", () => {
     await expect(fetchPaymentStatus("tx-get-1")).resolves.toBe("completed");
   });
 
-  it("solicita saque Pix com os headers e valor esperados", async () => {
+  it("solicita saque Pix com o Bearer e valor esperados", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
-        jsonResponse({ data: { uuid: "wd-1", status: "pending", fee: "2.50" } }, 201),
+        jsonResponse(
+          { success: true, withdrawal: { id: 123, status: "processing", fee: "2.50" } },
+          201,
+        ),
       );
     vi.stubGlobal("fetch", fetchMock);
     await expect(createCashoutPix({ amountCents: 2500, pixKey: "chave-pix" })).resolves.toEqual({
-      providerRef: "wd-1",
-      status: "pending",
+      providerRef: "123",
+      status: "processing",
       providerFeeCents: 250,
     });
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://agpay.services/api/v1/cashout/pix");
     expect(JSON.parse(init.body)).toEqual({ amount: 25, pix_key: "chave-pix" });
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token-plataforma");
+    expect(new Headers(init.headers).get("X-Client-ID")).toBeNull();
   });
 });

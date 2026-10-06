@@ -1,6 +1,11 @@
 // Envio automático de WhatsApp: confirmação (após pagar o sinal) e lembrete
 // (X horas antes do horário, disparado pelo agendador).
-import { sendTextMessage } from "./uazapi.server";
+import { loadWhatsappProvider } from "./whatsapp-provider.server";
+
+async function sendTextMessage(instanceToken: string, phone: string, message: string) {
+  const provider = await loadWhatsappProvider();
+  await provider.sendTextMessage(instanceToken, phone, message);
+}
 
 function formatDatePtBr(iso: string, timezone: string) {
   return new Date(iso).toLocaleDateString("pt-BR", {
@@ -53,12 +58,16 @@ async function loadContext(appointmentId: string) {
     )
     .eq("id", appt.business_id)
     .maybeSingle();
-  if (!business?.whatsapp_instance || !business.whatsapp_instance_token) return null;
+  if (!business?.whatsapp_instance) return null;
+  const { readWhatsappCredential } = await import("./whatsapp-credentials.server");
+  const privateCredential = await readWhatsappCredential(supabaseAdmin, business.id);
+  const instanceToken = privateCredential?.instanceToken ?? business.whatsapp_instance_token;
+  if (!instanceToken) return null;
 
   // whatsapp_status no banco só é atualizado quando o dono visita /painel/integracoes;
   // checar a sessão ao vivo aqui evita descartar notificações por status desatualizado.
-  const { isConnected } = await import("./uazapi.server");
-  const online = await isConnected(business.whatsapp_instance_token).catch(() => false);
+  const { isConnected } = await loadWhatsappProvider();
+  const online = await isConnected(instanceToken).catch(() => false);
   if (!online) return null;
   if (business.whatsapp_status !== "conectado") {
     await supabaseAdmin
@@ -92,7 +101,7 @@ async function loadContext(appointmentId: string) {
     business,
     vars,
     greeting: business.greeting,
-    instanceToken: business.whatsapp_instance_token,
+    instanceToken,
   };
 }
 

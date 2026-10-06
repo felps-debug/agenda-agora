@@ -9,6 +9,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { deleteProfessional, saveProfessional } from "@/lib/professionals.functions";
 import { PageHeader, NoBusiness, EmptyList } from "@/components/painel/PageHeader";
+import { ProfessionalAvatar } from "@/components/painel/ProfessionalBubbles";
+import { ProfessionalPhotoField } from "@/components/painel/ProfessionalPhotoField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,6 +59,9 @@ const PERMISSIONS = [
   ["view_customer_phone", "Ver telefone dos clientes"],
   ["block_schedule", "Criar horários bloqueados"],
   ["view_financial", "Ver valores e financeiro"],
+  ["manage_appearance", "Editar aparência do painel"],
+  ["manage_outreach", "Editar artes de divulgação"],
+  ["generate_qrcode", "Gerenciar conexão do WhatsApp"],
   ["view_reports", "Ver relatórios"],
 ] as const;
 
@@ -274,6 +279,14 @@ function ProfissionaisPage() {
                 </TabsList>
 
                 <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
+                  {businessId ? (
+                    <ProfessionalPhotoField
+                      businessId={businessId}
+                      name={form.name}
+                      avatarPath={form.avatarPath}
+                      onChange={(avatarPath) => setForm({ ...form, avatarPath })}
+                    />
+                  ) : null}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field
                       label="Nome completo"
@@ -433,7 +446,9 @@ function ProfissionaisPage() {
         <ul className="professional-list-panel divide-y divide-white/[0.05]">
           {people.map((p) => (
             <li key={p.id} className="professional-person-row relative z-10">
-              <div className="professional-avatar">{p.name.charAt(0).toUpperCase()}</div>
+              <div className="professional-avatar overflow-hidden !p-0">
+                <ProfessionalAvatar professional={p} />
+              </div>
               <div className="min-w-40 flex-1">
                 <p className="flex flex-wrap items-center gap-2 font-semibold text-[#eef0f4]">
                   {p.name}

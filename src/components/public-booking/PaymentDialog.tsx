@@ -18,6 +18,7 @@ type PaymentDialogProps = {
   chargeId: string;
   booking: { amountCents: number; expiresAt: string | null } | null;
   reservedAmountCents: number | null;
+  liquidGlass?: boolean;
   onClose: () => void;
 };
 
@@ -25,6 +26,7 @@ export default function PaymentDialog({
   chargeId,
   booking,
   reservedAmountCents,
+  liquidGlass = false,
   onClose,
 }: PaymentDialogProps) {
   // Snapshot gravado no servidor (deposit_payments.amount_cents); nada é recalculado aqui.
@@ -128,7 +130,11 @@ export default function PaymentDialog({
   if (paid)
     return (
       <Dialog open onOpenChange={onClose}>
-        <DialogContent className="max-w-md text-center">
+        <DialogContent
+          className={`max-w-md text-center ${
+            liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+          }`}
+        >
           <Check className="mx-auto size-10 text-primary" />
           <h2 className="font-display text-xl font-bold">Agendamento confirmado!</h2>
           <p className="text-sm text-muted-foreground">
@@ -141,7 +147,11 @@ export default function PaymentDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto text-center">
+      <DialogContent
+        className={`max-h-[90vh] max-w-md overflow-y-auto text-center ${
+          liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+        }`}
+      >
         <h2 className="font-display text-xl font-bold">Agendamento aguardando pagamento</h2>
         <p className="text-sm text-muted-foreground">
           Para confirmar seu agendamento, efetue o pagamento do sinal via Pix.
@@ -217,7 +227,11 @@ export default function PaymentDialog({
         </Button>
 
         <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
-          <DialogContent className="max-w-sm text-center">
+          <DialogContent
+            className={`max-w-sm text-center ${
+              liquidGlass ? "liquid-glass-surface liquid-glass-regular liquid-glass-dialog" : ""
+            }`}
+          >
             <h3 className="text-base font-semibold">Pagamento Obrigatório</h3>
             <p className="text-sm">Você confirma o cancelamento desse agendamento?</p>
             <div className="flex justify-center gap-3">

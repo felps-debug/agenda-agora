@@ -252,6 +252,76 @@ describe("solicitação de saque", () => {
     expect(financeRuntime.createCashoutPix).toHaveBeenCalledOnce();
   });
 
+  it("desconta a taxa fixa de R$ 3,00 do Pix enviado e registra a taxa, qualquer que seja o valor", async () => {
+    for (const [amount, key] of [
+      [1000, "13131313-1313-4131-8131-131313131313"],
+      [5000, "14141414-1414-4141-8141-141414141414"],
+      [10000, "15151515-1515-4151-8151-151515151515"],
+    ] as const) {
+      financeRuntime.createCashoutPix.mockClear();
+      const { client, state } = makeFinanceDb();
+      financeRuntime.adminDb = client;
+      financeRuntime.createCashoutPix.mockResolvedValue({
+        providerRef: `provider-${amount}`,
+        status: "pending",
+        providerFeeCents: null,
+      });
+      await createWithdrawal(client, "user-dono", "biz-1", amount, key);
+      expect(financeRuntime.requestWithdrawal).toHaveBeenLastCalledWith(client, {
+        businessId: "biz-1",
+        withdrawalId: "wd-1",
+        amountCents: amount,
+      });
+      expect(financeRuntime.createCashoutPix).toHaveBeenCalledWith(
+        expect.objectContaining({ amountCents: amount - 300 }),
+      );
+      expect(state["withdrawals"]![0]).toMatchObject({
+        amount_cents: amount,
+        platform_fee_cents: 300,
+      });
+    }
+  });
+
+  it("conclui o ledger imediatamente quando a AGPay já confirma o Pix na resposta", async () => {
+    const { client } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    financeRuntime.createCashoutPix.mockResolvedValue({
+      providerRef: "provider-completed",
+      status: "completed",
+      providerFeeCents: 250,
+    });
+
+    await expect(
+      createWithdrawal(client, "user-dono", "biz-1", 2500, "12121212-1212-4121-8121-121212121212"),
+    ).resolves.toMatchObject({
+      withdrawal: { status: "paid", provider_ref: "provider-completed" },
+    });
+    expect(financeRuntime.settleWithdrawal).toHaveBeenCalledWith(client, {
+      withdrawalId: "wd-1",
+      outcome: "paid",
+      providerRef: "provider-completed",
+    });
+  });
+
+  it("trata status de falha retornado em 2xx como rejeição, sem deixá-lo em processamento", async () => {
+    const { client } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    financeRuntime.createCashoutPix.mockResolvedValue({
+      providerRef: "provider-rejected",
+      status: "rejected",
+      providerFeeCents: null,
+    });
+
+    await expect(
+      createWithdrawal(client, "user-dono", "biz-1", 2500, "13131313-1313-4131-8131-131313131313"),
+    ).rejects.toThrow("O provedor de pagamento recusou o saque");
+    expect(financeRuntime.settleWithdrawal).toHaveBeenCalledWith(client, {
+      withdrawalId: "wd-1",
+      outcome: "failed",
+      providerRef: "provider-rejected",
+    });
+  });
+
   it("cancela via settlement quando o RPC rejeita saldo insuficiente", async () => {
     vi.clearAllMocks();
     const { client, state } = makeFinanceDb();
@@ -363,14 +433,14 @@ describe("solicitação de saque", () => {
     expect(financeRuntime.createCashoutPix).toHaveBeenCalledOnce();
   });
 
-  it("conclui atomicamente o saque como failed após falha HTTP do provedor", async () => {
+  it("conclui atomicamente o saque como failed e informa erro após rejeição HTTP do provedor", async () => {
     vi.clearAllMocks();
     const { client, state } = makeFinanceDb();
     financeRuntime.adminDb = client;
     financeRuntime.createCashoutPix.mockRejectedValue(new AgpayApiError(422, "/cashout/pix"));
     await expect(
       createWithdrawal(client, "user-dono", "biz-1", 2500, "44444444-4444-4444-8444-444444444444"),
-    ).resolves.toMatchObject({ withdrawal: { status: "failed" } });
+    ).rejects.toThrow("O provedor de pagamento recusou o saque");
     expect(financeRuntime.requestWithdrawal).toHaveBeenCalledOnce();
     expect(financeRuntime.settleWithdrawal).toHaveBeenCalledWith(client, {
       withdrawalId: "wd-1",

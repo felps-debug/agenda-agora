@@ -1,0 +1,7 @@
+[Unit]
+Description=Send Agenda Agora WhatsApp reminders
+After=agenda-agora.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agenda-cron whatsapp-reminders

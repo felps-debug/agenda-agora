@@ -27,6 +27,7 @@ import { formatPrice } from "@/lib/format";
 import { accessibleTextColor } from "@/lib/contrast";
 import {
   DEFAULT_PANEL1_APPEARANCE,
+  DEFAULT_PANEL1_VISUAL_PREFERENCES,
   type Panel1Appearance,
   type Panel1Preferences,
 } from "@/lib/panel1-config";
@@ -46,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { BusinessHeader, ServiceSection } from "@/components/public-booking/appearance-preview";
+import { LiquidGlassFilterDefs, liquidGlassTokens } from "@/components/public-booking/liquid-glass";
 
 const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
 
@@ -204,6 +206,8 @@ function PublicBooking() {
     ...DEFAULT_PANEL1_APPEARANCE,
     ...(catalog?.appearance ?? {}),
   };
+  const visual = catalog?.visual ?? DEFAULT_PANEL1_VISUAL_PREFERENCES;
+  const isLiquidGlass = visual.layout_key === "liquid_glass";
   const pageBackground = business?.brand_background ?? "#ffffff";
   const pageBackgroundImage = business?.brand_background_image ?? null;
   const pageText = accessibleTextColor(pageBackground);
@@ -216,6 +220,8 @@ function PublicBooking() {
   const modalText = accessibleTextColor(appearance.modal_background);
   const modalHoverText = accessibleTextColor(appearance.modal_hover_background);
   const modalActiveText = accessibleTextColor(appearance.modal_active_background);
+  // Liquid controls sit on the palette tint rather than the opaque classic modal background.
+  const liquidText = modalActiveText;
   const services = (catalog?.services ?? []) as Service[];
 
   const { data: professionals } = useQuery({
@@ -394,7 +400,11 @@ function PublicBooking() {
 
   return (
     <div
-      className="public-booking flex min-h-screen flex-col overflow-x-clip bg-background pb-28 text-foreground"
+      className={
+        isLiquidGlass
+          ? "public-booking liquid-glass flex min-h-screen flex-col overflow-x-clip pb-28 text-foreground"
+          : "public-booking flex min-h-screen flex-col overflow-x-clip bg-background pb-28 text-foreground"
+      }
       style={
         {
           ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
@@ -403,6 +413,7 @@ function PublicBooking() {
           "--card": pageBackground,
           "--card-foreground": pageText,
           "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
+          ...(isLiquidGlass ? liquidGlassTokens(appearance, pageBackground) : {}),
           backgroundColor: pageBackground,
           color: pageText,
           fontFamily: `'${pageFontFamily}', sans-serif`,
@@ -414,13 +425,26 @@ function PublicBooking() {
                 backgroundAttachment: "fixed",
               }
             : {}),
+          ...(isLiquidGlass && !pageBackgroundImage
+            ? {
+                backgroundImage:
+                  "radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--primary) 45%, transparent), transparent 34%), radial-gradient(circle at 85% 26%, color-mix(in srgb, #ffffff 22%, transparent), transparent 28%), linear-gradient(145deg, " +
+                  pageBackground +
+                  ", #0f172a)",
+              }
+            : {}),
         } as React.CSSProperties
       }
     >
+      {isLiquidGlass ? <LiquidGlassFilterDefs /> : null}
       <header
-        className="border-b px-4 py-3"
+        className={
+          isLiquidGlass
+            ? "liquid-glass-surface liquid-glass-hero border-b px-4 py-3"
+            : "border-b px-4 py-3"
+        }
         style={{
-          backgroundColor: appearance.header_background,
+          ...(isLiquidGlass ? {} : { backgroundColor: appearance.header_background }),
           color: appearance.header_text,
           borderColor: appearance.service_border,
         }}
@@ -437,7 +461,13 @@ function PublicBooking() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
+      <main
+        className={
+          isLiquidGlass
+            ? "mx-auto w-full max-w-2xl flex-1 px-4 pb-8 pt-3 [--liquid-surface:color-mix(in_srgb,var(--background)_72%,transparent)]"
+            : "mx-auto w-full max-w-2xl flex-1 px-4 pb-8"
+        }
+      >
         {!business ? (
           <div className="flex min-h-[50vh] items-center justify-center py-10">
             <p className="text-sm">Negócio não encontrado</p>
@@ -449,6 +479,7 @@ function PublicBooking() {
               logoUrl={business.logo_url ?? null}
               address={business.address}
               appearance={appearance}
+              variant={isLiquidGlass ? "liquid_glass" : "classic"}
             />
 
             {business.status === "suspenso" ? (
@@ -463,9 +494,14 @@ function PublicBooking() {
                     onSelect={openService}
                     appearance={appearance}
                     pageText={pageText}
+                    variant={isLiquidGlass ? "liquid_glass" : "classic"}
                   />
                 ) : (
-                  <div className="rounded-xl border border-border bg-card p-8 text-center">
+                  <div
+                    className={`rounded-xl border border-border bg-card p-8 text-center ${
+                      isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+                    }`}
+                  >
                     <p className="font-semibold">Nenhum serviço disponível no momento.</p>
                     <p className="mt-2 text-sm">
                       Volte mais tarde para conferir novos horários e serviços.
@@ -481,6 +517,7 @@ function PublicBooking() {
                 onRefresh={() => void bookings.refetch()}
                 appearance={appearance}
                 pageText={pageText}
+                liquidGlass={isLiquidGlass}
                 {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
                 onCancel={(code) => cancelAppointment.mutate(code)}
                 onReschedule={async (input) => {
@@ -497,10 +534,12 @@ function PublicBooking() {
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
         <DialogContent
-          className="max-h-[92vh] max-w-lg overflow-y-auto p-0"
+          className={`max-h-[92vh] max-w-lg overflow-y-auto p-0 ${
+            isLiquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+          }`}
           style={{
-            backgroundColor: appearance.modal_background,
-            color: modalText,
+            ...(isLiquidGlass ? {} : { backgroundColor: appearance.modal_background }),
+            color: isLiquidGlass ? liquidText : modalText,
             borderColor: appearance.modal_border,
           }}
         >
@@ -544,6 +583,8 @@ function PublicBooking() {
                           setPageStart(0);
                         }}
                         className={`rounded-lg border p-3 text-left transition-colors ${
+                          isLiquidGlass ? "liquid-glass-control" : ""
+                        } ${
                           professional?.id === p.id
                             ? ""
                             : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
@@ -554,15 +595,24 @@ function PublicBooking() {
                               professional?.id === p.id
                                 ? appearance.modal_border
                                 : appearance.modal_border,
-                            backgroundColor:
-                              professional?.id === p.id
-                                ? appearance.modal_active_background
-                                : appearance.modal_background,
-                            color: professional?.id === p.id ? modalActiveText : modalText,
+                            ...(isLiquidGlass
+                              ? {}
+                              : {
+                                  backgroundColor:
+                                    professional?.id === p.id
+                                      ? appearance.modal_active_background
+                                      : appearance.modal_background,
+                                }),
+                            color: isLiquidGlass
+                              ? liquidText
+                              : professional?.id === p.id
+                                ? modalActiveText
+                                : modalText,
                             "--modal-hover-background": appearance.modal_hover_background,
                             "--modal-hover-text": modalHoverText,
                           } as React.CSSProperties
                         }
+                        data-selected={professional?.id === p.id}
                       >
                         <span className="block font-semibold">{p.name}</span>
                         {p.role && <span className="mt-0.5 block text-xs">{p.role}</span>}
@@ -587,7 +637,7 @@ function PublicBooking() {
                         disabled={pageStart === 0}
                         onClick={() => setPageStart(Math.max(0, pageStart - 7))}
                         className="rounded-md p-1 transition-colors disabled:opacity-30"
-                        style={{ color: modalText }}
+                        style={{ color: isLiquidGlass ? liquidText : modalText }}
                       >
                         <ChevronLeft className="size-6" />
                       </button>
@@ -601,6 +651,8 @@ function PublicBooking() {
                               setTime(null);
                             }}
                             className={`min-w-[4.75rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
+                              isLiquidGlass ? "liquid-glass-control" : ""
+                            } ${
                               date === d.date
                                 ? ""
                                 : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
@@ -608,15 +660,24 @@ function PublicBooking() {
                             style={
                               {
                                 borderColor: appearance.modal_border,
-                                backgroundColor:
-                                  date === d.date
-                                    ? appearance.modal_active_background
-                                    : appearance.modal_background,
-                                color: date === d.date ? modalActiveText : modalText,
+                                ...(isLiquidGlass
+                                  ? {}
+                                  : {
+                                      backgroundColor:
+                                        date === d.date
+                                          ? appearance.modal_active_background
+                                          : appearance.modal_background,
+                                    }),
+                                color: isLiquidGlass
+                                  ? liquidText
+                                  : date === d.date
+                                    ? modalActiveText
+                                    : modalText,
                                 "--modal-hover-background": appearance.modal_hover_background,
                                 "--modal-hover-text": modalHoverText,
                               } as React.CSSProperties
                             }
+                            data-selected={date === d.date}
                           >
                             <span className="block font-semibold">{ddmm(d.date)}</span>
                             <span className="mt-0.5 block text-[11px] opacity-80">
@@ -631,7 +692,7 @@ function PublicBooking() {
                         disabled={pageStart + 7 >= days.length}
                         onClick={() => setPageStart(pageStart + 7)}
                         className="rounded-md p-1 transition-colors disabled:opacity-30"
-                        style={{ color: modalText }}
+                        style={{ color: isLiquidGlass ? liquidText : modalText }}
                       >
                         <ChevronRight className="size-6" />
                       </button>
@@ -666,6 +727,8 @@ function PublicBooking() {
                           type="button"
                           onClick={() => setTime(s)}
                           className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                            isLiquidGlass ? "liquid-glass-control" : ""
+                          } ${
                             time === s
                               ? ""
                               : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
@@ -673,15 +736,24 @@ function PublicBooking() {
                           style={
                             {
                               borderColor: appearance.modal_border,
-                              backgroundColor:
-                                time === s
-                                  ? appearance.modal_active_background
-                                  : appearance.modal_background,
-                              color: time === s ? modalActiveText : modalText,
+                              ...(isLiquidGlass
+                                ? {}
+                                : {
+                                    backgroundColor:
+                                      time === s
+                                        ? appearance.modal_active_background
+                                        : appearance.modal_background,
+                                  }),
+                              color: isLiquidGlass
+                                ? liquidText
+                                : time === s
+                                  ? modalActiveText
+                                  : modalText,
                               "--modal-hover-background": appearance.modal_hover_background,
                               "--modal-hover-text": modalHoverText,
                             } as React.CSSProperties
                           }
+                          data-selected={time === s}
                         >
                           {s}
                         </button>
@@ -698,8 +770,13 @@ function PublicBooking() {
                       Resumo
                     </h3>
                     <div
-                      className="mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border p-4 text-left text-sm"
-                      style={{ backgroundColor: appearance.modal_background, color: modalText }}
+                      className={`mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border p-4 text-left text-sm ${
+                        isLiquidGlass ? "liquid-glass-control" : ""
+                      }`}
+                      style={{
+                        ...(isLiquidGlass ? {} : { backgroundColor: appearance.modal_background }),
+                        color: isLiquidGlass ? liquidText : modalText,
+                      }}
                     >
                       <p className="flex items-center gap-2">
                         <Info className="size-4 shrink-0" /> {service.name}
@@ -804,6 +881,7 @@ function PublicBooking() {
             reservedAmountCents={
               reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
             }
+            liquidGlass={isLiquidGlass}
             onClose={() => {
               setActiveCharge(null);
               void bookings.refetch();
@@ -817,13 +895,16 @@ function PublicBooking() {
           booking={confirmed}
           appearance={appearance}
           timezone={catalog?.preferences?.timezone ?? "America/Sao_Paulo"}
+          liquidGlass={isLiquidGlass}
           onClose={() => setConfirmed(null)}
         />
       )}
 
       <nav
-        className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg"
-        style={{ backgroundColor: pageBackground }}
+        className={`fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg ${
+          isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+        }`}
+        style={isLiquidGlass ? {} : { backgroundColor: pageBackground }}
       >
         {(
           [
@@ -911,6 +992,7 @@ function HistoryList({
   onRefresh,
   appearance,
   pageText,
+  liquidGlass,
   preferences,
   onCancel,
   onReschedule,
@@ -923,6 +1005,7 @@ function HistoryList({
   onRefresh: () => void;
   appearance: Panel1Appearance;
   pageText: string;
+  liquidGlass: boolean;
   preferences?: Panel1Preferences;
   onCancel: (publicCode: string) => void;
   onReschedule: (input: { publicCode: string; date: string; time: string }) => Promise<void>;
@@ -956,9 +1039,11 @@ function HistoryList({
   if (!bookings.length)
     return (
       <div
-        className="rounded-xl border p-8 text-center"
+        className={`rounded-xl border p-8 text-center ${
+          liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+        }`}
         style={{
-          backgroundColor: appearance.agenda_background,
+          ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
           color: accessibleTextColor(appearance.agenda_background),
           borderColor: appearance.agenda_border,
         }}
@@ -980,9 +1065,11 @@ function HistoryList({
         return (
           <article
             key={b.publicCode ?? b.chargeId ?? b.createdAt}
-            className={`rounded-xl border ${info.tone} p-4`}
+            className={`rounded-xl border ${info.tone} p-4 ${
+              liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+            }`}
             style={{
-              backgroundColor: appearance.agenda_background,
+              ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
               color: accessibleTextColor(appearance.agenda_background),
               borderColor: appearance.agenda_border,
             }}
@@ -994,9 +1081,11 @@ function HistoryList({
               </span>
             </div>
             <div
-              className="mt-3 space-y-2 rounded-lg border p-3 text-sm"
+              className={`mt-3 space-y-2 rounded-lg border p-3 text-sm ${
+                liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+              }`}
               style={{
-                backgroundColor: appearance.agenda_background,
+                ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
                 color: accessibleTextColor(appearance.agenda_background),
                 borderColor: appearance.agenda_border,
               }}
@@ -1190,19 +1279,23 @@ function ConfirmedDialog({
   booking,
   appearance,
   timezone,
+  liquidGlass,
   onClose,
 }: {
   booking: { serviceName: string; startsAt: string };
   appearance: Panel1Appearance;
   timezone: string;
+  liquidGlass: boolean;
   onClose: () => void;
 }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className="max-w-sm text-center"
+        className={`max-w-sm text-center ${
+          liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+        }`}
         style={{
-          backgroundColor: appearance.modal_background,
+          ...(liquidGlass ? {} : { backgroundColor: appearance.modal_background }),
           color: accessibleTextColor(appearance.modal_background),
           borderColor: appearance.modal_border,
         }}
@@ -1224,9 +1317,11 @@ function ConfirmedDialog({
             </p>
           </div>
           <div
-            className="space-y-2 rounded-lg border p-4 text-left text-sm"
+            className={`space-y-2 rounded-lg border p-4 text-left text-sm ${
+              liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+            }`}
             style={{
-              backgroundColor: appearance.modal_background,
+              ...(liquidGlass ? {} : { backgroundColor: appearance.modal_background }),
               color: accessibleTextColor(appearance.modal_background),
               borderColor: appearance.modal_border,
             }}

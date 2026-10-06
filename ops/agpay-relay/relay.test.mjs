@@ -21,7 +21,6 @@ function envelope(overrides = {}) {
     method: "POST",
     headers: {
       Authorization: "Bearer token-de-teste",
-      "X-Client-ID": "cliente-de-teste",
       Accept: "application/json",
       "Content-Type": "application/json",
     },
@@ -95,7 +94,7 @@ test("repassa método, corpo e apenas headers permitidos e devolve resposta", as
   assert.equal(received.method, "POST");
   assert.equal(received.body, '{"amount":1}');
   assert.equal(received.headers.authorization, "Bearer token-de-teste");
-  assert.equal(received.headers["x-client-id"], "cliente-de-teste");
+  assert.equal(received.headers["x-client-id"], undefined);
   assert.equal(received.headers["x-proxy-secret"], undefined);
 });
 

@@ -1,0 +1,20 @@
+# Segredos e artefatos locais nunca entram na imagem.
+.env
+.env.*
+!.env.example
+*.local
+node_modules
+.output
+.vinxi
+.nitro
+.tanstack
+dist
+coverage
+.git
+specs
+.specify
+docs
+ops
+e2e
+playwright-report
+test-results

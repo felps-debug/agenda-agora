@@ -6,7 +6,23 @@
 type UazapiInstance = {
   status?: "disconnected" | "connecting" | "connected" | "hibernated";
   qrcode?: string | null;
+  qrCode?: string | null;
+  paircode?: string | null;
+  pairCode?: string | null;
+  pairingCode?: string | null;
 };
+
+export type WhatsappConnectionArtifact =
+  { method: "qr"; qrCode: string } | { method: "pairing_code"; pairingCode: string };
+
+export function normalizePairingPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const nationalNumber = digits.startsWith("55") ? digits.slice(2) : digits;
+  if (nationalNumber.length < 10 || nationalNumber.length > 11) {
+    throw new Error("Informe um telefone brasileiro com DDD para gerar o código.");
+  }
+  return `55${nationalNumber}`;
+}
 
 function config() {
   const baseUrl = process.env["UAZAPI_BASE_URL"];
@@ -79,18 +95,27 @@ export async function createBusinessInstance(name: string) {
  * (POST /instance/connect sem `phone`) — não existe um GET separado só de QR.
  */
 export async function getQrCode(instanceToken: string): Promise<string | null> {
-  try {
-    const data = await call<{ instance?: UazapiInstance }>("/instance/connect", instanceToken, {
-      method: "POST",
-      body: JSON.stringify({}),
-    });
-    return data.instance?.qrcode ?? null;
-  } catch (error) {
-    if (error instanceof Error && error.name === "UazapiCredentialError") throw error;
-    if (error instanceof Error && error.name === "TimeoutError")
-      throw new Error("A conexão com WhatsApp excedeu o tempo limite.");
-    throw error;
+  const artifact = await startWhatsappConnection(instanceToken, { method: "qr" });
+  return artifact?.method === "qr" ? artifact.qrCode : null;
+}
+
+/** Inicia uma conexão sem persistir QR ou código de pareamento. */
+export async function startWhatsappConnection(
+  instanceToken: string,
+  input: { method: "qr" } | { method: "pairing_code"; phone: string },
+): Promise<WhatsappConnectionArtifact | null> {
+  const body = input.method === "qr" ? {} : { phone: normalizePairingPhone(input.phone) };
+  const data = await call<{ instance?: UazapiInstance }>("/instance/connect", instanceToken, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (input.method === "qr") {
+    const qrCode = data.instance?.qrcode ?? data.instance?.qrCode;
+    return qrCode ? { method: "qr", qrCode } : null;
   }
+  const pairingCode =
+    data.instance?.paircode ?? data.instance?.pairCode ?? data.instance?.pairingCode;
+  return pairingCode ? { method: "pairing_code", pairingCode } : null;
 }
 
 /** true quando o WhatsApp está conectado e pronto para enviar. */

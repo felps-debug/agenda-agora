@@ -11,6 +11,22 @@ import {
 
 const bizSchema = z.object({ businessId: z.string().uuid() });
 
+const connectSchema = z
+  .object({
+    businessId: z.string().uuid(),
+    method: z.enum(["qr", "pairing_code"]).default("qr"),
+    phone: z.string().max(24).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.method === "pairing_code" && !value.phone?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["phone"],
+        message: "Informe o telefone.",
+      });
+    }
+  });
+
 type BizRow = Pick<
   Database["public"]["Tables"]["businesses"]["Row"],
   | "id"
@@ -62,23 +78,47 @@ async function updateBusinessWhatsapp(
   if (error) throw new Error("Não foi possível atualizar a conexão do WhatsApp.");
 }
 
+async function resolveWhatsappCredential(business: BizRow) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { isWhatsappCredentialStoreUnavailable, readWhatsappCredential } =
+    await import("./whatsapp-credentials.server");
+  try {
+    const privateCredential = await readWhatsappCredential(supabaseAdmin, business.id);
+    if (privateCredential) return privateCredential;
+  } catch (error) {
+    if (!isWhatsappCredentialStoreUnavailable(error)) throw error;
+  }
+  return business.whatsapp_instance_id && business.whatsapp_instance_token
+    ? { instanceId: business.whatsapp_instance_id, instanceToken: business.whatsapp_instance_token }
+    : null;
+}
+
+async function persistWhatsappCredential(
+  businessId: string,
+  instance: { instanceId: string; instanceToken: string },
+) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { isWhatsappCredentialStoreUnavailable, writeWhatsappCredential } =
+    await import("./whatsapp-credentials.server");
+  try {
+    await writeWhatsappCredential(supabaseAdmin, businessId, instance);
+  } catch (error) {
+    if (!isWhatsappCredentialStoreUnavailable(error)) throw error;
+  }
+}
+
 /** Inicia a conexão: marca o negócio como conectando e devolve o QR Code. */
 export const connectWhatsapp = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => bizSchema.parse(d))
+  .inputValidator((d: unknown) => connectSchema.parse(d))
   .handler(async ({ context, data }) => {
-    const uazapi = await import("./uazapi.server");
+    const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
 
-    let instance =
-      business.whatsapp_instance_id && business.whatsapp_instance_token
-        ? {
-            instanceId: business.whatsapp_instance_id,
-            instanceToken: business.whatsapp_instance_token,
-          }
-        : null;
+    let instance = await resolveWhatsappCredential(business);
     if (!instance) {
       instance = await uazapi.createBusinessInstance(business.name);
+      await persistWhatsappCredential(business.id, instance);
       await updateBusinessWhatsapp(business.id, {
         whatsapp_instance_id: instance.instanceId,
         whatsapp_instance_token: instance.instanceToken,
@@ -93,13 +133,22 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
     const connected = await uazapi.isConnected(instance.instanceToken);
     if (connected) {
       await updateBusinessWhatsapp(business.id, { whatsapp_status: "conectado" });
-      return { qrCode: null, alreadyConnected: true };
+      return { qrCode: null, pairingCode: null, alreadyConnected: true };
     }
 
-    const qrCode = await uazapi.getQrCode(instance.instanceToken);
+    const artifact = await uazapi.startWhatsappConnection(
+      instance.instanceToken,
+      data.method === "pairing_code"
+        ? { method: "pairing_code", phone: data.phone! }
+        : { method: "qr" },
+    );
     await updateBusinessWhatsapp(business.id, { whatsapp_status: "conectando" });
 
-    return { qrCode, alreadyConnected: false };
+    return {
+      qrCode: artifact?.method === "qr" ? artifact.qrCode : null,
+      pairingCode: artifact?.method === "pairing_code" ? artifact.pairingCode : null,
+      alreadyConnected: false,
+    };
   });
 
 /** Gera um novo QR Code. */
@@ -107,10 +156,11 @@ export const refreshWhatsappQr = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
-    const uazapi = await import("./uazapi.server");
+    const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (!business.whatsapp_instance_token) throw new Error("Conexão de WhatsApp não iniciada.");
-    const qrCode = await uazapi.getQrCode(business.whatsapp_instance_token);
+    const credential = await resolveWhatsappCredential(business);
+    if (!credential) throw new Error("Conexão de WhatsApp não iniciada.");
+    const qrCode = await uazapi.getQrCode(credential.instanceToken);
     return { qrCode };
   });
 
@@ -120,11 +170,12 @@ export const getWhatsappStatus = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (!business.whatsapp_instance || !business.whatsapp_instance_token) {
+    const credential = await resolveWhatsappCredential(business);
+    if (!business.whatsapp_instance || !credential) {
       return { status: "desconectado" as const, connected: false };
     }
-    const uazapi = await import("./uazapi.server");
-    const online = await uazapi.isConnected(business.whatsapp_instance_token);
+    const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
+    const online = await uazapi.isConnected(credential.instanceToken);
     const status =
       online || business.whatsapp_status === "conectando"
         ? online
@@ -143,9 +194,10 @@ export const disconnectWhatsapp = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => bizSchema.parse(d))
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (business.whatsapp_instance_token) {
-      const uazapi = await import("./uazapi.server");
-      await uazapi.disconnect(business.whatsapp_instance_token);
+    const credential = await resolveWhatsappCredential(business);
+    if (credential) {
+      const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
+      await uazapi.disconnect(credential.instanceToken);
     }
     await updateBusinessWhatsapp(business.id, {
       whatsapp_instance: null,
@@ -173,12 +225,13 @@ export const sendTestMessage = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => testMessageSchema.parse(d))
   .handler(async ({ context, data }) => {
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
-    if (!business.whatsapp_instance || !business.whatsapp_instance_token) {
+    const credential = await resolveWhatsappCredential(business);
+    if (!business.whatsapp_instance || !credential) {
       throw new Error("Conecte o WhatsApp em Integrações antes de testar.");
     }
     const { renderMessage } = await import("./whatsapp-notify.server");
-    const uazapi = await import("./uazapi.server");
+    const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
     const message = renderMessage(data.template, { ...TEST_SAMPLE_VARS, negocio: business.name });
-    await uazapi.sendTextMessage(business.whatsapp_instance_token, data.phone, message);
+    await uazapi.sendTextMessage(credential.instanceToken, data.phone, message);
     return { ok: true };
   });

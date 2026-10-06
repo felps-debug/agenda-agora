@@ -1,0 +1,44 @@
+(agenda_common) {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+	}
+}
+
+app.agendagora.company {
+	@master path /painel/master*
+	redir @master https://admin.agendagora.company{uri} 308
+
+	@owner path /painel*
+	redir @owner https://painel.agendagora.company{uri} 308
+
+	import agenda_common
+}
+
+painel.agendagora.company {
+	@master path /painel/master*
+	redir @master https://admin.agendagora.company{uri} 308
+
+	@booking path /agendar/*
+	redir @booking https://app.agendagora.company{uri} 308
+
+	import agenda_common
+}
+
+admin.agendagora.company {
+	@owner {
+		path /painel*
+		not path /painel/master*
+	}
+	redir @owner https://painel.agendagora.company{uri} 308
+
+	@booking path /agendar/*
+	redir @booking https://app.agendagora.company{uri} 308
+
+	import agenda_common
+}

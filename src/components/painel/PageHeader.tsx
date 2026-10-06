@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Store } from "lucide-react";
+import { LoaderCircle, Store } from "lucide-react";
+import { useBusiness } from "@/lib/business";
 
 export function PageHeader({
   title,
@@ -26,6 +27,17 @@ export function PageHeader({
 }
 
 export function NoBusiness() {
+  const { loading } = useBusiness();
+
+  if (loading) {
+    return (
+      <div className="surface flex min-h-52 flex-col items-center justify-center gap-3 p-10 text-center">
+        <LoaderCircle className="size-7 animate-spin text-primary" aria-hidden="true" />
+        <p className="text-sm text-muted-foreground">Carregando estabelecimento...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="surface flex flex-col items-center p-10 text-center">
       <Store className="size-8 text-primary" />
