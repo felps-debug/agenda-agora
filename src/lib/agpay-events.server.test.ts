@@ -240,15 +240,15 @@ describe("eventos de pagamento AgPay", () => {
     expect(appointment()["status"]).toBe("agendado");
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
     expect(charge()).toMatchObject({
-      gateway_fee_cents: 448,
+      gateway_fee_cents: 75,
       platform_commission_percent_snapshot: 0,
-      platform_commission_flat_cents: 20,
-      platform_commission_cents: 20,
-      net_amount_cents: 9532,
+      platform_commission_flat_cents: 0,
+      platform_commission_cents: 0,
+      net_amount_cents: 9925,
     });
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9532, description: "Sinal de Maria" },
+      { type: "payment_credit", amount_cents: 9925, description: "Sinal de Maria" },
     ]);
   });
 
@@ -266,7 +266,7 @@ describe("eventos de pagamento AgPay", () => {
 
     expect(charge()).toMatchObject(frozen);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
@@ -276,7 +276,7 @@ describe("eventos de pagamento AgPay", () => {
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
     expect(charge()["status"]).toBe("pago");
-    expect(charge()["net_amount_cents"]).toBe(9532);
+    expect(charge()["net_amount_cents"]).toBe(9925);
     expect(runtime.tables["ledger_entries"]).toHaveLength(0);
     expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("failed");
 
@@ -285,7 +285,7 @@ describe("eventos de pagamento AgPay", () => {
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
     expect(charge()["platform_commission_percent_snapshot"]).toBe(0);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
@@ -293,9 +293,9 @@ describe("eventos de pagamento AgPay", () => {
     seed({ status: "pago" });
     await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "pago" });
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9532 },
+      { type: "payment_credit", amount_cents: 9925 },
     ]);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9532);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
   });
 
   it("transaction.refunded debita o líquido original uma vez sem tratar transaction.failed como estorno", async () => {
@@ -308,8 +308,8 @@ describe("eventos de pagamento AgPay", () => {
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
     expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(0);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9532 },
-      { type: "refund_debit", amount_cents: -9532 },
+      { type: "payment_credit", amount_cents: 9925 },
+      { type: "refund_debit", amount_cents: -9925 },
     ]);
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 0 });
@@ -361,6 +361,24 @@ describe("eventos de pagamento AgPay", () => {
       args: { _withdrawal_id: "wd-row", _outcome: "paid", _provider_ref: "wd-provider" },
     });
     expect(runtime.updates.filter(({ table }) => table === "withdrawals")).toHaveLength(0);
+  });
+
+  it("liquida o saque quando o webhook identifica o saque por withdrawal_id numérico", async () => {
+    runtime.tables["withdrawals"] = [{ id: "wd-row", provider_ref: "631", status: "processing" }];
+    const payload = {
+      event: "withdrawal.completed",
+      data: { amount: 10, status: "paid", withdrawal_id: 631 },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+    expect(runtime.tables["withdrawals"]![0]).toMatchObject({
+      status: "paid",
+      provider_ref: "631",
+    });
+    expect(runtime.rpcCalls).toContainEqual({
+      name: "ledger_settle_withdrawal",
+      args: { _withdrawal_id: "wd-row", _outcome: "paid", _provider_ref: "631" },
+    });
   });
 
   it.each([

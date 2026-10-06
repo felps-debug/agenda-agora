@@ -12,6 +12,8 @@ type WebhookPayload = {
   data?: {
     transaction_uuid?: string;
     withdrawal_uuid?: string;
+    // A AgPay identifica o saque pelo mesmo id numérico devolvido no POST /cashout/pix.
+    withdrawal_id?: string | number;
     uuid?: string;
     status?: string;
   };
@@ -397,7 +399,11 @@ async function processWebhookEvent(row: {
   payload: unknown;
 }) {
   const payload = row.payload as WebhookPayload;
-  const withdrawalRef = payload.data?.withdrawal_uuid ?? payload.data?.uuid ?? row.transaction_uuid;
+  const withdrawalRef =
+    payload.data?.withdrawal_uuid ??
+    (payload.data?.withdrawal_id != null ? String(payload.data.withdrawal_id) : undefined) ??
+    payload.data?.uuid ??
+    row.transaction_uuid;
   if (row.event_type.startsWith("withdrawal.")) {
     if (!withdrawalRef) return;
     const db = await database();

@@ -1,11 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
-/** Taxa do AgPay: 3,99% + R$ 0,49 por transação (spec 005, FR-001). */
-const GATEWAY_FEE_PERCENT = 0.0399;
-const GATEWAY_FEE_FIXED_CENTS = 49;
-/** Taxa fixa da plataforma por transação: R$ 0,20 (decisão comercial de 05/10/2026). */
-export const PLATFORM_FLAT_FEE_CENTS = 20;
+/**
+ * Custo do gateway por depósito: R$ 0,75 fixos, sem percentual (R$ 0,25 da AgPay + R$ 0,50 do
+ * adquirente, definido no admin da AgPay em 06/10/2026). Se a taxa mudar lá, mude aqui junto.
+ */
+const GATEWAY_FEE_PERCENT = 0;
+const GATEWAY_FEE_FIXED_CENTS = 75;
+/** Taxa fixa da plataforma por transação: removida (R$ 0,00) em 06/10/2026. */
+export const PLATFORM_FLAT_FEE_CENTS = 0;
 
 export function gatewayFeeCents(grossCents: number): number {
   if (!Number.isInteger(grossCents) || grossCents < 0) {

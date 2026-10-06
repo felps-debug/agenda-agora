@@ -7,17 +7,14 @@ import {
 } from "./ledger.server";
 
 describe("gatewayFeeCents", () => {
-  it("aplica 3,99% + R$ 0,49 sobre o bruto", () => {
-    expect(gatewayFeeCents(10000)).toBe(448);
-  });
-
-  it("arredonda a parte percentual para o centavo mais próximo", () => {
-    // 1234 * 0,0399 = 49,2366 -> 49; + 49 fixos
-    expect(gatewayFeeCents(1234)).toBe(98);
+  it("cobra R$ 0,75 fixos, qualquer que seja o bruto", () => {
+    expect(gatewayFeeCents(10000)).toBe(75);
+    expect(gatewayFeeCents(500)).toBe(75);
+    expect(gatewayFeeCents(1234)).toBe(75);
   });
 
   it("aceita bruto zero (só a parte fixa)", () => {
-    expect(gatewayFeeCents(0)).toBe(49);
+    expect(gatewayFeeCents(0)).toBe(75);
   });
 
   it("rejeita valores não inteiros ou negativos", () => {
@@ -29,11 +26,11 @@ describe("gatewayFeeCents", () => {
 describe("platformCommissionCents", () => {
   it("cobra só a taxa fixa quando o percentual é 0%", () => {
     expect(platformCommissionCents(10000, 0)).toBe(PLATFORM_FLAT_FEE_CENTS);
-    expect(PLATFORM_FLAT_FEE_CENTS).toBe(20);
+    expect(PLATFORM_FLAT_FEE_CENTS).toBe(0);
   });
 
   it("soma o percentual à taxa fixa", () => {
-    expect(platformCommissionCents(10000, 10)).toBe(1000 + 20);
+    expect(platformCommissionCents(10000, 10)).toBe(1000 + PLATFORM_FLAT_FEE_CENTS);
   });
 
   it("rejeita percentual fora de 0..100 ou bruto inválido", () => {
@@ -44,15 +41,19 @@ describe("platformCommissionCents", () => {
 });
 
 describe("computePaymentBreakdown", () => {
-  it("decompõe R$ 100,00 com comissão 0% em líquido de R$ 95,32", () => {
+  it("decompõe R$ 100,00 com comissão 0% em líquido de R$ 99,25", () => {
     expect(computePaymentBreakdown(10000, 0)).toEqual({
       grossCents: 10000,
-      gatewayFeeCents: 448,
+      gatewayFeeCents: 75,
       platformCommissionPercentSnapshot: 0,
-      platformCommissionFlatCents: 20,
-      platformCommissionCents: 20,
-      netAmountCents: 9532,
+      platformCommissionFlatCents: 0,
+      platformCommissionCents: 0,
+      netAmountCents: 9925,
     });
+  });
+
+  it("sinal de R$ 5,00 fica em R$ 4,25 para o dono", () => {
+    expect(computePaymentBreakdown(500, 0).netAmountCents).toBe(425);
   });
 
   it("mantém bruto = líquido + taxa do gateway + comissão", () => {
@@ -109,7 +110,7 @@ describe.skipIf(!TEST_BUSINESS_ID || !process.env["SUPABASE_SERVICE_ROLE_KEY"])(
       };
     }
 
-    it("credita o líquido decomposto e soma na wallet (R$ 100,00 → R$ 95,32)", async () => {
+    it("credita o líquido decomposto e soma na wallet (R$ 100,00 → R$ 99,25)", async () => {
       const t = await context();
       const before = await t.wallet();
       const paymentId = await t.newPayment(10000);
@@ -123,15 +124,15 @@ describe.skipIf(!TEST_BUSINESS_ID || !process.env["SUPABASE_SERVICE_ROLE_KEY"])(
       });
 
       expect(result.created).toBe(true);
-      expect(breakdown.netAmountCents).toBe(9532);
+      expect(breakdown.netAmountCents).toBe(9925);
       const after = await t.wallet();
-      expect(after.available - before.available).toBe(9532);
+      expect(after.available - before.available).toBe(9925);
       const { data: entry } = await t.db
         .from("ledger_entries")
         .select("type, amount_cents, payment_id")
         .eq("id", result.entryId)
         .single();
-      expect(entry).toEqual({ type: "payment_credit", amount_cents: 9532, payment_id: paymentId });
+      expect(entry).toEqual({ type: "payment_credit", amount_cents: 9925, payment_id: paymentId });
     });
 
     it("não duplica lançamento nem saldo ao repetir o mesmo pagamento (idempotência)", async () => {
