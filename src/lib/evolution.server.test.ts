@@ -97,6 +97,32 @@ describe("cliente Evolution API", () => {
     );
   });
 
+  it("recria a instância com o mesmo nome quando o código vem null depois de um QR", async () => {
+    configure();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ pairingCode: null, base64: "QR" })))
+      .mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response("{}"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ pairingCode: "ZC1B4162" })));
+    vi.stubGlobal("fetch", fetchMock);
+    const artifact = await startWhatsappConnection("inst", {
+      method: "pairing_code",
+      phone: "(98) 99999-0000",
+    });
+    expect(artifact).toEqual({ method: "pairing_code", pairingCode: "ZC1B4162" });
+    const calls = fetchMock.mock.calls.map(([url, init]) => [url, init?.method ?? "GET"]);
+    expect(calls).toEqual([
+      ["https://evolution.test/instance/connect/inst?number=5598999990000", "GET"],
+      ["https://evolution.test/instance/delete/inst", "DELETE"],
+      ["https://evolution.test/instance/create", "POST"],
+      ["https://evolution.test/instance/connect/inst?number=5598999990000", "GET"],
+    ]);
+    expect(JSON.parse(fetchMock.mock.calls[2]![1]!.body as string)).toMatchObject({
+      instanceName: "inst",
+    });
+  });
+
   it("considera conectado só no estado open", async () => {
     configure();
     for (const [state, expected] of [

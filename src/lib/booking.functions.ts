@@ -791,6 +791,9 @@ export const reserveBooking = createServerFn({ method: "POST" })
     if (apptError || !appointment) throw new Error(apptError?.message ?? "Falha ao reservar.");
 
     if (!chargesDeposit) {
+      // Sem sinal não há pagamento para confirmar: avisa o cliente já na reserva. Não bloqueia a
+      // resposta (a Evolution pode demorar) e nunca derruba a reserva (a função não lança).
+      void import("./whatsapp-notify.server").then((m) => m.sendBookingConfirmation(appointment.id));
       return {
         chargeId: null,
         amountCents: 0,

@@ -106,8 +106,9 @@ async function loadContext(appointmentId: string) {
 }
 
 /**
- * Mensagem 1 — confirmação: enviada assim que o sinal Pix é aprovado.
- * Nunca lança erro para não quebrar o fluxo de pagamento.
+ * Mensagem 1 — confirmação de reserva sem sinal: enviada assim que o horário é reservado.
+ * (Com sinal, a confirmação é `sendPaymentConfirmation`, após a aprovação do Pix.)
+ * Nunca lança erro para não quebrar o fluxo de reserva.
  */
 export async function sendBookingConfirmation(appointmentId: string) {
   try {

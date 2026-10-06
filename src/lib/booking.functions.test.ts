@@ -18,6 +18,7 @@ import {
 import { DEFAULT_PANEL1_APPEARANCE, defaultPanel1Config } from "./panel1-config";
 import { formatAppointmentDateTime } from "./booking-history";
 import { resetRateLimits } from "./rate-limit.server";
+import { sendBookingConfirmation } from "./whatsapp-notify.server";
 
 const pixRuntime = vi.hoisted(() => ({
   db: { from: vi.fn(), rpc: vi.fn() },
@@ -48,6 +49,7 @@ vi.mock("./agpay.server", () => ({
 vi.mock("@/lib/panel1-config.storage", () => ({
   loadPanel1Config: async () => pixRuntime.panel1Config ?? defaultPanel1Config(),
 }));
+vi.mock("./whatsapp-notify.server", () => ({ sendBookingConfirmation: vi.fn() }));
 
 // Todos os testes chamam as functions fora do runtime de requisição, então o
 // limitador cai na chave "sem-request" e a cota de 10 reservas acabaria no meio
@@ -1107,6 +1109,26 @@ describe("reserveBooking: CPF/CNPJ condicional ao sinal efetivo (T038)", () => {
 
     expect(result).toMatchObject({ chargeId: null, amountCents: 0 });
     expect(db.inserted("appointments")[0]).toMatchObject({ status: "agendado" });
+  });
+
+  it("reserva sem sinal avisa o cliente por WhatsApp uma única vez", async () => {
+    // O banco fake responde `appointments` com um array (serve também à checagem de conflito),
+    // então o id não é verificável aqui; o que importa é o disparo, uma vez, após gravar.
+    const db = setupReserve({ requires_deposit: false });
+
+    await reserveBooking({ data: withoutDocument });
+
+    await vi.waitFor(() => expect(sendBookingConfirmation).toHaveBeenCalledTimes(1));
+    expect(db.inserted("appointments")).toHaveLength(1);
+  });
+
+  it("reserva com sinal não manda a confirmação de reserva (ela sai após o Pix pago)", async () => {
+    setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 });
+
+    await reserveBooking({ data: reserveInput });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(sendBookingConfirmation).not.toHaveBeenCalled();
   });
 
   it.each([undefined, "", "   "])(

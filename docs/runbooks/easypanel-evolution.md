@@ -25,9 +25,10 @@ Nenhum passo abaixo foi executado pelo código. A VPS é operada manualmente.
 
 ## 2. Evolution API
 
-1. Crie o serviço `evolution` a partir da imagem `atendai/evolution-api:v2.x` (fixe uma versão,
-   não use `latest`) com Postgres e Redis do EasyPanel (a v2 exige banco; use serviços novos,
-   **não** o Supabase de produção).
+1. Crie o serviço `evolution` a partir da imagem `evoapicloud/evolution-api:v2.x` (a oficial
+   hoje; `atendai/evolution-api` é o nome antigo. Fixe uma versão, não use `latest`; a
+   documentação da Evolution Foundation está em 2.3.7) com Postgres e Redis do EasyPanel (a v2
+   exige banco; use serviços novos, **não** o Supabase de produção).
 2. Variáveis mínimas (nomes da Evolution v2; confira na documentação da versão escolhida):
    - `AUTHENTICATION_API_KEY`: chave global longa e aleatória. É o `EVOLUTION_API_KEY` do app.
    - `SERVER_URL`: a URL pública do serviço.
@@ -63,7 +64,13 @@ Healthcheck: `GET /auth` na porta 3000 (já no Dockerfile).
 
 ## 4. Crons (substituem os timers do systemd)
 
-No serviço `app`, em Cron Jobs (aba Avançado; a posição varia com a versão do EasyPanel):
+O EasyPanel **não tem Cron Jobs no serviço `app`** (a aba Scripts só guarda scripts nomeados,
+sem agendamento). O que funciona é um serviço separado `cron` no mesmo projeto, imagem
+`curlimages/curl`, com a variável `AGENDA_CRON_SECRET` (igual à do `app`) e um comando de loop
+que chama `http://agenda-agora_app:3000/api/public/hooks/<job>` a cada 60 s. O serviço `cron`
+de produção roda só o `agpay-events`; o `whatsapp-reminders` (de hora em hora) entra quando ao
+menos um negócio tiver reconectado na Evolution. Os comandos abaixo são a referência da chamada
+(equivalem a `ops/vps/agenda-cron.sh`):
 
 | Frequência | Comando |
 |---|---|

@@ -115,7 +115,23 @@ export async function startWhatsappConnection(
     return base64 ? { method: "qr", qrCode: toDataUrl(base64) } : null;
   }
   const pairingCode = data.pairingCode ?? data.qrcode?.pairingCode;
-  return pairingCode ? { method: "pairing_code", pairingCode } : null;
+  if (pairingCode) return { method: "pairing_code", pairingCode };
+
+  // A Evolution só devolve o código no PRIMEIRO connect da instância: depois de gerar um QR
+  // (ex.: o dono trocou de aba) ele vem null, e restart não resolve (testado na 2.3.7).
+  // Recria a instância com o mesmo nome, que é a credencial guardada, e tenta de novo.
+  await deleteInstance(instanceToken);
+  await call("/instance/create", {
+    method: "POST",
+    body: JSON.stringify({
+      instanceName: instanceToken,
+      qrcode: false,
+      integration: "WHATSAPP-BAILEYS",
+    }),
+  });
+  const retry = await call<EvolutionConnect>(`/instance/connect/${instance}${query}`);
+  const retryCode = retry.pairingCode ?? retry.qrcode?.pairingCode;
+  return retryCode ? { method: "pairing_code", pairingCode: retryCode } : null;
 }
 
 /** true quando o WhatsApp está conectado e pronto para enviar. */
