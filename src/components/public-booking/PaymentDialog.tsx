@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { friendlyError } from "@/lib/error-page";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -19,6 +19,8 @@ type PaymentDialogProps = {
   booking: { amountCents: number; expiresAt: string | null } | null;
   reservedAmountCents: number | null;
   liquidGlass?: boolean;
+  /** Tokens da paleta: o diálogo é renderizado num portal, fora da raiz que os define. */
+  liquidStyle?: CSSProperties;
   onClose: () => void;
 };
 
@@ -27,6 +29,7 @@ export default function PaymentDialog({
   booking,
   reservedAmountCents,
   liquidGlass = false,
+  liquidStyle,
   onClose,
 }: PaymentDialogProps) {
   // Snapshot gravado no servidor (deposit_payments.amount_cents); nada é recalculado aqui.
@@ -134,6 +137,7 @@ export default function PaymentDialog({
           className={`max-w-md text-center ${
             liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
           }`}
+          style={liquidGlass ? liquidStyle : undefined}
         >
           <Check className="mx-auto size-10 text-primary" />
           <h2 className="font-display text-xl font-bold">Agendamento confirmado!</h2>
@@ -151,6 +155,7 @@ export default function PaymentDialog({
         className={`max-h-[90vh] max-w-md overflow-y-auto text-center ${
           liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
         }`}
+        style={liquidGlass ? liquidStyle : undefined}
       >
         <h2 className="font-display text-xl font-bold">Agendamento aguardando pagamento</h2>
         <p className="text-sm text-muted-foreground">
@@ -231,6 +236,7 @@ export default function PaymentDialog({
             className={`max-w-sm text-center ${
               liquidGlass ? "liquid-glass-surface liquid-glass-regular liquid-glass-dialog" : ""
             }`}
+            style={liquidGlass ? liquidStyle : undefined}
           >
             <h3 className="text-base font-semibold">Pagamento Obrigatório</h3>
             <p className="text-sm">Você confirma o cancelamento desse agendamento?</p>

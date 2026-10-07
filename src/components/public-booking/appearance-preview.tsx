@@ -56,7 +56,7 @@ export function BusinessHeader({
     onAppearanceTargetSelect ? onAppearanceTargetSelect("logo-cover") : onLogoClick?.();
   return (
     <div
-      className={`-mx-4 px-4 py-8 text-center ${variant === "liquid_glass" ? "liquid-glass-surface liquid-glass-hero" : ""}`}
+      className={`-mx-4 px-4 py-8 text-center ${variant === "liquid_glass" ? "liquid-glass-surface liquid-glass-hero liquid-glass-refract" : ""}`}
       onClick={(event) => {
         event.stopPropagation();
         onAppearanceTargetSelect?.("header-background");
@@ -193,7 +193,7 @@ export function ServiceSection<S extends PreviewService>({
                 if (onAppearanceTargetSelect) onAppearanceTargetSelect("service-background");
                 else onSelect(s);
               }}
-              className={`w-full rounded-lg border px-4 py-5 text-center transition-colors hover:bg-[var(--service-hover-background)] hover:text-[var(--service-hover-text)] hover:border-[var(--service-hover-border)] ${variant === "liquid_glass" ? "liquid-glass-surface liquid-glass-regular" : ""}`}
+              className={`w-full rounded-lg border px-4 py-5 text-center transition-colors hover:bg-[var(--service-hover-background)] hover:text-[var(--service-hover-text)] hover:border-[var(--service-hover-border)] ${variant === "liquid_glass" ? "liquid-glass-surface liquid-glass-regular liquid-glass-refract" : ""}`}
               style={
                 {
                   ...(variant === "classic"

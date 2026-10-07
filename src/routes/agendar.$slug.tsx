@@ -47,7 +47,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { BusinessHeader, ServiceSection } from "@/components/public-booking/appearance-preview";
-import { LiquidGlassFilterDefs, liquidGlassTokens } from "@/components/public-booking/liquid-glass";
+import {
+  LiquidGlassFilterDefs,
+  liquidGlassDialogBase,
+  liquidGlassDialogStyle,
+  liquidGlassPageBase,
+  liquidGlassPageEnd,
+  liquidGlassReadableAppearance,
+  liquidGlassTokens,
+} from "@/components/public-booking/liquid-glass";
 
 const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
 
@@ -140,6 +148,7 @@ function readCharges(slug: string): string[] {
 function PublicBooking() {
   const { slug } = Route.useParams();
   const [tab, setTab] = useState<"agendar" | "historico">("agendar");
+  const [navCompact, setNavCompact] = useState(false);
   const [service, setService] = useState<Service | null>(null);
   const [professional, setProfessional] = useState<Professional | null>(null);
   const [date, setDate] = useState<string | null>(null);
@@ -202,7 +211,7 @@ function PublicBooking() {
   );
 
   const business = catalog?.business ?? null;
-  const appearance: Panel1Appearance = {
+  const paletteAppearance: Panel1Appearance = {
     ...DEFAULT_PANEL1_APPEARANCE,
     ...(catalog?.appearance ?? {}),
   };
@@ -210,7 +219,13 @@ function PublicBooking() {
   const isLiquidGlass = visual.layout_key === "liquid_glass";
   const pageBackground = business?.brand_background ?? "#ffffff";
   const pageBackgroundImage = business?.brand_background_image ?? null;
-  const pageText = accessibleTextColor(pageBackground);
+  // No Liquid Glass o texto lê sobre o vidro (não sobre a cor da página): a paleta é mantida e só
+  // as cores de texto sem contraste suficiente caem para preto/branco.
+  const glassBase = liquidGlassPageBase(pageBackground, paletteAppearance);
+  const appearance = isLiquidGlass
+    ? liquidGlassReadableAppearance(paletteAppearance, glassBase)
+    : paletteAppearance;
+  const pageText = accessibleTextColor(isLiquidGlass ? glassBase : pageBackground);
   const pageFontFamily = outreachFontFamily(appearance.font_family);
 
   useEffect(() => {
@@ -221,7 +236,13 @@ function PublicBooking() {
   const modalHoverText = accessibleTextColor(appearance.modal_hover_background);
   const modalActiveText = accessibleTextColor(appearance.modal_active_background);
   // Liquid controls sit on the palette tint rather than the opaque classic modal background.
-  const liquidText = modalActiveText;
+  const liquidText = accessibleTextColor(liquidGlassDialogBase(pageBackground, paletteAppearance));
+  // Diálogos vivem num portal fora da raiz: levam tokens, fonte e cor de texto próprios.
+  const liquidDialogStyle = liquidGlassDialogStyle(
+    appearance,
+    pageBackground,
+    business?.brand_primary ?? "#2563eb",
+  );
   const services = (catalog?.services ?? []) as Service[];
 
   const { data: professionals } = useQuery({
@@ -398,6 +419,24 @@ function PublicBooking() {
     setFormError(null);
   };
 
+  // Menu em vidro encolhe ao rolar para baixo e volta ao rolar para cima.
+  useEffect(() => {
+    if (!isLiquidGlass) return;
+    let previousY = window.scrollY;
+    const onScroll = () => {
+      const y = window.scrollY;
+      const bottom = document.documentElement.scrollHeight - window.innerHeight;
+      if (y <= 0) setNavCompact(false);
+      else if (y < bottom - 5) {
+        if (y - previousY > 8) setNavCompact(true);
+        else if (previousY - y > 8) setNavCompact(false);
+      }
+      previousY = y;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isLiquidGlass]);
+
   return (
     <div
       className={
@@ -416,7 +455,7 @@ function PublicBooking() {
           ...(isLiquidGlass ? liquidGlassTokens(appearance, pageBackground) : {}),
           backgroundColor: pageBackground,
           color: pageText,
-          fontFamily: `'${pageFontFamily}', sans-serif`,
+          fontFamily: isLiquidGlass ? "var(--font-sans)" : `'${pageFontFamily}', sans-serif`,
           ...(pageBackgroundImage
             ? {
                 backgroundImage: `url(${pageBackgroundImage})`,
@@ -430,7 +469,9 @@ function PublicBooking() {
                 backgroundImage:
                   "radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--primary) 45%, transparent), transparent 34%), radial-gradient(circle at 85% 26%, color-mix(in srgb, #ffffff 22%, transparent), transparent 28%), linear-gradient(145deg, " +
                   pageBackground +
-                  ", #0f172a)",
+                  ", " +
+                  liquidGlassPageEnd(pageBackground, paletteAppearance) +
+                  ")",
               }
             : {}),
         } as React.CSSProperties
@@ -538,14 +579,17 @@ function PublicBooking() {
             isLiquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
           }`}
           style={{
-            ...(isLiquidGlass ? {} : { backgroundColor: appearance.modal_background }),
+            // O Radix renderiza o diálogo num portal fora da raiz, então ele precisa dos tokens próprios.
+            ...(isLiquidGlass
+              ? liquidDialogStyle
+              : { backgroundColor: appearance.modal_background }),
             color: isLiquidGlass ? liquidText : modalText,
             borderColor: appearance.modal_border,
           }}
         >
           {service && (
             <div className="space-y-6 p-5 text-center sm:p-6">
-              <div>
+              <div className={isLiquidGlass ? "px-10" : ""}>
                 {service.image_url && (
                   <img
                     src={service.image_url}
@@ -876,6 +920,7 @@ function PublicBooking() {
       {activeCharge && (
         <Suspense fallback={<p className="py-4 text-center text-sm">Carregando pagamento...</p>}>
           <PaymentDialog
+            liquidStyle={isLiquidGlass ? liquidDialogStyle : {}}
             chargeId={activeCharge}
             booking={bookings.data?.bookings.find((b) => b.chargeId === activeCharge) ?? null}
             reservedAmountCents={
@@ -896,14 +941,18 @@ function PublicBooking() {
           appearance={appearance}
           timezone={catalog?.preferences?.timezone ?? "America/Sao_Paulo"}
           liquidGlass={isLiquidGlass}
+          liquidStyle={isLiquidGlass ? liquidDialogStyle : {}}
           onClose={() => setConfirmed(null)}
         />
       )}
 
       <nav
         className={`fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg ${
-          isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+          isLiquidGlass
+            ? "liquid-glass-surface liquid-glass-regular liquid-glass-nav liquid-glass-refract"
+            : ""
         }`}
+        data-compact={isLiquidGlass && navCompact}
         style={isLiquidGlass ? {} : { backgroundColor: pageBackground }}
       >
         {(
@@ -917,9 +966,12 @@ function PublicBooking() {
             type="button"
             onClick={() => setTab(item.key)}
             style={{ color: pageText }}
+            data-active={isLiquidGlass && tab === item.key}
             className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
+              isLiquidGlass ? "liquid-glass-nav-item" : ""
+            } ${
               tab === item.key
-                ? "font-semibold text-foreground underline underline-offset-4"
+                ? `font-semibold text-foreground ${isLiquidGlass ? "" : "underline underline-offset-4"}`
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -1280,12 +1332,14 @@ function ConfirmedDialog({
   appearance,
   timezone,
   liquidGlass,
+  liquidStyle,
   onClose,
 }: {
   booking: { serviceName: string; startsAt: string };
   appearance: Panel1Appearance;
   timezone: string;
   liquidGlass: boolean;
+  liquidStyle: React.CSSProperties;
   onClose: () => void;
 }) {
   return (
@@ -1295,8 +1349,12 @@ function ConfirmedDialog({
           liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
         }`}
         style={{
-          ...(liquidGlass ? {} : { backgroundColor: appearance.modal_background }),
-          color: accessibleTextColor(appearance.modal_background),
+          ...(liquidGlass
+            ? liquidStyle
+            : {
+                backgroundColor: appearance.modal_background,
+                color: accessibleTextColor(appearance.modal_background),
+              }),
           borderColor: appearance.modal_border,
         }}
       >
