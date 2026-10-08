@@ -23,26 +23,99 @@ export function mixHex(a: string, b: string, amount: number): string {
   return `#${channel(1)}${channel(2)}${channel(3)}`;
 }
 
-/** Cor onde termina o degradê do fundo: derivada da paleta, não um azul-escuro fixo. */
+/**
+ * Vidro fumê do Painel 1: base quase preta tingida pela cor de fundo da página (editável) e
+ * luzes na cor de destaque da paleta (também editável). Com a paleta padrão fica o dourado
+ * da referência.
+ */
+export function liquidGlassDark(pageBackground: string): string {
+  return mixHex(pageBackground, "#000000", 0.88);
+}
+
+/** Cor das luzes (fitas, reflexos e brilho): o destaque da paleta, clareado para brilhar no escuro. */
+export function liquidGlassAccent(appearance: Panel1Appearance): string {
+  return mixHex(appearance.modal_active_background, "#ffffff", 0.35);
+}
+
+const GOLD_HUE = 38; // matiz do dourado da referência (os reflexos do CSS são dourados)
+
+/** Quantos graus girar os reflexos dourados do CSS para a cor de destaque. 0 se a cor for cinza. */
+export function liquidGlassHueShift(accent: string): number {
+  const match = HEX.exec(accent);
+  if (!match) return 0;
+  const [r, g, b] = [1, 2, 3].map((index) => parseInt(match[index]!, 16) / 255) as [
+    number,
+    number,
+    number,
+  ];
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta < 0.05) return 0;
+  let hue = 0;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  hue = (hue * 60 + 360) % 360;
+  return Math.round(hue - GOLD_HUE);
+}
+
+/** Fundo do Painel 1 (fitas de luz desfocadas): o SVG da referência com as luzes na cor da paleta. */
+export function liquidGlassBackgroundImage(accent: string, dark: string): string {
+  const light = (amount: number) => mixHex(accent, "#ffffff", amount);
+  const shade = (amount: number) => mixHex(accent, "#000000", amount);
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 1600"><defs>' +
+    '<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+    `<stop stop-color="${accent}" stop-opacity="0"/>` +
+    `<stop offset=".48" stop-color="${light(0.15)}" stop-opacity=".2"/>` +
+    `<stop offset=".65" stop-color="${light(0.85)}" stop-opacity=".48"/>` +
+    `<stop offset=".82" stop-color="${shade(0.2)}" stop-opacity=".08"/>` +
+    '<stop offset="1" stop-opacity="0"/></linearGradient>' +
+    '<filter id="b"><feGaussianBlur stdDeviation="16"/></filter>' +
+    '<filter id="s"><feGaussianBlur stdDeviation="2"/></filter>' +
+    '<radialGradient id="p">' +
+    `<stop stop-color="${light(0.93)}"/>` +
+    `<stop offset=".12" stop-color="${light(0.65)}" stop-opacity=".9"/>` +
+    `<stop offset=".35" stop-color="${shade(0.05)}" stop-opacity=".25"/>` +
+    `<stop offset="1" stop-color="${shade(0.3)}" stop-opacity="0"/></radialGradient></defs>` +
+    `<rect width="720" height="1600" fill="${dark}"/>` +
+    '<g fill="none" stroke="url(#g)">' +
+    '<path d="M-80 630C95 390 170 515 445 325S685 185 795-50" stroke-width="85" filter="url(#b)"/>' +
+    '<path d="M-80 630C95 390 170 515 445 325S685 185 795-50" stroke-width="2" filter="url(#s)"/>' +
+    '<path d="M-40 1030C70 800 205 685 465 585S670 495 770 390" stroke-width="62" filter="url(#b)"/>' +
+    '<path d="M-40 1030C70 800 205 685 465 585S670 495 770 390" stroke-width="2" filter="url(#s)"/>' +
+    '<path d="M-80 1590C180 1370 335 1420 560 1250S745 1180 810 940" stroke-width="95" filter="url(#b)"/></g>' +
+    '<ellipse cx="171" cy="514" rx="70" ry="20" fill="url(#p)" transform="rotate(-28 171 514)"/>' +
+    '<ellipse cx="607" cy="461" rx="38" ry="70" fill="url(#p)" opacity=".4" transform="rotate(25 607 461)"/></svg>';
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+}
+
+/** Cor onde termina o degradê do fundo: a base escura levemente tingida pela luz da paleta. */
 export function liquidGlassPageEnd(pageBackground: string, appearance: Panel1Appearance): string {
-  return mixHex(pageBackground, appearance.modal_active_background, 0.4);
+  return mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.16);
 }
 
-/** Cor média do que aparece atrás do vidro da página (degradê + brilho branco do vidro). */
+/** Cor média do que aparece atrás do vidro da página (degradê escuro + um pouco de brilho). */
 export function liquidGlassPageBase(pageBackground: string, appearance: Panel1Appearance): string {
-  const gradient = mixHex(pageBackground, liquidGlassPageEnd(pageBackground, appearance), 0.5);
-  return mixHex(gradient, "#ffffff", 0.1);
+  const gradient = mixHex(
+    liquidGlassDark(pageBackground),
+    liquidGlassPageEnd(pageBackground, appearance),
+    0.5,
+  );
+  return mixHex(gradient, "#ffffff", 0.05);
 }
 
-/** Cor média do diálogo: vidro da paleta sobre o escurecimento do overlay. */
+/** Cor média do diálogo: vidro escuro sobre o escurecimento do overlay. */
 export function liquidGlassDialogBase(
   pageBackground: string,
-  appearance: Panel1Appearance,
+  _appearance: Panel1Appearance,
 ): string {
-  return mixHex(mixHex(pageBackground, appearance.header_background, 0.15), "#000000", 0.12);
+  return mixHex(liquidGlassDark(pageBackground), "#000000", 0.1);
 }
 
 const GLASS_TEXT_FIELDS = [
+  "page_text",
   "header_text",
   "header_title",
   "service_name_text",
@@ -58,7 +131,15 @@ export function liquidGlassReadableAppearance(
   appearance: Panel1Appearance,
   base: string,
 ): Panel1Appearance {
-  const fallback = accessibleTextColor(base);
+  // Creme da referência quando lê sobre a base escura; senão preto/branco.
+  const cream = "#fff1c8";
+  let creamReadable = false;
+  try {
+    creamReadable = contrastRatio(cream, base) >= 4.5;
+  } catch {
+    creamReadable = false;
+  }
+  const fallback = creamReadable ? cream : accessibleTextColor(base);
   const next = { ...appearance };
   for (const field of GLASS_TEXT_FIELDS) {
     let readable = false;
@@ -77,11 +158,15 @@ export function liquidGlassTokens(
   pageBackground: string,
 ): CSSProperties {
   return {
-    "--liquid-tint-rgb": hexToRgb(appearance.modal_active_background),
-    "--liquid-atmosphere-rgb": hexToRgb(appearance.header_background),
-    "--liquid-surface-rgb": hexToRgb(appearance.service_background),
-    "--liquid-border-rgb": hexToRgb(appearance.service_border),
-    "--liquid-page-rgb": hexToRgb(pageBackground),
+    "--liquid-tint-rgb": hexToRgb(liquidGlassAccent(appearance)),
+    "--liquid-atmosphere-rgb": hexToRgb(
+      mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.22),
+    ),
+    "--liquid-surface-rgb": hexToRgb(
+      mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.38),
+    ),
+    "--liquid-border-rgb": hexToRgb(liquidGlassAccent(appearance)),
+    "--liquid-page-rgb": hexToRgb(liquidGlassDark(pageBackground)),
   } as CSSProperties;
 }
 
@@ -160,7 +245,7 @@ export function liquidGlassDialogStyle(
     color: text,
     "--foreground": text,
     "--card-foreground": text,
-    "--background": "color-mix(in srgb, white 38%, transparent)",
+    "--background": "color-mix(in srgb, white 10%, transparent)",
     "--muted": tint(10),
     "--muted-foreground": tint(72),
     "--secondary": tint(12),

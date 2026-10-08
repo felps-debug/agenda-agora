@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { MapPin } from "lucide-react";
+import { Check, Clock, MapPin } from "lucide-react";
 import { formatPrice } from "@/lib/format";
 import { accessibleTextColor } from "@/lib/contrast";
 import type { Panel1Appearance } from "@/lib/panel1-config";
@@ -56,7 +56,11 @@ export function BusinessHeader({
     onAppearanceTargetSelect ? onAppearanceTargetSelect("logo-cover") : onLogoClick?.();
   return (
     <div
-      className={`-mx-4 px-4 py-8 text-center ${variant === "liquid_glass" ? "liquid-glass-surface liquid-glass-hero liquid-glass-refract" : ""}`}
+      className={
+        variant === "liquid_glass"
+          ? "liquid-glass-brand -mx-4 px-4 pb-5 pt-7 text-center"
+          : "-mx-4 px-4 py-8 text-center"
+      }
       onClick={(event) => {
         event.stopPropagation();
         onAppearanceTargetSelect?.("header-background");
@@ -147,6 +151,7 @@ export function ServiceSection<S extends PreviewService>({
   pageText,
   variant = "classic",
   onAppearanceTargetSelect,
+  selectedId = null,
 }: {
   services: S[];
   onSelect: (service: S) => void;
@@ -154,8 +159,98 @@ export function ServiceSection<S extends PreviewService>({
   pageText: string;
   variant?: BookingPreviewVariant;
   onAppearanceTargetSelect?: (target: AppearanceSelectionTarget) => void;
+  /** Liquid Glass: serviço marcado na caixa de seleção; `onSelect` alterna a marcação. */
+  selectedId?: string | null;
 }) {
   const hoverTextColor = accessibleTextColor(appearance.service_hover_background);
+  if (variant === "liquid_glass" && services.length > 0) {
+    return (
+      <section>
+        <h2 className="sr-only">Serviços</h2>
+        <div className="space-y-3.5">
+          {services.map((s) => {
+            const selected = selectedId === s.id;
+            const initials = s.name.slice(0, 2).toUpperCase();
+            return (
+              <button
+                key={s.id}
+                type="button"
+                role="checkbox"
+                aria-checked={selected}
+                data-selected={selected}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (onAppearanceTargetSelect) onAppearanceTargetSelect("service-background");
+                  else onSelect(s);
+                }}
+                className="liquid-glass-surface liquid-glass-regular liquid-glass-refract liquid-glass-service flex w-full items-center gap-4 text-left"
+                style={{ color: appearance.service_text }}
+              >
+                {s.image_url ? (
+                  <img
+                    src={s.image_url}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="liquid-glass-service-image"
+                    onClick={(event) => {
+                      if (!onAppearanceTargetSelect) return;
+                      event.stopPropagation();
+                      onAppearanceTargetSelect("service-images");
+                    }}
+                  />
+                ) : (
+                  <span className="liquid-glass-service-image flex items-center justify-center text-xl font-bold">
+                    {initials}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span
+                    className="block text-xl font-bold leading-tight"
+                    style={{ color: appearance.service_name_text }}
+                    onClick={(event) => {
+                      if (!onAppearanceTargetSelect) return;
+                      event.stopPropagation();
+                      onAppearanceTargetSelect("service-name");
+                    }}
+                  >
+                    {s.name}
+                  </span>
+                  <span
+                    className="mt-2 block text-[0.95rem] leading-snug"
+                    style={{ color: appearance.service_price_text }}
+                    onClick={(event) => {
+                      if (!onAppearanceTargetSelect) return;
+                      event.stopPropagation();
+                      onAppearanceTargetSelect("service-price");
+                    }}
+                  >
+                    {s.show_price ? (
+                      <span className="block">{formatPrice(s.price_cents)}</span>
+                    ) : null}
+                    {s.show_duration ? (
+                      <span className="flex items-center gap-1.5">
+                        <Clock className="size-4" aria-hidden="true" />
+                        {s.duration_minutes}min
+                      </span>
+                    ) : null}
+                    {s.effectiveDepositCents > 0 ? (
+                      <span className="mt-1 block text-xs font-semibold">
+                        Sinal de {formatPrice(s.effectiveDepositCents)}
+                      </span>
+                    ) : null}
+                  </span>
+                </span>
+                <span className="liquid-glass-check" data-checked={selected} aria-hidden="true">
+                  {selected ? <Check className="size-4" strokeWidth={3} /> : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
   return (
     <section>
       {onAppearanceTargetSelect ? (

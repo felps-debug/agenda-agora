@@ -48,13 +48,23 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { BusinessHeader, ServiceSection } from "@/components/public-booking/appearance-preview";
 import {
-  LiquidGlassFilterDefs,
+  RefHeader,
+  RefLogo,
+  RefMain,
+  RefNav,
+  RefServices,
+} from "@/components/public-booking/liquid-glass-reference";
+import {
+  liquidGlassAccent,
+  liquidGlassDark,
   liquidGlassDialogBase,
   liquidGlassDialogStyle,
   liquidGlassPageBase,
-  liquidGlassPageEnd,
+  liquidGlassBackgroundImage,
+  liquidGlassHueShift,
   liquidGlassReadableAppearance,
   liquidGlassTokens,
+  mixHex,
 } from "@/components/public-booking/liquid-glass";
 
 const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
@@ -225,8 +235,10 @@ function PublicBooking() {
   const appearance = isLiquidGlass
     ? liquidGlassReadableAppearance(paletteAppearance, glassBase)
     : paletteAppearance;
-  const pageText = accessibleTextColor(isLiquidGlass ? glassBase : pageBackground);
+  const pageText = isLiquidGlass ? appearance.page_text : accessibleTextColor(pageBackground);
   const pageFontFamily = outreachFontFamily(appearance.font_family);
+  const glassDark = liquidGlassDark(pageBackground);
+  const glassAccent = liquidGlassAccent(paletteAppearance);
 
   useEffect(() => {
     loadOutreachFont(appearance.font_family);
@@ -441,136 +453,192 @@ function PublicBooking() {
     <div
       className={
         isLiquidGlass
-          ? "public-booking liquid-glass flex min-h-screen flex-col overflow-x-clip pb-28 text-foreground"
+          ? "public-booking lg-ref min-h-screen"
           : "public-booking flex min-h-screen flex-col overflow-x-clip bg-background pb-28 text-foreground"
       }
       style={
-        {
-          ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
-          "--background": pageBackground,
-          "--foreground": pageText,
-          "--card": pageBackground,
-          "--card-foreground": pageText,
-          "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
-          ...(isLiquidGlass ? liquidGlassTokens(appearance, pageBackground) : {}),
-          backgroundColor: pageBackground,
-          color: pageText,
-          fontFamily: isLiquidGlass ? "var(--font-sans)" : `'${pageFontFamily}', sans-serif`,
-          ...(pageBackgroundImage
-            ? {
-                backgroundImage: `url(${pageBackgroundImage})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                backgroundAttachment: "fixed",
-              }
-            : {}),
-          ...(isLiquidGlass && !pageBackgroundImage
-            ? {
-                backgroundImage:
-                  "radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--primary) 45%, transparent), transparent 34%), radial-gradient(circle at 85% 26%, color-mix(in srgb, #ffffff 22%, transparent), transparent 28%), linear-gradient(145deg, " +
-                  pageBackground +
-                  ", " +
-                  liquidGlassPageEnd(pageBackground, paletteAppearance) +
-                  ")",
-              }
-            : {}),
-        } as React.CSSProperties
+        isLiquidGlass
+          ? ({
+              ...liquidGlassTokens(appearance, pageBackground),
+              // Variáveis que o CSS da referência lê, alimentadas pela paleta editável.
+              "--background": glassDark,
+              "--menu": mixHex(glassDark, glassAccent, 0.12),
+              "--text": pageText,
+              "--shadow": `color-mix(in srgb, ${glassAccent} 30%, transparent)`,
+              "--lg-hue": `${liquidGlassHueShift(glassAccent)}deg`,
+              // Os componentes do SaaS (histórico etc.) leem estes tokens de tema.
+              "--foreground": pageText,
+              "--card-foreground": pageText,
+              "--muted-foreground": `color-mix(in srgb, ${pageText} 72%, transparent)`,
+              "--border": `color-mix(in srgb, ${pageText} 22%, transparent)`,
+              color: pageText,
+              fontFamily: `'${pageFontFamily}', sans-serif`,
+              backgroundColor: glassDark,
+              backgroundImage: pageBackgroundImage
+                ? `url(${pageBackgroundImage})`
+                : liquidGlassBackgroundImage(glassAccent, glassDark),
+              backgroundSize: "cover",
+              backgroundPosition: "center top",
+              backgroundAttachment: "fixed",
+            } as React.CSSProperties)
+          : ({
+              ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
+              "--background": pageBackground,
+              "--foreground": pageText,
+              "--card": pageBackground,
+              "--card-foreground": pageText,
+              "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
+              backgroundColor: pageBackground,
+              color: pageText,
+              fontFamily: `'${pageFontFamily}', sans-serif`,
+              ...(pageBackgroundImage
+                ? {
+                    backgroundImage: `url(${pageBackgroundImage})`,
+                    backgroundSize: "cover",
+                    backgroundPosition: "center",
+                    backgroundAttachment: "fixed",
+                  }
+                : {}),
+            } as React.CSSProperties)
       }
     >
-      {isLiquidGlass ? <LiquidGlassFilterDefs /> : null}
-      <header
-        className={
-          isLiquidGlass
-            ? "liquid-glass-surface liquid-glass-hero border-b px-4 py-3"
-            : "border-b px-4 py-3"
-        }
-        style={{
-          ...(isLiquidGlass ? {} : { backgroundColor: appearance.header_background }),
-          color: appearance.header_text,
-          borderColor: appearance.service_border,
-        }}
-      >
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-          <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em]">
-            Agenda Agora
-          </span>
-          {business?.phone ? (
-            <a href={`tel:${business.phone}`} className="inline-flex items-center gap-1.5 text-xs">
-              <Phone className="size-3.5" /> Contato
-            </a>
-          ) : null}
-        </div>
-      </header>
-
-      <main
-        className={
-          isLiquidGlass
-            ? "mx-auto w-full max-w-2xl flex-1 px-4 pb-8 pt-3 [--liquid-surface:color-mix(in_srgb,var(--background)_72%,transparent)]"
-            : "mx-auto w-full max-w-2xl flex-1 px-4 pb-8"
-        }
-      >
-        {!business ? (
-          <div className="flex min-h-[50vh] items-center justify-center py-10">
-            <p className="text-sm">Negócio não encontrado</p>
+      {isLiquidGlass ? (
+        <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
+      ) : (
+        <header
+          className="border-b px-4 py-3"
+          style={{
+            backgroundColor: appearance.header_background,
+            color: appearance.header_text,
+            borderColor: appearance.service_border,
+          }}
+        >
+          <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
+            <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em]">
+              Agenda Agora
+            </span>
+            {business?.phone ? (
+              <a
+                href={`tel:${business.phone}`}
+                className="inline-flex items-center gap-1.5 text-xs"
+              >
+                <Phone className="size-3.5" /> Contato
+              </a>
+            ) : null}
           </div>
-        ) : (
-          <>
-            <BusinessHeader
-              name={business.name}
-              logoUrl={business.logo_url ?? null}
-              address={business.address}
-              appearance={appearance}
-              variant={isLiquidGlass ? "liquid_glass" : "classic"}
-            />
+        </header>
+      )}
 
-            {business.status === "suspenso" ? (
-              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
-                Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
-              </div>
-            ) : tab === "agendar" ? (
-              <div className="space-y-8">
-                {services?.length ? (
-                  <ServiceSection
-                    services={services}
-                    onSelect={openService}
-                    appearance={appearance}
-                    pageText={pageText}
-                    variant={isLiquidGlass ? "liquid_glass" : "classic"}
-                  />
-                ) : (
-                  <div
-                    className={`rounded-xl border border-border bg-card p-8 text-center ${
-                      isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
-                    }`}
-                  >
-                    <p className="font-semibold">Nenhum serviço disponível no momento.</p>
-                    <p className="mt-2 text-sm">
-                      Volte mais tarde para conferir novos horários e serviços.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <HistoryList
-                slug={slug}
-                bookings={bookings.data?.bookings ?? []}
-                onOpen={setActiveCharge}
-                onRefresh={() => void bookings.refetch()}
-                appearance={appearance}
-                pageText={pageText}
-                liquidGlass={isLiquidGlass}
-                {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
-                onCancel={(code) => cancelAppointment.mutate(code)}
-                onReschedule={async (input) => {
-                  await rescheduleAppointment.mutateAsync(input);
-                }}
-                cancelPending={cancelAppointment.isPending}
-                reschedulePending={rescheduleAppointment.isPending}
+      {isLiquidGlass ? (
+        <RefMain
+          logo={
+            business && business.status !== "suspenso" ? (
+              <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
+            ) : null
+          }
+        >
+          {!business ? (
+            <p className="empty">Negócio não encontrado</p>
+          ) : business.status === "suspenso" ? (
+            <p className="empty">
+              Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+            </p>
+          ) : tab === "agendar" ? (
+            services?.length ? (
+              <RefServices
+                services={services}
+                selectedId={service?.id ?? null}
+                onToggle={openService}
+                nameColor={appearance.service_name_text}
+                priceColor={appearance.service_price_text}
               />
-            )}
-          </>
-        )}
-      </main>
+            ) : (
+              <p className="empty">Nenhum serviço disponível no momento.</p>
+            )
+          ) : (
+            <HistoryList
+              slug={slug}
+              bookings={bookings.data?.bookings ?? []}
+              onOpen={setActiveCharge}
+              onRefresh={() => void bookings.refetch()}
+              appearance={appearance}
+              pageText={pageText}
+              liquidGlass
+              {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+              onCancel={(code) => cancelAppointment.mutate(code)}
+              onReschedule={async (input) => {
+                await rescheduleAppointment.mutateAsync(input);
+              }}
+              cancelPending={cancelAppointment.isPending}
+              reschedulePending={rescheduleAppointment.isPending}
+            />
+          )}
+        </RefMain>
+      ) : (
+        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
+          {!business ? (
+            <div className="flex min-h-[50vh] items-center justify-center py-10">
+              <p className="text-sm">Negócio não encontrado</p>
+            </div>
+          ) : (
+            <>
+              <BusinessHeader
+                name={business.name}
+                logoUrl={business.logo_url ?? null}
+                address={business.address}
+                appearance={appearance}
+                variant="classic"
+              />
+
+              {business.status === "suspenso" ? (
+                <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
+                  Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+                </div>
+              ) : tab === "agendar" ? (
+                <div className="space-y-8">
+                  {services?.length ? (
+                    <ServiceSection
+                      services={services}
+                      onSelect={openService}
+                      appearance={appearance}
+                      pageText={pageText}
+                      variant="classic"
+                    />
+                  ) : (
+                    <div
+                      className={`rounded-xl border border-border bg-card p-8 text-center ${
+                        isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+                      }`}
+                    >
+                      <p className="font-semibold">Nenhum serviço disponível no momento.</p>
+                      <p className="mt-2 text-sm">
+                        Volte mais tarde para conferir novos horários e serviços.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <HistoryList
+                  slug={slug}
+                  bookings={bookings.data?.bookings ?? []}
+                  onOpen={setActiveCharge}
+                  onRefresh={() => void bookings.refetch()}
+                  appearance={appearance}
+                  pageText={pageText}
+                  liquidGlass={isLiquidGlass}
+                  {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+                  onCancel={(code) => cancelAppointment.mutate(code)}
+                  onReschedule={async (input) => {
+                    await rescheduleAppointment.mutateAsync(input);
+                  }}
+                  cancelPending={cancelAppointment.isPending}
+                  reschedulePending={rescheduleAppointment.isPending}
+                />
+              )}
+            </>
+          )}
+        </main>
+      )}
 
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
@@ -946,40 +1014,38 @@ function PublicBooking() {
         />
       )}
 
-      <nav
-        className={`fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg ${
-          isLiquidGlass
-            ? "liquid-glass-surface liquid-glass-regular liquid-glass-nav liquid-glass-refract"
-            : ""
-        }`}
-        data-compact={isLiquidGlass && navCompact}
-        style={isLiquidGlass ? {} : { backgroundColor: pageBackground }}
-      >
-        {(
-          [
-            { key: "agendar", label: "Agendar", icon: CalendarDays },
-            { key: "historico", label: "Histórico", icon: Clock },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => setTab(item.key)}
-            style={{ color: pageText }}
-            data-active={isLiquidGlass && tab === item.key}
-            className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
-              isLiquidGlass ? "liquid-glass-nav-item" : ""
-            } ${
-              tab === item.key
-                ? `font-semibold text-foreground ${isLiquidGlass ? "" : "underline underline-offset-4"}`
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <item.icon className="size-4" />
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      {isLiquidGlass ? (
+        <>
+          <RefNav tab={tab} compact={navCompact} onChange={setTab} />
+        </>
+      ) : (
+        <nav
+          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg"
+          style={{ backgroundColor: pageBackground }}
+        >
+          {(
+            [
+              { key: "agendar", label: "Agendar", icon: CalendarDays },
+              { key: "historico", label: "Histórico", icon: Clock },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setTab(item.key)}
+              style={{ color: pageText }}
+              className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
+                tab === item.key
+                  ? "font-semibold text-foreground underline underline-offset-4"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <item.icon className="size-4" />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }
@@ -1088,6 +1154,9 @@ function HistoryList({
         },
       }),
   });
+  const agendaTextColor = liquidGlass
+    ? pageText
+    : accessibleTextColor(appearance.agenda_background);
   if (!bookings.length)
     return (
       <div
@@ -1096,7 +1165,7 @@ function HistoryList({
         }`}
         style={{
           ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-          color: accessibleTextColor(appearance.agenda_background),
+          color: agendaTextColor,
           borderColor: appearance.agenda_border,
         }}
       >
@@ -1122,7 +1191,7 @@ function HistoryList({
             }`}
             style={{
               ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-              color: accessibleTextColor(appearance.agenda_background),
+              color: agendaTextColor,
               borderColor: appearance.agenda_border,
             }}
           >
@@ -1138,7 +1207,7 @@ function HistoryList({
               }`}
               style={{
                 ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-                color: accessibleTextColor(appearance.agenda_background),
+                color: agendaTextColor,
                 borderColor: appearance.agenda_border,
               }}
             >
@@ -1163,13 +1232,13 @@ function HistoryList({
               <Step
                 icon={<History className="size-4" />}
                 label="Agendamento cadastrado"
-                textColor={accessibleTextColor(appearance.agenda_background)}
+                textColor={agendaTextColor}
               />
               {shouldRenderDepositStep(b.chargeStatus) && (
                 <Step
                   icon={<DollarSign className="size-4" />}
                   label="Pagamento do sinal"
-                  textColor={accessibleTextColor(appearance.agenda_background)}
+                  textColor={agendaTextColor}
                 />
               )}
               {info.steps === 3 && (
@@ -1182,7 +1251,7 @@ function HistoryList({
                     )
                   }
                   label={info.label}
-                  textColor={accessibleTextColor(appearance.agenda_background)}
+                  textColor={agendaTextColor}
                 />
               )}
             </div>

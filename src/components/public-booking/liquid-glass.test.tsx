@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PANEL1_APPEARANCE } from "@/lib/panel1-config";
-import { liquidGlassTokens } from "./liquid-glass";
+import { liquidGlassHueShift, liquidGlassTokens } from "./liquid-glass";
 
 describe("liquidGlassTokens", () => {
-  it("derives the material tint from the selected palette instead of hardcoding gold", () => {
+  it("deriva a luz do vidro da paleta selecionada, sem dourado fixo", () => {
     const blue = liquidGlassTokens(
       { ...DEFAULT_PANEL1_APPEARANCE, modal_active_background: "#175d6a" },
       "#e2f1f3",
@@ -13,10 +13,16 @@ describe("liquidGlassTokens", () => {
       "#efe2d1",
     );
 
-    expect(blue["--liquid-tint-rgb" as keyof typeof blue]).toBe("23 93 106");
-    expect(warm["--liquid-tint-rgb" as keyof typeof warm]).toBe("118 83 51");
+    expect(blue["--liquid-tint-rgb" as keyof typeof blue]).toBe("104 150 158");
+    expect(warm["--liquid-tint-rgb" as keyof typeof warm]).toBe("166 143 122");
     expect(blue["--liquid-tint-rgb" as keyof typeof blue]).not.toBe(
       warm["--liquid-tint-rgb" as keyof typeof warm],
     );
+  });
+
+  it("gira os reflexos dourados para o matiz do destaque", () => {
+    expect(Math.abs(liquidGlassHueShift("#f0b75e"))).toBeLessThanOrEqual(5);
+    expect(liquidGlassHueShift("#3b82f6")).toBeGreaterThan(100);
+    expect(liquidGlassHueShift("#888888")).toBe(0);
   });
 });

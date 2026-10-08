@@ -25,7 +25,11 @@ import {
   type AppearanceSelectionTarget,
   type PreviewService,
 } from "@/components/public-booking/appearance-preview";
-import { LiquidGlassFilterDefs, liquidGlassTokens } from "@/components/public-booking/liquid-glass";
+import {
+  LiquidGlassFilterDefs,
+  liquidGlassDark,
+  liquidGlassTokens,
+} from "@/components/public-booking/liquid-glass";
 import {
   VisualEditorShell,
   type VisualPreviewMode,
@@ -216,7 +220,8 @@ export function AppearanceEditor(props: Props) {
     <div
       className={`min-h-[620px] px-4 pb-10 pt-3 ${layoutKey === "liquid_glass" ? "liquid-glass-preview" : ""}`}
       style={{
-        backgroundColor: pageBackground,
+        backgroundColor:
+          layoutKey === "liquid_glass" ? liquidGlassDark(pageBackground) : pageBackground,
         fontFamily: `'${outreachFontFamily(appearance.font_family)}', sans-serif`,
         ...(layoutKey === "liquid_glass" ? liquidGlassTokens(appearance, pageBackground) : {}),
         ...(backgroundImageUrl
