@@ -28,13 +28,17 @@ export function mixHex(a: string, b: string, amount: number): string {
  * luzes na cor de destaque da paleta (também editável). Com a paleta padrão fica o dourado
  * da referência.
  */
-export function liquidGlassDark(pageBackground: string): string {
-  return mixHex(pageBackground, "#000000", 0.88);
+export function liquidGlassDark(pageBackground: string, appearance?: Panel1Appearance): string {
+  // A cor principal dá o tom; o fundo da página só acrescenta um pouco.
+  const seed = appearance
+    ? mixHex(appearance.modal_active_background, pageBackground, 0.15)
+    : pageBackground;
+  return mixHex(seed, "#000000", 0.8);
 }
 
 /** Cor das luzes (fitas, reflexos e brilho): o destaque da paleta, clareado para brilhar no escuro. */
 export function liquidGlassAccent(appearance: Panel1Appearance): string {
-  return mixHex(appearance.modal_active_background, "#ffffff", 0.35);
+  return mixHex(appearance.modal_active_background, "#ffffff", 0.3);
 }
 
 const GOLD_HUE = 38; // matiz do dourado da referência (os reflexos do CSS são dourados)
@@ -93,13 +97,13 @@ export function liquidGlassBackgroundImage(accent: string, dark: string): string
 
 /** Cor onde termina o degradê do fundo: a base escura levemente tingida pela luz da paleta. */
 export function liquidGlassPageEnd(pageBackground: string, appearance: Panel1Appearance): string {
-  return mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.16);
+  return mixHex(liquidGlassDark(pageBackground, appearance), liquidGlassAccent(appearance), 0.16);
 }
 
 /** Cor média do que aparece atrás do vidro da página (degradê escuro + um pouco de brilho). */
 export function liquidGlassPageBase(pageBackground: string, appearance: Panel1Appearance): string {
   const gradient = mixHex(
-    liquidGlassDark(pageBackground),
+    liquidGlassDark(pageBackground, appearance),
     liquidGlassPageEnd(pageBackground, appearance),
     0.5,
   );
@@ -109,9 +113,9 @@ export function liquidGlassPageBase(pageBackground: string, appearance: Panel1Ap
 /** Cor média do diálogo: vidro escuro sobre o escurecimento do overlay. */
 export function liquidGlassDialogBase(
   pageBackground: string,
-  _appearance: Panel1Appearance,
+  appearance: Panel1Appearance,
 ): string {
-  return mixHex(liquidGlassDark(pageBackground), "#000000", 0.1);
+  return mixHex(liquidGlassDark(pageBackground, appearance), "#000000", 0.1);
 }
 
 const GLASS_TEXT_FIELDS = [
@@ -160,13 +164,13 @@ export function liquidGlassTokens(
   return {
     "--liquid-tint-rgb": hexToRgb(liquidGlassAccent(appearance)),
     "--liquid-atmosphere-rgb": hexToRgb(
-      mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.22),
+      mixHex(liquidGlassDark(pageBackground, appearance), liquidGlassAccent(appearance), 0.22),
     ),
     "--liquid-surface-rgb": hexToRgb(
-      mixHex(liquidGlassDark(pageBackground), liquidGlassAccent(appearance), 0.38),
+      mixHex(liquidGlassDark(pageBackground, appearance), liquidGlassAccent(appearance), 0.38),
     ),
     "--liquid-border-rgb": hexToRgb(liquidGlassAccent(appearance)),
-    "--liquid-page-rgb": hexToRgb(liquidGlassDark(pageBackground)),
+    "--liquid-page-rgb": hexToRgb(liquidGlassDark(pageBackground, appearance)),
   } as CSSProperties;
 }
 

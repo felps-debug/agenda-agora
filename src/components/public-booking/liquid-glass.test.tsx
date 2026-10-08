@@ -13,8 +13,8 @@ describe("liquidGlassTokens", () => {
       "#efe2d1",
     );
 
-    expect(blue["--liquid-tint-rgb" as keyof typeof blue]).toBe("104 150 158");
-    expect(warm["--liquid-tint-rgb" as keyof typeof warm]).toBe("166 143 122");
+    expect(blue["--liquid-tint-rgb" as keyof typeof blue]).toBe("93 142 151");
+    expect(warm["--liquid-tint-rgb" as keyof typeof warm]).toBe("159 135 112");
     expect(blue["--liquid-tint-rgb" as keyof typeof blue]).not.toBe(
       warm["--liquid-tint-rgb" as keyof typeof warm],
     );

@@ -20,16 +20,21 @@ import {
 } from "@/lib/visual-presets";
 import { loadOutreachFont, outreachFontFamily } from "@/components/template-editor/fonts";
 import {
-  BusinessHeader,
-  ServiceSection,
   type AppearanceSelectionTarget,
   type PreviewService,
 } from "@/components/public-booking/appearance-preview";
 import {
-  LiquidGlassFilterDefs,
-  liquidGlassDark,
-  liquidGlassTokens,
+  liquidGlassPageBase,
+  liquidGlassReadableAppearance,
 } from "@/components/public-booking/liquid-glass";
+import {
+  RefHeader,
+  RefLogo,
+  RefMain,
+  RefNav,
+  RefServices,
+  refPageTheme,
+} from "@/components/public-booking/liquid-glass-reference";
 import {
   VisualEditorShell,
   type VisualPreviewMode,
@@ -216,79 +221,57 @@ export function AppearanceEditor(props: Props) {
     ),
   ];
 
+  // A prévia usa os mesmos componentes da página pública, então mostra exatamente o que o cliente vê.
+  const glassLayout = layoutKey === "liquid_glass";
+  const previewAppearance = glassLayout
+    ? liquidGlassReadableAppearance(appearance, liquidGlassPageBase(pageBackground, appearance))
+    : appearance;
+  const previewTextBase = glassLayout
+    ? liquidGlassPageBase(pageBackground, appearance)
+    : pageBackground;
+  const previewText = (() => {
+    try {
+      if (contrastRatio(previewAppearance.page_text, previewTextBase) >= 4.5)
+        return previewAppearance.page_text;
+    } catch {
+      /* cor inválida: usa o automático */
+    }
+    return accessibleTextColor(previewTextBase);
+  })();
+  const previewTheme = refPageTheme({
+    layout: layoutKey,
+    appearance: previewAppearance,
+    pageBackground,
+    pageBackgroundImage: backgroundImageUrl,
+    fontFamily: outreachFontFamily(appearance.font_family),
+    text: previewText,
+    extraClass: "lg-preview",
+  });
+
   const preview = (
     <div
-      className={`min-h-[620px] px-4 pb-10 pt-3 ${layoutKey === "liquid_glass" ? "liquid-glass-preview" : ""}`}
-      style={{
-        backgroundColor:
-          layoutKey === "liquid_glass" ? liquidGlassDark(pageBackground) : pageBackground,
-        fontFamily: `'${outreachFontFamily(appearance.font_family)}', sans-serif`,
-        ...(layoutKey === "liquid_glass" ? liquidGlassTokens(appearance, pageBackground) : {}),
-        ...(backgroundImageUrl
-          ? {
-              backgroundImage: `url(${backgroundImageUrl})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            }
-          : {}),
-      }}
+      className={previewTheme.className}
+      style={previewTheme.style}
+      onClick={() => selectAppearanceTarget("page-background")}
     >
-      {layoutKey === "liquid_glass" ? <LiquidGlassFilterDefs /> : null}
-      <div
-        className="mx-auto max-w-2xl space-y-4"
-        onClick={() => selectAppearanceTarget("page-background")}
+      <RefHeader phone={null} color={previewAppearance.header_text} onTarget={selectAppearanceTarget} />
+      <RefMain
+        logo={
+          <RefLogo
+            name={businessName || "Nome do negócio"}
+            logoUrl={businessLogoUrl}
+            onTarget={selectAppearanceTarget}
+          />
+        }
       >
-        <button
-          type="button"
-          className="block w-full px-4 py-2 text-center text-xs font-bold uppercase tracking-[0.18em]"
-          onClick={(event) => {
-            event.stopPropagation();
-            selectAppearanceTarget("header-background");
-          }}
-          style={{
-            backgroundColor:
-              layoutKey === "liquid_glass" ? "transparent" : appearance.header_background,
-            color: appearance.header_text,
-          }}
-        >
-          Agenda Agora · Contato
-        </button>
-        <BusinessHeader
-          name={businessName || "Nome do negócio"}
-          logoUrl={businessLogoUrl}
-          address={businessAddress}
-          appearance={appearance}
-          variant={layoutKey}
-          onAppearanceTargetSelect={selectAppearanceTarget}
-        />
-        <ServiceSection
+        <RefServices
           services={previewServices}
-          onSelect={() => {}}
-          appearance={appearance}
-          pageText={appearance.page_text}
-          variant={layoutKey}
-          onAppearanceTargetSelect={selectAppearanceTarget}
+          selectedId={null}
+          onToggle={() => {}}
+          onTarget={selectAppearanceTarget}
         />
-        <button
-          type="button"
-          className={`mx-auto block rounded-xl border px-5 py-2.5 text-sm font-semibold shadow-sm ${
-            layoutKey === "liquid_glass" ? "liquid-glass-surface liquid-glass-regular" : ""
-          }`}
-          style={{
-            ...(layoutKey === "classic"
-              ? { backgroundColor: appearance.modal_active_background }
-              : {}),
-            color: accessibleTextColor(appearance.modal_active_background),
-            borderColor: appearance.modal_border,
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-            selectAppearanceTarget("buttons");
-          }}
-        >
-          Avançar no agendamento
-        </button>
-      </div>
+      </RefMain>
+      <RefNav tab="agendar" onChange={() => {}} onTarget={selectAppearanceTarget} />
     </div>
   );
 

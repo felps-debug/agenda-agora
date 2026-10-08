@@ -18,13 +18,12 @@ import {
   History,
   Info,
   Loader2,
-  Phone,
   User,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/format";
-import { accessibleTextColor } from "@/lib/contrast";
+import { accessibleTextColor, contrastRatio } from "@/lib/contrast";
 import {
   DEFAULT_PANEL1_APPEARANCE,
   DEFAULT_PANEL1_VISUAL_PREFERENCES,
@@ -46,25 +45,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { BusinessHeader, ServiceSection } from "@/components/public-booking/appearance-preview";
 import {
   RefHeader,
+  refPageTheme,
   RefLogo,
   RefMain,
   RefNav,
   RefServices,
 } from "@/components/public-booking/liquid-glass-reference";
 import {
-  liquidGlassAccent,
-  liquidGlassDark,
   liquidGlassDialogBase,
   liquidGlassDialogStyle,
   liquidGlassPageBase,
-  liquidGlassBackgroundImage,
-  liquidGlassHueShift,
   liquidGlassReadableAppearance,
-  liquidGlassTokens,
-  mixHex,
 } from "@/components/public-booking/liquid-glass";
 
 const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
@@ -235,10 +228,25 @@ function PublicBooking() {
   const appearance = isLiquidGlass
     ? liquidGlassReadableAppearance(paletteAppearance, glassBase)
     : paletteAppearance;
-  const pageText = isLiquidGlass ? appearance.page_text : accessibleTextColor(pageBackground);
+  // Texto da página: o editado no painel; se não ler sobre o fundo, cai para preto/branco.
+  const pageTextBase = isLiquidGlass ? glassBase : pageBackground;
+  const pageText = (() => {
+    try {
+      if (contrastRatio(appearance.page_text, pageTextBase) >= 4.5) return appearance.page_text;
+    } catch {
+      /* cor inválida: usa o automático */
+    }
+    return accessibleTextColor(pageTextBase);
+  })();
   const pageFontFamily = outreachFontFamily(appearance.font_family);
-  const glassDark = liquidGlassDark(pageBackground);
-  const glassAccent = liquidGlassAccent(paletteAppearance);
+  const theme = refPageTheme({
+    layout: isLiquidGlass ? "liquid_glass" : "classic",
+    appearance,
+    pageBackground,
+    pageBackgroundImage,
+    fontFamily: pageFontFamily,
+    text: pageText,
+  });
 
   useEffect(() => {
     loadOutreachFont(appearance.font_family);
@@ -450,195 +458,51 @@ function PublicBooking() {
   }, [isLiquidGlass]);
 
   return (
-    <div
-      className={
-        isLiquidGlass
-          ? "public-booking lg-ref min-h-screen"
-          : "public-booking flex min-h-screen flex-col overflow-x-clip bg-background pb-28 text-foreground"
-      }
-      style={
-        isLiquidGlass
-          ? ({
-              ...liquidGlassTokens(appearance, pageBackground),
-              // Variáveis que o CSS da referência lê, alimentadas pela paleta editável.
-              "--background": glassDark,
-              "--menu": mixHex(glassDark, glassAccent, 0.12),
-              "--text": pageText,
-              "--shadow": `color-mix(in srgb, ${glassAccent} 30%, transparent)`,
-              "--lg-hue": `${liquidGlassHueShift(glassAccent)}deg`,
-              // Os componentes do SaaS (histórico etc.) leem estes tokens de tema.
-              "--foreground": pageText,
-              "--card-foreground": pageText,
-              "--muted-foreground": `color-mix(in srgb, ${pageText} 72%, transparent)`,
-              "--border": `color-mix(in srgb, ${pageText} 22%, transparent)`,
-              color: pageText,
-              fontFamily: `'${pageFontFamily}', sans-serif`,
-              backgroundColor: glassDark,
-              backgroundImage: pageBackgroundImage
-                ? `url(${pageBackgroundImage})`
-                : liquidGlassBackgroundImage(glassAccent, glassDark),
-              backgroundSize: "cover",
-              backgroundPosition: "center top",
-              backgroundAttachment: "fixed",
-            } as React.CSSProperties)
-          : ({
-              ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
-              "--background": pageBackground,
-              "--foreground": pageText,
-              "--card": pageBackground,
-              "--card-foreground": pageText,
-              "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
-              backgroundColor: pageBackground,
-              color: pageText,
-              fontFamily: `'${pageFontFamily}', sans-serif`,
-              ...(pageBackgroundImage
-                ? {
-                    backgroundImage: `url(${pageBackgroundImage})`,
-                    backgroundSize: "cover",
-                    backgroundPosition: "center",
-                    backgroundAttachment: "fixed",
-                  }
-                : {}),
-            } as React.CSSProperties)
-      }
-    >
-      {isLiquidGlass ? (
-        <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
-      ) : (
-        <header
-          className="border-b px-4 py-3"
-          style={{
-            backgroundColor: appearance.header_background,
-            color: appearance.header_text,
-            borderColor: appearance.service_border,
-          }}
-        >
-          <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-            <span className="font-display text-sm font-extrabold uppercase tracking-[0.18em]">
-              Agenda Agora
-            </span>
-            {business?.phone ? (
-              <a
-                href={`tel:${business.phone}`}
-                className="inline-flex items-center gap-1.5 text-xs"
-              >
-                <Phone className="size-3.5" /> Contato
-              </a>
-            ) : null}
-          </div>
-        </header>
-      )}
+    <div className={theme.className} style={theme.style}>
+      <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
 
-      {isLiquidGlass ? (
-        <RefMain
-          logo={
-            business && business.status !== "suspenso" ? (
-              <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
-            ) : null
-          }
-        >
-          {!business ? (
-            <p className="empty">Negócio não encontrado</p>
-          ) : business.status === "suspenso" ? (
-            <p className="empty">
-              Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
-            </p>
-          ) : tab === "agendar" ? (
-            services?.length ? (
-              <RefServices
-                services={services}
-                selectedId={service?.id ?? null}
-                onToggle={openService}
-                nameColor={appearance.service_name_text}
-                priceColor={appearance.service_price_text}
-              />
-            ) : (
-              <p className="empty">Nenhum serviço disponível no momento.</p>
-            )
-          ) : (
-            <HistoryList
-              slug={slug}
-              bookings={bookings.data?.bookings ?? []}
-              onOpen={setActiveCharge}
-              onRefresh={() => void bookings.refetch()}
-              appearance={appearance}
-              pageText={pageText}
-              liquidGlass
-              {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
-              onCancel={(code) => cancelAppointment.mutate(code)}
-              onReschedule={async (input) => {
-                await rescheduleAppointment.mutateAsync(input);
-              }}
-              cancelPending={cancelAppointment.isPending}
-              reschedulePending={rescheduleAppointment.isPending}
+      <RefMain
+        logo={
+          business && business.status !== "suspenso" ? (
+            <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
+          ) : null
+        }
+      >
+        {!business ? (
+          <p className="empty">Negócio não encontrado</p>
+        ) : business.status === "suspenso" ? (
+          <p className="empty">
+            Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+          </p>
+        ) : tab === "agendar" ? (
+          services?.length ? (
+            <RefServices
+              services={services}
+              selectedId={service?.id ?? null}
+              onToggle={openService}
             />
-          )}
-        </RefMain>
-      ) : (
-        <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
-          {!business ? (
-            <div className="flex min-h-[50vh] items-center justify-center py-10">
-              <p className="text-sm">Negócio não encontrado</p>
-            </div>
           ) : (
-            <>
-              <BusinessHeader
-                name={business.name}
-                logoUrl={business.logo_url ?? null}
-                address={business.address}
-                appearance={appearance}
-                variant="classic"
-              />
-
-              {business.status === "suspenso" ? (
-                <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
-                  Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
-                </div>
-              ) : tab === "agendar" ? (
-                <div className="space-y-8">
-                  {services?.length ? (
-                    <ServiceSection
-                      services={services}
-                      onSelect={openService}
-                      appearance={appearance}
-                      pageText={pageText}
-                      variant="classic"
-                    />
-                  ) : (
-                    <div
-                      className={`rounded-xl border border-border bg-card p-8 text-center ${
-                        isLiquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
-                      }`}
-                    >
-                      <p className="font-semibold">Nenhum serviço disponível no momento.</p>
-                      <p className="mt-2 text-sm">
-                        Volte mais tarde para conferir novos horários e serviços.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <HistoryList
-                  slug={slug}
-                  bookings={bookings.data?.bookings ?? []}
-                  onOpen={setActiveCharge}
-                  onRefresh={() => void bookings.refetch()}
-                  appearance={appearance}
-                  pageText={pageText}
-                  liquidGlass={isLiquidGlass}
-                  {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
-                  onCancel={(code) => cancelAppointment.mutate(code)}
-                  onReschedule={async (input) => {
-                    await rescheduleAppointment.mutateAsync(input);
-                  }}
-                  cancelPending={cancelAppointment.isPending}
-                  reschedulePending={rescheduleAppointment.isPending}
-                />
-              )}
-            </>
-          )}
-        </main>
-      )}
+            <p className="empty">Nenhum serviço disponível no momento.</p>
+          )
+        ) : (
+          <HistoryList
+            slug={slug}
+            bookings={bookings.data?.bookings ?? []}
+            onOpen={setActiveCharge}
+            onRefresh={() => void bookings.refetch()}
+            appearance={appearance}
+            pageText={pageText}
+            liquidGlass={isLiquidGlass}
+            {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+            onCancel={(code) => cancelAppointment.mutate(code)}
+            onReschedule={async (input) => {
+              await rescheduleAppointment.mutateAsync(input);
+            }}
+            cancelPending={cancelAppointment.isPending}
+            reschedulePending={rescheduleAppointment.isPending}
+          />
+        )}
+      </RefMain>
 
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
@@ -1014,38 +878,7 @@ function PublicBooking() {
         />
       )}
 
-      {isLiquidGlass ? (
-        <>
-          <RefNav tab={tab} compact={navCompact} onChange={setTab} />
-        </>
-      ) : (
-        <nav
-          className="fixed inset-x-0 bottom-4 z-40 mx-auto flex w-[min(28rem,90%)] items-center justify-around rounded-full border border-border py-3 shadow-lg"
-          style={{ backgroundColor: pageBackground }}
-        >
-          {(
-            [
-              { key: "agendar", label: "Agendar", icon: CalendarDays },
-              { key: "historico", label: "Histórico", icon: Clock },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => setTab(item.key)}
-              style={{ color: pageText }}
-              className={`flex min-w-24 flex-col items-center gap-1 text-xs transition-colors ${
-                tab === item.key
-                  ? "font-semibold text-foreground underline underline-offset-4"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <item.icon className="size-4" />
-              {item.label}
-            </button>
-          ))}
-        </nav>
-      )}
+      <RefNav tab={tab} compact={isLiquidGlass && navCompact} onChange={setTab} />
     </div>
   );
 }

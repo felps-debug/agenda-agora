@@ -1,12 +1,27 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { accessibleTextColor } from "@/lib/contrast";
 import { formatPrice } from "@/lib/format";
+import type { Panel1Appearance } from "@/lib/panel1-config";
+import type { AppearanceSelectionTarget } from "@/components/public-booking/appearance-preview";
+import {
+  liquidGlassAccent,
+  liquidGlassBackgroundImage,
+  liquidGlassDark,
+  liquidGlassHueShift,
+  liquidGlassTokens,
+  mixHex,
+} from "@/components/public-booking/liquid-glass";
 import "@/styles/liquid-glass-reference.css";
+import "@/styles/booking-classic.css";
 
 /**
- * Marcação do Painel 1 Liquid Glass copiada do repo fazerpainel1-liquidglass (index.html + app.js).
- * As classes são as mesmas do HTML original; o CSS está em styles/liquid-glass-reference.css
- * e vale só dentro de `.lg-ref`.
+ * Página pública do Painel 1 (agendamento). O formato vem do repo fazerpainel1-liquidglass
+ * (index.html + app.js): topo em pílula, logo solta, cards com foto e caixa de marcar, menu só
+ * com ícones. `liquid_glass` usa o CSS do repo (.lg-ref); `classic` usa o mesmo formato com cores
+ * sólidas (.lg-classic). A prévia do editor usa exatamente estes componentes.
  */
+
+type Target = (target: AppearanceSelectionTarget) => void;
 
 const ICONS = {
   services:
@@ -17,43 +32,151 @@ const ICONS = {
     '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
 } as const;
 
-function Icon({ name }: { name: keyof typeof ICONS }) {
+function Icon({ name, style }: { name: keyof typeof ICONS; style?: CSSProperties }) {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" dangerouslySetInnerHTML={{ __html: ICONS[name] }} />
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={style}
+      dangerouslySetInnerHTML={{ __html: ICONS[name] }}
+    />
   );
 }
 
-export function RefHeader({ phone, color }: { phone: string | null; color?: string }) {
+export type RefLayout = "liquid_glass" | "classic";
+
+/** Classe e variáveis CSS da raiz da página, alimentadas pelo tema editável. */
+export function refPageTheme({
+  layout,
+  appearance,
+  pageBackground,
+  pageBackgroundImage,
+  fontFamily,
+  text,
+  extraClass = "",
+}: {
+  layout: RefLayout;
+  appearance: Panel1Appearance;
+  pageBackground: string;
+  pageBackgroundImage: string | null;
+  fontFamily: string;
+  text: string;
+  extraClass?: string;
+}): { className: string; style: CSSProperties } {
+  if (layout === "liquid_glass") {
+    const dark = liquidGlassDark(pageBackground, appearance);
+    const accent = liquidGlassAccent(appearance);
+    return {
+      className: `public-booking lg-ref ${extraClass}`.trim(),
+      style: {
+        ...liquidGlassTokens(appearance, pageBackground),
+        // Variáveis que o CSS da referência lê, alimentadas pelo tema.
+        "--background": dark,
+        "--menu": mixHex(dark, accent, 0.12),
+        "--text": text,
+        "--shadow": `color-mix(in srgb, ${accent} 30%, transparent)`,
+        "--lg-hue": `${liquidGlassHueShift(accent)}deg`,
+        "--lg-header-tint": appearance.header_background,
+        "--lg-card-tint": appearance.service_background,
+        // Tokens que os componentes do SaaS (histórico, diálogos) leem.
+        "--foreground": text,
+        "--card-foreground": text,
+        "--muted-foreground": `color-mix(in srgb, ${text} 72%, transparent)`,
+        "--border": `color-mix(in srgb, ${text} 22%, transparent)`,
+        color: text,
+        fontFamily: `'${fontFamily}', sans-serif`,
+        backgroundColor: dark,
+        backgroundImage: pageBackgroundImage
+          ? `url(${pageBackgroundImage})`
+          : liquidGlassBackgroundImage(accent, dark),
+        backgroundSize: "cover",
+        backgroundPosition: "center top",
+        backgroundAttachment: "fixed",
+      } as CSSProperties,
+    };
+  }
+  const accent = appearance.modal_active_background;
+  return {
+    className: `public-booking lg-classic ${extraClass}`.trim(),
+    style: {
+      "--cl-bg": pageBackground,
+      "--cl-text": text,
+      "--cl-header-bg": appearance.header_background,
+      "--cl-header-text": appearance.header_text,
+      "--cl-card": appearance.service_background,
+      "--cl-card-border": appearance.service_border,
+      "--cl-nav-text": accessibleTextColor(appearance.service_background),
+      "--cl-name": appearance.service_name_text,
+      "--cl-price": appearance.service_price_text,
+      "--cl-accent": accent,
+      "--cl-accent-text": accessibleTextColor(accent),
+      // Tokens de tema lidos pelos componentes do SaaS (histórico, diálogos).
+      "--background": pageBackground,
+      "--foreground": text,
+      "--card": appearance.service_background,
+      "--card-foreground": appearance.service_text,
+      "--primary": accent,
+      "--primary-foreground": accessibleTextColor(accent),
+      backgroundColor: pageBackground,
+      color: text,
+      fontFamily: `'${fontFamily}', sans-serif`,
+      ...(pageBackgroundImage
+        ? {
+            backgroundImage: `url(${pageBackgroundImage})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center top",
+          }
+        : {}),
+    } as CSSProperties,
+  };
+}
+
+export function RefHeader({
+  phone,
+  color,
+  onTarget,
+}: {
+  phone: string | null;
+  color?: string;
+  onTarget?: Target;
+}) {
   return (
-    <header>
+    <header
+      onClick={
+        onTarget
+          ? (event) => {
+              event.stopPropagation();
+              onTarget("header-background");
+            }
+          : undefined
+      }
+    >
       {/* O wordmark vira máscara para aceitar a cor de texto do cabeçalho editada no painel. */}
       <span
         role="img"
         aria-label="Agenda Agora"
         style={{
           display: "block",
-          width: 124,
-          height: 9.7,
+          width: 150,
+          height: 11.7,
+          flexShrink: 0,
           backgroundColor: color ?? "#fffdf5",
-          WebkitMask: "url(/agenda-agora-wordmark.svg) center / contain no-repeat",
-          mask: "url(/agenda-agora-wordmark.svg) center / contain no-repeat",
+          WebkitMask: "url(/agenda-agora-wordmark.svg) left center / contain no-repeat",
+          mask: "url(/agenda-agora-wordmark.svg) left center / contain no-repeat",
         }}
       />
-      {phone ? (
+      {phone || onTarget ? (
         <button
           type="button"
           aria-label="Contato"
           style={color ? { color } : undefined}
-          onClick={() => {
-            window.location.href = `tel:${phone}`;
+          onClick={(event) => {
+            if (onTarget) return;
+            event.stopPropagation();
+            if (phone) window.location.href = `tel:${phone}`;
           }}
         >
-          <svg
-            viewBox="0 0 24 24"
-            aria-hidden="true"
-            style={{ width: 22, height: 22, display: "block" }}
-            dangerouslySetInnerHTML={{ __html: ICONS.phone }}
-          />
+          <Icon name="phone" style={{ width: 24, height: 24, display: "block" }} />
         </button>
       ) : null}
     </header>
@@ -71,11 +194,37 @@ export type RefService = {
   image_url?: string | null;
 };
 
-export function RefLogo({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+export function RefLogo({
+  name,
+  logoUrl,
+  onTarget,
+}: {
+  name: string;
+  logoUrl: string | null;
+  onTarget?: Target;
+}) {
+  const select = (target: AppearanceSelectionTarget) =>
+    onTarget
+      ? (event: { stopPropagation: () => void }) => {
+          event.stopPropagation();
+          onTarget(target);
+        }
+      : undefined;
   return logoUrl ? (
-    <img className="logo" src={logoUrl} alt={`Logotipo de ${name}`} decoding="async" />
+    <img
+      className="logo"
+      src={logoUrl}
+      alt={`Logotipo de ${name}`}
+      decoding="async"
+      onClick={select("logo-cover")}
+    />
   ) : (
-    <h1 style={{ textAlign: "center", margin: "28px 16px 16px", fontSize: 26 }}>{name}</h1>
+    <h1
+      style={{ textAlign: "center", margin: "28px 16px 16px", fontSize: 26 }}
+      onClick={select("business-title")}
+    >
+      {name}
+    </h1>
   );
 }
 
@@ -83,21 +232,33 @@ export function RefServices<S extends RefService>({
   services,
   selectedId,
   onToggle,
-  nameColor,
-  priceColor,
+  onTarget,
 }: {
   services: S[];
   selectedId: string | null;
   onToggle: (service: S) => void;
-  nameColor?: string;
-  priceColor?: string;
+  onTarget?: Target;
 }) {
+  const select = (target: AppearanceSelectionTarget) =>
+    onTarget
+      ? (event: { stopPropagation: () => void; preventDefault: () => void }) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onTarget(target);
+        }
+      : undefined;
   return (
     <div className="services">
       {services.map((s) => (
-        <label className="service" key={s.id}>
+        <label className="service" key={s.id} onClick={select("service-background")}>
           {s.image_url ? (
-            <img src={s.image_url} alt={s.name} loading="lazy" decoding="async" />
+            <img
+              src={s.image_url}
+              alt={s.name}
+              loading="lazy"
+              decoding="async"
+              onClick={select("service-images")}
+            />
           ) : (
             <span className="noimg" aria-hidden="true">
               {s.name.slice(0, 2).toUpperCase()}
@@ -105,20 +266,24 @@ export function RefServices<S extends RefService>({
           )}
           <div className="details">
             <div>
-              <h3 style={nameColor ? { color: nameColor } : undefined}>{s.name}</h3>
+              <h3 onClick={select("service-name")}>{s.name}</h3>
               {s.show_price ? (
-                <div className="price" style={priceColor ? { color: priceColor } : undefined}>
+                <div className="price" onClick={select("service-price")}>
                   {formatPrice(s.price_cents)}
                 </div>
               ) : null}
               {s.show_duration ? (
-                <div className="duration" style={priceColor ? { color: priceColor } : undefined}>
+                <div className="duration" onClick={select("service-price")}>
                   <Icon name="clock" />
                   {s.duration_minutes}min
                 </div>
               ) : null}
               {s.effectiveDepositCents > 0 ? (
-                <div className="price" style={{ fontSize: 13, opacity: 0.85 }}>
+                <div
+                  className="price"
+                  style={{ fontSize: 13, opacity: 0.85 }}
+                  onClick={select("service-price")}
+                >
                   Sinal de {formatPrice(s.effectiveDepositCents)}
                 </div>
               ) : null}
@@ -139,19 +304,32 @@ export function RefServices<S extends RefService>({
 
 export function RefNav({
   tab,
-  compact,
+  compact = false,
   onChange,
+  onTarget,
 }: {
   tab: "agendar" | "historico";
-  compact: boolean;
+  compact?: boolean;
   onChange: (tab: "agendar" | "historico") => void;
+  onTarget?: Target;
 }) {
   const items: { key: "agendar" | "historico"; label: string; icon: "services" | "history" }[] = [
     { key: "agendar", label: "Agendar", icon: "services" },
     { key: "historico", label: "Histórico", icon: "history" },
   ];
   return (
-    <nav aria-label="Menu principal" className={compact ? "compact" : undefined}>
+    <nav
+      aria-label="Menu principal"
+      className={compact ? "compact" : undefined}
+      onClick={
+        onTarget
+          ? (event) => {
+              event.stopPropagation();
+              onTarget("buttons");
+            }
+          : undefined
+      }
+    >
       {items.map((item) => (
         <button
           key={item.key}

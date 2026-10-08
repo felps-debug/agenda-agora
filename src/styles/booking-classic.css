@@ -1,0 +1,195 @@
+/*
+ * Layout "classic" da página pública: o MESMO formato do Liquid Glass (topo em pílula, logo solta,
+ * cards com foto à esquerda e caixa de marcar à direita, menu inferior só com ícones), mas com
+ * cores sólidas vindas do tema editável. As variáveis --cl-* são definidas inline pela página.
+ */
+.lg-classic {
+  min-height: 100vh;
+  background: var(--cl-bg);
+  color: var(--cl-text);
+  font-size: 18px;
+  overflow-x: clip;
+}
+.lg-classic * { box-sizing: border-box; }
+.lg-classic button, .lg-classic input { font: inherit; }
+.lg-classic button { cursor: pointer; color: inherit; }
+
+.lg-classic header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 40%;
+  height: 64px;
+  margin: 10px auto 0;
+  padding: 0 12px 0 24px;
+  border-radius: 32px;
+  background: var(--cl-header-bg);
+  color: var(--cl-header-text);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.14);
+}
+.lg-classic header button {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--cl-header-text) 14%, transparent);
+  color: var(--cl-header-text);
+}
+
+.lg-classic main { width: 40%; margin: auto; padding-bottom: 150px; }
+.lg-classic .logo {
+  display: block;
+  width: 25vw;
+  max-width: 200px;
+  margin: 28px auto 20px;
+}
+.lg-classic #content { margin: 0 16px; }
+.lg-classic .services { display: flex; flex-direction: column; gap: 15px; }
+.lg-classic .service {
+  display: flex;
+  height: 130px;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 22px;
+  background: var(--cl-card);
+  border: 1px solid var(--cl-card-border);
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.08);
+}
+.lg-classic .service img,
+.lg-classic .service .noimg {
+  width: 112px;
+  height: 112px;
+  flex-shrink: 0;
+  object-fit: cover;
+  border-radius: 16px;
+}
+.lg-classic .service .noimg {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 26px;
+  background: color-mix(in srgb, var(--cl-name) 10%, transparent);
+  color: var(--cl-name);
+}
+.lg-classic .details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  padding: 0 10px 0 16px;
+}
+.lg-classic .details > div:first-child { min-width: 0; }
+.lg-classic h3 {
+  margin: 0 8px 8px 0;
+  padding-top: 2px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--cl-name);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.lg-classic .price,
+.lg-classic .duration { font-size: 16px; line-height: 18px; color: var(--cl-price); }
+.lg-classic .duration { display: flex; gap: 3px; align-items: center; }
+.lg-classic .duration svg { width: 16px; height: 16px; }
+.lg-classic svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.lg-classic .choice {
+  appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 0 8px;
+  border: 3px solid var(--cl-accent);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.lg-classic .choice:checked { background: var(--cl-accent); }
+.lg-classic .choice:checked::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  width: 5px;
+  height: 10px;
+  border: solid var(--cl-accent-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.lg-classic .empty { text-align: center; padding: 24px; }
+
+.lg-classic nav {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: 40%;
+  height: 70px;
+  padding: 10px 20px;
+  border-radius: 35px;
+  background: var(--cl-card);
+  border: 1px solid var(--cl-card-border);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+}
+.lg-classic nav button {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--cl-nav-text);
+}
+.lg-classic nav button.active {
+  background: var(--cl-accent);
+  color: var(--cl-accent-text);
+}
+.lg-classic nav svg { width: 28px; height: 28px; }
+.lg-classic button:focus-visible,
+.lg-classic input:focus-visible {
+  outline: 2px solid var(--cl-accent);
+  outline-offset: 4px;
+}
+
+@media (max-width: 767px) {
+  .lg-classic header { width: calc(100% - 24px); }
+  .lg-classic main { width: 100%; }
+  .lg-classic nav { width: calc(100% - 24px); }
+}
+@media (max-width: 360px) {
+  .lg-classic .service { height: 112px; }
+  .lg-classic .service img,
+  .lg-classic .service .noimg { width: 94px; height: 94px; }
+  .lg-classic h3 { font-size: 18px; }
+}
+
+/* Prévia dentro do editor: tudo preso à moldura (o transform contém os elementos fixed). */
+.lg-preview {
+  position: relative;
+  transform: translateZ(0);
+  min-height: 640px;
+  overflow: hidden;
+}
+.lg-preview header,
+.lg-preview main,
+.lg-preview nav { width: calc(100% - 24px); }
+.lg-preview main { width: 100%; padding-bottom: 110px; }
+.lg-preview nav { position: absolute; bottom: 14px; }
+.lg-preview header { margin-top: 10px; }
