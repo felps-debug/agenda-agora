@@ -275,5 +275,6 @@ header button{display:grid;place-items:center;width:52px;height:52px;padding:0;b
 &.lg-preview main{width:100%;padding-bottom:110px}
 &.lg-preview nav{position:absolute;bottom:14px}
 &{min-height:100vh}
+/* ACRÉSCIMO nosso: a foto fica acima dos contornos do card (::before/::after, z-index 3). */
+.service img,.service .noimg{z-index:4}
 }
-
