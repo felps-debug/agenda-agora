@@ -76,9 +76,10 @@ export const PANEL_LAYOUT_MODELS: ReadonlyArray<{
 }> = [
   { id: "classic", label: "Clássico", description: "O modelo atual, direto e familiar." },
   {
+    // O id gravado no banco continua "liquid_glass" (restrição da coluna); só o nome mudou.
     id: "liquid_glass",
-    label: "Liquid Glass",
-    description: "Superfícies translúcidas, brilho e profundidade.",
+    label: "Vitrine",
+    description: "Capa grande, logo sobreposto e serviços em cards com foto.",
   },
 ];
 

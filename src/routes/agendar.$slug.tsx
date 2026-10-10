@@ -11,7 +11,6 @@ import { useServerFn } from "@tanstack/react-start";
 import {
   CalendarDays,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -19,7 +18,6 @@ import {
   History,
   Info,
   Loader2,
-  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -55,6 +53,14 @@ import {
   RefNav,
   RefServices,
 } from "@/components/public-booking/liquid-glass-reference";
+import {
+  VitrineHero,
+  VitrineMain,
+  VitrineNav,
+  VitrineServices,
+  vitrineSubtitle,
+  vitrineTheme,
+} from "@/components/public-booking/vitrine";
 import {
   liquidGlassDialogBase,
   liquidGlassDialogStyle,
@@ -164,10 +170,6 @@ function PublicBooking() {
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [pageStart, setPageStart] = useState(0);
-  // Passos do popup: 0 data e profissional, 1 horário, 2 seus dados.
-  const [step, setStep] = useState(0);
-  const [timeStart, setTimeStart] = useState(0);
-  const [proOpen, setProOpen] = useState(false);
   const [charges, setCharges] = useState<string[]>([]);
   const [publicCodes, setPublicCodes] = useState<string[]>([]);
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
@@ -225,10 +227,9 @@ function PublicBooking() {
     ...(catalog?.appearance ?? {}),
   };
   const visual = catalog?.visual ?? DEFAULT_PANEL1_VISUAL_PREFERENCES;
-  const isLiquidGlass = visual.layout_key === "liquid_glass";
-  // 6 datas por página (3x2): cabem no popup sem rolar.
-  const pageSize = 6;
-  const timePageSize = 6;
+  // O valor gravado continua "liquid_glass" (restrição da coluna); na tela o modelo é a Vitrine.
+  const isVitrine = visual.layout_key === "liquid_glass";
+  const isLiquidGlass = false;
   const pageBackground = business?.brand_background ?? "#ffffff";
   const pageBackgroundImage = business?.brand_background_image ?? null;
   // No Liquid Glass o texto lê sobre o vidro (não sobre a cor da página): a paleta é mantida e só
@@ -248,14 +249,16 @@ function PublicBooking() {
     return accessibleTextColor(pageTextBase);
   })();
   const pageFontFamily = outreachFontFamily(appearance.font_family);
-  const theme = refPageTheme({
-    layout: isLiquidGlass ? "liquid_glass" : "classic",
-    appearance,
-    pageBackground,
-    pageBackgroundImage,
-    fontFamily: pageFontFamily,
-    text: pageText,
-  });
+  const theme = isVitrine
+    ? vitrineTheme({ appearance, pageBackground, fontFamily: pageFontFamily, text: pageText })
+    : refPageTheme({
+        layout: "classic",
+        appearance,
+        pageBackground,
+        pageBackgroundImage,
+        fontFamily: pageFontFamily,
+        text: pageText,
+      });
 
   useEffect(() => {
     loadOutreachFont(appearance.font_family);
@@ -273,59 +276,8 @@ function PublicBooking() {
     business?.brand_primary ?? "#2563eb",
   );
   const services = (catalog?.services ?? []) as Service[];
-  // Vidro da referência do Painel 1: pílula clara com aro dourado e botões escuros com brilho nas bordas.
-  const GLASS_LIGHT =
-    "radial-gradient(ellipse 70% 70% at 50% 0%, #fffde7aa, transparent), linear-gradient(145deg, #fff1cf, #d4be94 55%, #ffefbd)";
-  const GLASS_DARK =
-    "radial-gradient(ellipse 15% 8% at 8% 2%, #fff0c84d, transparent), linear-gradient(145deg, #fff0c818, #110c074d 55%, #b782381a)";
-  // Pílula do serviço e do profissional.
-  const pillStyle: React.CSSProperties = isLiquidGlass
-    ? {
-        backgroundImage: GLASS_LIGHT,
-        color: "#211709",
-        borderRadius: "2rem",
-        padding: "0.7rem 1.25rem",
-        boxShadow:
-          "inset 1px 1px 2px #fffdec, inset -1px -1px 2px #ffecca, 0 0 0 1px #f0d4a280, 0 0 10px #edbc6f52, 0 4px 12px #0006",
-      }
-    : {
-        backgroundColor: appearance.modal_active_background,
-        backgroundImage: "linear-gradient(145deg, rgba(255,255,255,.45), rgba(255,255,255,0) 60%)",
-        color: modalActiveText,
-        borderRadius: "1.5rem",
-        padding: "0.6rem 1rem",
-        boxShadow: "inset 1px 1px 2px rgba(255,255,255,.7), 0 2px 8px rgba(0,0,0,.35)",
-      };
-  // Opções do popup (profissional, data, horário): mesma estrutura em qualquer predefinição de cor.
-  const optionClass = (selected: boolean) =>
-    `rounded-xl transition-colors ${isLiquidGlass ? "" : "border"} ${
-      selected || isLiquidGlass
-        ? ""
-        : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
-    }`;
-  const optionStyle = (selected: boolean) =>
-    ({
-      ...(isLiquidGlass
-        ? {
-            border: 0,
-            backgroundImage: selected ? GLASS_LIGHT : GLASS_DARK,
-            color: selected ? "#211709" : liquidText,
-            boxShadow: selected
-              ? "inset 1px 1px 2px #fffdec, inset -1px -1px 2px #ffecca, 0 0 0 1px #f0d4a280, 0 0 8px #edbc6f52"
-              : "inset 1px 1px 1px #fff3ccad, inset -1px -1px 1px #dbb97b85, 0 0 3px #edc88b47, 0 3px 8px #0005",
-          }
-        : {
-            borderColor: appearance.modal_border,
-            backgroundColor: selected
-              ? appearance.modal_active_background
-              : appearance.modal_background,
-            color: selected ? modalActiveText : modalText,
-          }),
-      "--modal-hover-background": appearance.modal_hover_background,
-      "--modal-hover-text": modalHoverText,
-    }) as unknown as React.CSSProperties;
 
-  const { data: professionals, isPending: professionalsPending } = useQuery({
+  const { data: professionals } = useQuery({
     queryKey: ["public-professionals", service?.id],
     enabled: !!service,
     queryFn: () =>
@@ -394,10 +346,7 @@ function PublicBooking() {
   const needsDocument = selectedDepositCents > 0;
 
   const days = openDays?.days ?? [];
-  const visibleDays = useMemo(
-    () => days.slice(pageStart, pageStart + pageSize),
-    [days, pageStart, pageSize],
-  );
+  const visibleDays = useMemo(() => days.slice(pageStart, pageStart + 7), [days, pageStart]);
 
   /**
    * O sinal mudou no servidor desde a última consulta: rebusca a disponibilidade
@@ -444,8 +393,6 @@ function PublicBooking() {
       setDate(null);
       setTime(null);
       setPageStart(0);
-      setStep(0);
-      setTimeStart(0);
       if (r.chargeId) {
         saveCharge(r.chargeId);
         setReservedAmount({ chargeId: r.chargeId, amountCents: r.amountCents });
@@ -486,22 +433,12 @@ function PublicBooking() {
     reserve.mutate();
   };
 
-  // Já entra com o primeiro profissional escolhido; o cliente troca se quiser.
-  useEffect(() => {
-    if (service && !professional && professionals?.length) {
-      setProfessional(professionals[0] ?? null);
-    }
-  }, [service, professional, professionals]);
-
   const openService = (selected: Service) => {
     setService(selected);
     setProfessional(null);
     setDate(null);
     setTime(null);
     setPageStart(0);
-    setStep(0);
-    setTimeStart(0);
-    setProOpen(false);
     setFormError(null);
   };
 
@@ -511,9 +448,6 @@ function PublicBooking() {
     setDate(null);
     setTime(null);
     setPageStart(0);
-    setStep(0);
-    setTimeStart(0);
-    setProOpen(false);
     setFormError(null);
   };
 
@@ -535,52 +469,69 @@ function PublicBooking() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [isLiquidGlass]);
 
+  const pageContent = !business ? (
+    <p className="empty">Negócio não encontrado</p>
+  ) : business.status === "suspenso" ? (
+    <p className="empty">
+      Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+    </p>
+  ) : tab === "agendar" ? (
+    services?.length ? (
+      isVitrine ? (
+        <VitrineServices services={services} onSchedule={openService} />
+      ) : (
+        <RefServices services={services} selectedId={service?.id ?? null} onToggle={openService} />
+      )
+    ) : (
+      <p className="empty">Nenhum serviço disponível no momento.</p>
+    )
+  ) : (
+    <HistoryList
+      slug={slug}
+      bookings={bookings.data?.bookings ?? []}
+      onOpen={setActiveCharge}
+      onRefresh={() => void bookings.refetch()}
+      appearance={appearance}
+      pageText={pageText}
+      liquidGlass={isLiquidGlass}
+      {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+      onCancel={(code) => cancelAppointment.mutate(code)}
+      onReschedule={async (input) => {
+        await rescheduleAppointment.mutateAsync(input);
+      }}
+      cancelPending={cancelAppointment.isPending}
+      reschedulePending={rescheduleAppointment.isPending}
+    />
+  );
+
   return (
     <div className={theme.className} style={theme.style}>
-      <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
-
-      <RefMain
-        logo={
-          business && business.status !== "suspenso" ? (
-            <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
-          ) : null
-        }
-      >
-        {!business ? (
-          <p className="empty">Negócio não encontrado</p>
-        ) : business.status === "suspenso" ? (
-          <p className="empty">
-            Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
-          </p>
-        ) : tab === "agendar" ? (
-          services?.length ? (
-            <RefServices
-              services={services}
-              selectedId={service?.id ?? null}
-              onToggle={openService}
+      {isVitrine ? (
+        <>
+          {business && business.status !== "suspenso" ? (
+            <VitrineHero
+              name={business.name}
+              subtitle={vitrineSubtitle(business.address, business.category)}
+              coverUrl={pageBackgroundImage}
+              logoUrl={business.logo_url ?? null}
             />
-          ) : (
-            <p className="empty">Nenhum serviço disponível no momento.</p>
-          )
-        ) : (
-          <HistoryList
-            slug={slug}
-            bookings={bookings.data?.bookings ?? []}
-            onOpen={setActiveCharge}
-            onRefresh={() => void bookings.refetch()}
-            appearance={appearance}
-            pageText={pageText}
-            liquidGlass={isLiquidGlass}
-            {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
-            onCancel={(code) => cancelAppointment.mutate(code)}
-            onReschedule={async (input) => {
-              await rescheduleAppointment.mutateAsync(input);
-            }}
-            cancelPending={cancelAppointment.isPending}
-            reschedulePending={rescheduleAppointment.isPending}
-          />
-        )}
-      </RefMain>
+          ) : null}
+          <VitrineMain>{pageContent}</VitrineMain>
+        </>
+      ) : (
+        <>
+          <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
+          <RefMain
+            logo={
+              business && business.status !== "suspenso" ? (
+                <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
+              ) : null
+            }
+          >
+            {pageContent}
+          </RefMain>
+        </>
+      )}
 
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
@@ -598,256 +549,254 @@ function PublicBooking() {
           }}
         >
           {service && (
-            <div className="space-y-3 p-4 text-center sm:p-5">
-              {step === 1 && (
-                <button
-                  type="button"
-                  aria-label="Voltar"
-                  onClick={() => setStep(0)}
-                  className="absolute left-4 top-4 z-10 rounded-md p-1 transition-colors"
-                  style={{ color: isLiquidGlass ? liquidText : modalText }}
-                >
-                  <ChevronLeft className="size-6" />
-                </button>
+            <div className="space-y-6 p-5 text-center sm:p-6">
+              <div className={isLiquidGlass ? "px-10" : ""}>
+                {service.image_url && (
+                  <img
+                    src={service.image_url}
+                    alt={service.name}
+                    loading="lazy"
+                    decoding="async"
+                    className="mx-auto mb-5 max-h-52 w-full rounded-lg object-cover"
+                  />
+                )}
+                <h2 className="font-display text-xl font-bold">{service.name}</h2>
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
+                  {service.show_price ? <span>{formatPrice(service.price_cents)}</span> : null}
+                  {service.show_price && service.show_duration ? <span>·</span> : null}
+                  {service.show_duration ? <span>{service.duration_minutes}min</span> : null}
+                </div>
+                {service.description && (
+                  <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed">
+                    {service.description}
+                  </p>
+                )}
+              </div>
+
+              {!!professionals?.length && (
+                <div>
+                  <p className="mb-3 text-sm font-semibold">Escolha o profissional</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {professionals.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setProfessional(p);
+                          setDate(null);
+                          setTime(null);
+                          setPageStart(0);
+                        }}
+                        className={`rounded-lg border p-3 text-left transition-colors ${
+                          isLiquidGlass ? "liquid-glass-control" : ""
+                        } ${
+                          professional?.id === p.id
+                            ? ""
+                            : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
+                        }`}
+                        style={
+                          {
+                            borderColor:
+                              professional?.id === p.id
+                                ? appearance.modal_border
+                                : appearance.modal_border,
+                            ...(isLiquidGlass
+                              ? {}
+                              : {
+                                  backgroundColor:
+                                    professional?.id === p.id
+                                      ? appearance.modal_active_background
+                                      : appearance.modal_background,
+                                }),
+                            color: isLiquidGlass
+                              ? liquidText
+                              : professional?.id === p.id
+                                ? modalActiveText
+                                : modalText,
+                            "--modal-hover-background": appearance.modal_hover_background,
+                            "--modal-hover-text": modalHoverText,
+                          } as React.CSSProperties
+                        }
+                        data-selected={professional?.id === p.id}
+                      >
+                        <span className="block font-semibold">{p.name}</span>
+                        {p.role && <span className="mt-0.5 block text-xs">{p.role}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
 
-              {step === 0 && (
-                <>
-                  {service.image_url && (
-                    <img
-                      src={service.image_url}
-                      alt={service.name}
-                      loading="lazy"
-                      decoding="async"
-                      className="mx-auto size-24 rounded-2xl object-cover shadow-md"
-                    />
-                  )}
-
-                  {/* Serviço escolhido: a lixeira desfaz a escolha e fecha o popup. */}
-                  <div className="flex items-center justify-center gap-3" style={pillStyle}>
-                    <div className="min-w-0 text-center leading-tight">
-                      <p className="truncate text-base font-bold">{service.name}</p>
-                      <p className="text-sm opacity-80">
-                        {[
-                          service.show_price ? formatPrice(service.price_cents) : null,
-                          service.show_duration ? `${service.duration_minutes}min` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label="Escolher outro serviço"
-                      onClick={closeService}
-                      className="shrink-0 rounded-md p-1"
-                    >
-                      <Trash2 className="size-5" />
-                    </button>
-                  </div>
-
-                  {professionalsPending ? (
-                    <p className="flex items-center justify-center gap-2 text-sm">
-                      <Loader2 className="size-4 animate-spin" /> Carregando profissionais...
+              {((professionals?.length ?? 0) === 0 || professional) && (
+                <div>
+                  <p className="mb-3 text-sm font-semibold">Escolha a data</p>
+                  {!days.length ? (
+                    <p className="rounded-lg border border-border p-4 text-sm">
+                      Nenhum dia de atendimento está disponível no momento.
                     </p>
                   ) : (
-                    <>
-                      {(professionals?.length ?? 0) === 0 || professional ? (
-                        !days.length ? (
-                          <p className="rounded-lg border border-border p-3 text-sm">
-                            Nenhum dia de atendimento está disponível no momento.
-                          </p>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              aria-label="Datas anteriores"
-                              disabled={pageStart === 0}
-                              onClick={() => setPageStart(Math.max(0, pageStart - pageSize))}
-                              className="rounded-md p-0.5 transition-colors disabled:opacity-30"
-                              style={{ color: isLiquidGlass ? liquidText : modalText }}
-                            >
-                              <ChevronLeft className="size-6" />
-                            </button>
-                            <div className="grid flex-1 grid-cols-3 gap-2">
-                              {visibleDays.map((d) => (
-                                <button
-                                  key={d.date}
-                                  type="button"
-                                  onClick={() => {
-                                    setDate(d.date);
-                                    setTime(null);
-                                    setTimeStart(0);
-                                  }}
-                                  className={`${optionClass(date === d.date)} px-1 py-1.5 text-sm`}
-                                  style={optionStyle(date === d.date)}
-                                  data-selected={date === d.date}
-                                >
-                                  <span className="block font-semibold">{ddmm(d.date)}</span>
-                                  <span className="block text-[11px] opacity-80">
-                                    {DAY_LABEL[d.weekday]}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
-                            <button
-                              type="button"
-                              aria-label="Próximas datas"
-                              disabled={pageStart + pageSize >= days.length}
-                              onClick={() => setPageStart(pageStart + pageSize)}
-                              className="rounded-md p-0.5 transition-colors disabled:opacity-30"
-                              style={{ color: isLiquidGlass ? liquidText : modalText }}
-                            >
-                              <ChevronRight className="size-6" />
-                            </button>
-                          </div>
-                        )
-                      ) : null}
-
-                      {/* Profissional: pílula com a escolha atual; a lista abre por cima. */}
-                      {!!professionals?.length && (
-                        <div className="relative">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        aria-label="Datas anteriores"
+                        disabled={pageStart === 0}
+                        onClick={() => setPageStart(Math.max(0, pageStart - 7))}
+                        className="rounded-md p-1 transition-colors disabled:opacity-30"
+                        style={{ color: isLiquidGlass ? liquidText : modalText }}
+                      >
+                        <ChevronLeft className="size-6" />
+                      </button>
+                      <div className="flex flex-1 flex-wrap justify-center gap-2">
+                        {visibleDays.map((d) => (
                           <button
+                            key={d.date}
                             type="button"
-                            aria-haspopup={professionals.length > 1 ? "listbox" : undefined}
-                            aria-expanded={proOpen}
-                            onClick={() => professionals.length > 1 && setProOpen((v) => !v)}
-                            className="flex w-full items-center gap-3 text-left"
-                            style={{ ...pillStyle, padding: "0.4rem 1rem 0.4rem 0.5rem" }}
+                            onClick={() => {
+                              setDate(d.date);
+                              setTime(null);
+                            }}
+                            className={`min-w-[4.75rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
+                              isLiquidGlass ? "liquid-glass-control" : ""
+                            } ${
+                              date === d.date
+                                ? ""
+                                : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
+                            }`}
+                            style={
+                              {
+                                borderColor: appearance.modal_border,
+                                ...(isLiquidGlass
+                                  ? {}
+                                  : {
+                                      backgroundColor:
+                                        date === d.date
+                                          ? appearance.modal_active_background
+                                          : appearance.modal_background,
+                                    }),
+                                color: isLiquidGlass
+                                  ? liquidText
+                                  : date === d.date
+                                    ? modalActiveText
+                                    : modalText,
+                                "--modal-hover-background": appearance.modal_hover_background,
+                                "--modal-hover-text": modalHoverText,
+                              } as React.CSSProperties
+                            }
+                            data-selected={date === d.date}
                           >
-                            <span className="grid size-12 shrink-0 place-items-center rounded-full bg-neutral-100 text-neutral-400 shadow ring-2 ring-white/70">
-                              <User className="size-6" />
+                            <span className="block font-semibold">{ddmm(d.date)}</span>
+                            <span className="mt-0.5 block text-[11px] opacity-80">
+                              {DAY_LABEL[d.weekday]}
                             </span>
-                            <span className="min-w-0 flex-1 leading-tight">
-                              <span className="block truncate font-bold">
-                                {professional?.name ?? "Escolha o profissional"}
-                              </span>
-                              {professionals.length > 1 ? (
-                                <span className="block text-xs opacity-80">
-                                  {professionals.length === 2
-                                    ? "+1 profissional disponível"
-                                    : `+${professionals.length - 1} profissionais disponíveis`}
-                                </span>
-                              ) : professional?.role ? (
-                                <span className="block text-xs opacity-80">
-                                  {professional.role}
-                                </span>
-                              ) : null}
-                            </span>
-                            {professionals.length > 1 && (
-                              <ChevronDown className="size-5 shrink-0" />
-                            )}
                           </button>
-                          {proOpen && (
-                            <ul
-                              role="listbox"
-                              aria-label="Profissionais"
-                              className="absolute inset-x-0 bottom-[calc(100%+6px)] z-20 space-y-1 p-1.5 text-left"
-                              style={{ ...pillStyle, borderRadius: "1.25rem" }}
-                            >
-                              {professionals.map((p) => (
-                                <li key={p.id}>
-                                  <button
-                                    type="button"
-                                    role="option"
-                                    aria-selected={professional?.id === p.id}
-                                    onClick={() => {
-                                      setProfessional(p);
-                                      setDate(null);
-                                      setTime(null);
-                                      setPageStart(0);
-                                      setProOpen(false);
-                                    }}
-                                    className="w-full rounded-xl px-3 py-2 text-left"
-                                    style={
-                                      professional?.id === p.id
-                                        ? { backgroundColor: "rgba(0,0,0,0.12)" }
-                                        : undefined
-                                    }
-                                  >
-                                    <span className="block font-semibold">{p.name}</span>
-                                    {p.role && <span className="block text-xs">{p.role}</span>}
-                                  </button>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      )}
-
-                      {date &&
-                        ((professionals?.length ?? 0) === 0 || professional) &&
-                        (loadingSlots ? (
-                          <p className="flex items-center justify-center gap-2 py-3 text-sm">
-                            <Loader2 className="size-4 animate-spin" /> Carregando horários...
-                          </p>
-                        ) : slotsError ? (
-                          <p
-                            role="alert"
-                            className="rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
-                          >
-                            Não foi possível carregar os horários. Atualize a página e tente
-                            novamente.
-                          </p>
-                        ) : !availability?.slots.length ? (
-                          <p className="rounded-lg border border-border p-3 text-sm">
-                            Nenhum horário livre nesta data. Escolha outro dia.
-                          </p>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              aria-label="Horários anteriores"
-                              disabled={timeStart === 0}
-                              onClick={() => setTimeStart(Math.max(0, timeStart - timePageSize))}
-                              className="rounded-md p-0.5 transition-colors disabled:opacity-30"
-                              style={{ color: isLiquidGlass ? liquidText : modalText }}
-                            >
-                              <ChevronLeft className="size-6" />
-                            </button>
-                            <div className="grid flex-1 grid-cols-3 gap-2">
-                              {availability.slots
-                                .slice(timeStart, timeStart + timePageSize)
-                                .map((s) => (
-                                  <button
-                                    key={s}
-                                    type="button"
-                                    onClick={() => {
-                                      setTime(s);
-                                      setStep(1);
-                                    }}
-                                    className={`${optionClass(time === s)} px-1 py-2 text-sm font-medium`}
-                                    style={optionStyle(time === s)}
-                                    data-selected={time === s}
-                                  >
-                                    {s}
-                                  </button>
-                                ))}
-                            </div>
-                            <button
-                              type="button"
-                              aria-label="Próximos horários"
-                              disabled={timeStart + timePageSize >= availability.slots.length}
-                              onClick={() => setTimeStart(timeStart + timePageSize)}
-                              className="rounded-md p-0.5 transition-colors disabled:opacity-30"
-                              style={{ color: isLiquidGlass ? liquidText : modalText }}
-                            >
-                              <ChevronRight className="size-6" />
-                            </button>
-                          </div>
                         ))}
-                    </>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Próximas datas"
+                        disabled={pageStart + 7 >= days.length}
+                        onClick={() => setPageStart(pageStart + 7)}
+                        className="rounded-md p-1 transition-colors disabled:opacity-30"
+                        style={{ color: isLiquidGlass ? liquidText : modalText }}
+                      >
+                        <ChevronRight className="size-6" />
+                      </button>
+                    </div>
                   )}
-                </>
+                </div>
               )}
 
-              {step === 1 && date && time && (
-                <div className="space-y-3 pt-9">
-                  <div style={pillStyle} className="leading-tight">
-                    <p className="font-bold">{service.name}</p>
-                    <p className="text-sm opacity-80">
-                      {professional?.name ?? "Profissional Agenda"} · {fullDate(date)} · {time}
+              {date && (
+                <div>
+                  <p className="mb-3 text-sm font-semibold">Escolha um horário disponível</p>
+                  {loadingSlots ? (
+                    <p className="flex items-center justify-center gap-2 text-sm">
+                      <Loader2 className="size-4 animate-spin" /> Carregando horários...
                     </p>
+                  ) : slotsError ? (
+                    <p
+                      role="alert"
+                      className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive"
+                    >
+                      Não foi possível carregar os horários. Atualize a página e tente novamente.
+                    </p>
+                  ) : !availability?.slots.length ? (
+                    <p className="rounded-lg border border-border p-4 text-sm">
+                      Nenhum horário livre nesta data. Escolha outro dia.
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap justify-center gap-2">
+                      {availability.slots.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => setTime(s)}
+                          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
+                            isLiquidGlass ? "liquid-glass-control" : ""
+                          } ${
+                            time === s
+                              ? ""
+                              : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
+                          }`}
+                          style={
+                            {
+                              borderColor: appearance.modal_border,
+                              ...(isLiquidGlass
+                                ? {}
+                                : {
+                                    backgroundColor:
+                                      time === s
+                                        ? appearance.modal_active_background
+                                        : appearance.modal_background,
+                                  }),
+                              color: isLiquidGlass
+                                ? liquidText
+                                : time === s
+                                  ? modalActiveText
+                                  : modalText,
+                              "--modal-hover-background": appearance.modal_hover_background,
+                              "--modal-hover-text": modalHoverText,
+                            } as React.CSSProperties
+                          }
+                          data-selected={time === s}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {date && time && (
+                <div className="space-y-4 border-t border-border pt-5">
+                  <div>
+                    <h3 className="font-display text-base font-bold uppercase tracking-wide">
+                      Resumo
+                    </h3>
+                    <div
+                      className={`mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border p-4 text-left text-sm ${
+                        isLiquidGlass ? "liquid-glass-control" : ""
+                      }`}
+                      style={{
+                        ...(isLiquidGlass ? {} : { backgroundColor: appearance.modal_background }),
+                        color: isLiquidGlass ? liquidText : modalText,
+                      }}
+                    >
+                      <p className="flex items-center gap-2">
+                        <Info className="size-4 shrink-0" /> {service.name}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <User className="size-4 shrink-0" />{" "}
+                        {professional?.name ?? "Profissional Agenda"}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <CalendarDays className="size-4 shrink-0" /> {fullDate(date)}
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Clock className="size-4 shrink-0" /> {time}
+                      </p>
+                    </div>
                   </div>
 
                   {formError && (
@@ -856,8 +805,8 @@ function PublicBooking() {
                     </p>
                   )}
 
-                  <div className="grid gap-2.5 text-left">
-                    <div className="space-y-1">
+                  <div className="grid gap-3 text-left sm:grid-cols-2">
+                    <div className="space-y-1.5">
                       <Label htmlFor="nome">Nome e sobrenome</Label>
                       <Input
                         id="nome"
@@ -867,7 +816,7 @@ function PublicBooking() {
                         onChange={(e) => setName(e.target.value)}
                       />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <Label htmlFor="fone">Telefone</Label>
                       <Input
                         id="fone"
@@ -879,8 +828,8 @@ function PublicBooking() {
                       />
                     </div>
                     {needsDocument && (
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <div className="space-y-1">
+                      <>
+                        <div className="space-y-1.5 sm:col-span-2">
                           <Label htmlFor="email">E-mail</Label>
                           <Input
                             id="email"
@@ -891,8 +840,9 @@ function PublicBooking() {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                           />
+                          <p className="text-xs">Necessário pra emitir o Pix do sinal.</p>
                         </div>
-                        <div className="space-y-1">
+                        <div className="space-y-1.5 sm:col-span-2">
                           <Label htmlFor="cpf">CPF ou CNPJ</Label>
                           <Input
                             id="cpf"
@@ -901,8 +851,9 @@ function PublicBooking() {
                             value={cpfCnpj}
                             onChange={(e) => setCpfCnpj(e.target.value)}
                           />
+                          <p className="text-xs">Necessário pra emitir o Pix do sinal.</p>
                         </div>
-                      </div>
+                      </>
                     )}
                   </div>
 
@@ -917,7 +868,7 @@ function PublicBooking() {
                   </Button>
                   <p className="text-xs">
                     {needsDocument
-                      ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix (e-mail e CPF/CNPJ servem pra emitir o Pix). O horário só é confirmado após o pagamento.`
+                      ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
                       : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
                   </p>
                 </div>
@@ -956,7 +907,18 @@ function PublicBooking() {
         />
       )}
 
-      <RefNav tab={tab} compact={isLiquidGlass && navCompact} onChange={setTab} />
+      {isVitrine ? (
+        <VitrineNav
+          tab={tab}
+          onChange={setTab}
+          contactDisabled={!business?.phone}
+          onContact={() => {
+            if (business?.phone) window.location.href = `tel:${business.phone}`;
+          }}
+        />
+      ) : (
+        <RefNav tab={tab} compact={isLiquidGlass && navCompact} onChange={setTab} />
+      )}
     </div>
   );
 }

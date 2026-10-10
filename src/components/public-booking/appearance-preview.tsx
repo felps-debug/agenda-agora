@@ -10,6 +10,8 @@ export type AppearanceSelectionTarget =
   | "header-background"
   | "service-background"
   | "logo-cover"
+  | "logo"
+  | "cover"
   | "service-images"
   | "business-title"
   | "service-name"
@@ -26,6 +28,7 @@ export type PreviewService = {
   show_price: boolean;
   show_duration: boolean;
   image_url?: string | null;
+  description?: string | null;
 };
 
 const LOGO_FIT_CLASSES: Record<Panel1Appearance["logo_fit"], string> = {

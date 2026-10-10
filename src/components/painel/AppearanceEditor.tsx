@@ -24,9 +24,13 @@ import {
   type PreviewService,
 } from "@/components/public-booking/appearance-preview";
 import {
-  liquidGlassPageBase,
-  liquidGlassReadableAppearance,
-} from "@/components/public-booking/liquid-glass";
+  VitrineHero,
+  VitrineMain,
+  VitrineNav,
+  VitrineServices,
+  vitrineSubtitle,
+  vitrineTheme,
+} from "@/components/public-booking/vitrine";
 import {
   RefHeader,
   RefLogo,
@@ -83,6 +87,8 @@ const TARGET_CONTROLS: Record<AppearanceSelectionTarget, { section: string; cont
   "header-background": { section: "colors", control: "header-background" },
   "service-background": { section: "colors", control: "service-background" },
   "logo-cover": { section: "brand", control: "logo-cover" },
+  logo: { section: "brand", control: "logo" },
+  cover: { section: "brand", control: "cover" },
   "service-images": { section: "service-images", control: "service-images" },
   "business-title": { section: "text", control: "business-title" },
   "service-name": { section: "text", control: "service-name" },
@@ -122,6 +128,7 @@ type Props = {
   businessName: string;
   businessLogoUrl: string | null;
   businessAddress: string | null;
+  businessCategory?: string | null;
   services: PreviewService[];
   pageBackground: string;
   onPageBackgroundChange: (value: string) => void;
@@ -149,6 +156,7 @@ export function AppearanceEditor(props: Props) {
     businessName,
     businessLogoUrl,
     businessAddress,
+    businessCategory,
     services,
     pageBackground,
     onPageBackgroundChange,
@@ -222,39 +230,67 @@ export function AppearanceEditor(props: Props) {
   ];
 
   // A prévia usa os mesmos componentes da página pública, então mostra exatamente o que o cliente vê.
-  const glassLayout = layoutKey === "liquid_glass";
-  const previewAppearance = glassLayout
-    ? liquidGlassReadableAppearance(appearance, liquidGlassPageBase(pageBackground, appearance))
-    : appearance;
-  const previewTextBase = glassLayout
-    ? liquidGlassPageBase(pageBackground, appearance)
-    : pageBackground;
+  const vitrineLayout = layoutKey === "liquid_glass";
+  const previewTextBase = pageBackground;
   const previewText = (() => {
     try {
-      if (contrastRatio(previewAppearance.page_text, previewTextBase) >= 4.5)
-        return previewAppearance.page_text;
+      if (contrastRatio(appearance.page_text, previewTextBase) >= 4.5) return appearance.page_text;
     } catch {
       /* cor inválida: usa o automático */
     }
     return accessibleTextColor(previewTextBase);
   })();
-  const previewTheme = refPageTheme({
-    layout: layoutKey,
-    appearance: previewAppearance,
-    pageBackground,
-    pageBackgroundImage: backgroundImageUrl,
-    fontFamily: outreachFontFamily(appearance.font_family),
-    text: previewText,
-    extraClass: "lg-preview",
-  });
+  const previewTheme = vitrineLayout
+    ? vitrineTheme({
+        appearance,
+        pageBackground,
+        fontFamily: outreachFontFamily(appearance.font_family),
+        text: previewText,
+      })
+    : refPageTheme({
+        layout: "classic",
+        appearance,
+        pageBackground,
+        pageBackgroundImage: backgroundImageUrl,
+        fontFamily: outreachFontFamily(appearance.font_family),
+        text: previewText,
+        extraClass: "lg-preview",
+      });
 
-  const preview = (
+  const preview = vitrineLayout ? (
     <div
       className={previewTheme.className}
       style={previewTheme.style}
       onClick={() => selectAppearanceTarget("page-background")}
     >
-      <RefHeader phone={null} color={previewAppearance.header_text} onTarget={selectAppearanceTarget} />
+      <VitrineHero
+        name={businessName || "Nome do negócio"}
+        subtitle={vitrineSubtitle(businessAddress, businessCategory)}
+        coverUrl={backgroundImageUrl}
+        logoUrl={businessLogoUrl}
+        onTarget={selectAppearanceTarget}
+      />
+      <VitrineMain>
+        <VitrineServices
+          services={previewServices}
+          onSchedule={() => {}}
+          onTarget={selectAppearanceTarget}
+        />
+      </VitrineMain>
+      <VitrineNav
+        tab="agendar"
+        onChange={() => {}}
+        onContact={() => {}}
+        onTarget={selectAppearanceTarget}
+      />
+    </div>
+  ) : (
+    <div
+      className={previewTheme.className}
+      style={previewTheme.style}
+      onClick={() => selectAppearanceTarget("page-background")}
+    >
+      <RefHeader phone={null} color={appearance.header_text} onTarget={selectAppearanceTarget} />
       <RefMain
         logo={
           <RefLogo
@@ -429,32 +465,42 @@ export function AppearanceEditor(props: Props) {
               data-appearance-control="logo-cover"
               className={`flex flex-wrap gap-2 rounded-xl ${activeControl === "logo-cover" ? "ring-2 ring-primary ring-offset-2" : ""}`}
             >
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading}
+              <div
+                data-appearance-control="logo"
+                className={`rounded-xl ${activeControl === "logo" ? "ring-2 ring-primary ring-offset-2" : ""}`}
               >
-                <ImageIcon className="size-4" /> {logoUploading ? "Enviando..." : "Trocar logo"}
-              </Button>
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => backgroundInputRef.current?.click()}
-                disabled={backgroundImageUploading}
-              >
-                <ImageIcon className="size-4" />{" "}
-                {backgroundImageUploading
-                  ? "Enviando..."
-                  : backgroundImageUrl
-                    ? "Trocar capa"
-                    : "Adicionar capa"}
-              </Button>
-              {backgroundImageUrl ? (
-                <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
-                  <Trash2 className="size-4" /> Remover capa
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={logoUploading}
+                >
+                  <ImageIcon className="size-4" /> {logoUploading ? "Enviando..." : "Trocar logo"}
                 </Button>
-              ) : null}
+              </div>
+              <div
+                data-appearance-control="cover"
+                className={`flex flex-wrap gap-2 rounded-xl ${activeControl === "cover" ? "ring-2 ring-primary ring-offset-2" : ""}`}
+              >
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => backgroundInputRef.current?.click()}
+                  disabled={backgroundImageUploading}
+                >
+                  <ImageIcon className="size-4" />{" "}
+                  {backgroundImageUploading
+                    ? "Enviando..."
+                    : backgroundImageUrl
+                      ? "Trocar capa"
+                      : "Adicionar capa"}
+                </Button>
+                {backgroundImageUrl ? (
+                  <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
+                    <Trash2 className="size-4" /> Remover capa
+                  </Button>
+                ) : null}
+              </div>
             </div>
             <Label className="mt-3 flex items-center justify-between gap-3">
               Formato da logo

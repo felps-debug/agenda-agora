@@ -222,7 +222,7 @@ function AppearanceEditorPage() {
       const { data, error } = await supabase
         .from("services")
         .select(
-          "id, name, duration_minutes, price_cents, image_path, show_price, show_duration, requires_deposit, deposit_cents, deposit_mode, deposit_percent_bps",
+          "id, name, description, duration_minutes, price_cents, image_path, show_price, show_duration, requires_deposit, deposit_cents, deposit_mode, deposit_percent_bps",
         )
         .eq("business_id", businessId!)
         .eq("active", true)
@@ -235,6 +235,7 @@ function AppearanceEditorPage() {
           return {
             id: row.id,
             name: row.name,
+            description: row.description ?? null,
             duration_minutes: row.duration_minutes,
             price_cents: row.price_cents,
             show_price: row.show_price,
@@ -357,6 +358,7 @@ function AppearanceEditorPage() {
         businessName={business?.name ?? ""}
         businessLogoUrl={pendingLogoUrl ?? profile.data?.logoUrl ?? null}
         businessAddress={business?.address ?? null}
+        businessCategory={business?.category ?? null}
         services={servicesQuery.data ?? []}
         pageBackground={pageBackground}
         onPageBackgroundChange={setPageBackground}
