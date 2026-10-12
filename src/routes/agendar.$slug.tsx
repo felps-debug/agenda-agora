@@ -42,9 +42,18 @@ import {
   rescheduleAppointmentPublic,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   RefHeader,
   refPageTheme,
@@ -1195,40 +1204,68 @@ function HistoryList({
                 >
                   <label className="grid gap-1 text-xs">
                     Nova data
-                    <Input
-                      type="date"
-                      required
-                      value={rescheduleDate}
-                      onChange={(event) => {
-                        setRescheduleDate(event.target.value);
-                        setRescheduleTime("");
-                      }}
-                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="justify-start font-normal"
+                        >
+                          <CalendarDays className="size-4" />
+                          {rescheduleDate
+                            ? new Date(`${rescheduleDate}T12:00:00`).toLocaleDateString("pt-BR")
+                            : "Escolha a data"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={
+                            rescheduleDate ? new Date(`${rescheduleDate}T12:00:00`) : undefined
+                          }
+                          onSelect={(nextDate) => {
+                            if (!nextDate) return;
+                            const localDate = [
+                              nextDate.getFullYear(),
+                              String(nextDate.getMonth() + 1).padStart(2, "0"),
+                              String(nextDate.getDate()).padStart(2, "0"),
+                            ].join("-");
+                            setRescheduleDate(localDate);
+                            setRescheduleTime("");
+                          }}
+                          disabled={{ before: new Date() }}
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </label>
                   <label className="grid gap-1 text-xs">
                     Novo horário
-                    <select
-                      required
-                      className="border-input h-9 rounded-md border bg-transparent px-3 text-sm"
+                    <Select
                       value={rescheduleTime}
                       disabled={!rescheduleDate || rescheduleSlots.isFetching}
-                      onChange={(event) => setRescheduleTime(event.target.value)}
+                      onValueChange={setRescheduleTime}
                     >
-                      <option value="" disabled>
-                        {!rescheduleDate
-                          ? "Escolha a data"
-                          : rescheduleSlots.isFetching
-                            ? "Carregando..."
-                            : rescheduleSlots.data?.slots.length
-                              ? "Selecione"
-                              : "Sem horários"}
-                      </option>
-                      {rescheduleSlots.data?.slots.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger>
+                        <SelectValue
+                          placeholder={
+                            !rescheduleDate
+                              ? "Escolha a data"
+                              : rescheduleSlots.isFetching
+                                ? "Carregando..."
+                                : rescheduleSlots.data?.slots.length
+                                  ? "Selecione"
+                                  : "Sem horários"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {rescheduleSlots.data?.slots.map((slot) => (
+                          <SelectItem key={slot} value={slot}>
+                            {slot}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </label>
                   <Button
                     type="submit"
