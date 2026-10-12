@@ -43,6 +43,10 @@ import {
   VisualEditorShell,
   type VisualPreviewMode,
 } from "@/components/painel/visual-editor/VisualEditorShell";
+import {
+  BookingInformationPreview,
+  type PreviewProfessional,
+} from "@/components/public-booking/BookingInformationPreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -130,6 +134,7 @@ type Props = {
   businessAddress: string | null;
   businessCategory?: string | null;
   services: PreviewService[];
+  professionals: PreviewProfessional[];
   pageBackground: string;
   onPageBackgroundChange: (value: string) => void;
   onLogoFileSelected: (file: File) => void;
@@ -158,6 +163,7 @@ export function AppearanceEditor(props: Props) {
     businessAddress,
     businessCategory,
     services,
+    professionals,
     pageBackground,
     onPageBackgroundChange,
     onLogoFileSelected,
@@ -167,7 +173,7 @@ export function AppearanceEditor(props: Props) {
     onClearBackgroundImage,
     backgroundImageUploading,
   } = props;
-  const [previewMode, setPreviewMode] = useState<VisualPreviewMode>("mobile");
+  const [previewMode, setPreviewMode] = useState<VisualPreviewMode>("booking");
   const [pendingPreset, setPendingPreset] = useState<Panel1AppearancePreset | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
@@ -257,7 +263,7 @@ export function AppearanceEditor(props: Props) {
         extraClass: "lg-preview",
       });
 
-  const preview = vitrineLayout ? (
+  const bookingPreview = vitrineLayout ? (
     <div
       className={previewTheme.className}
       style={previewTheme.style}
@@ -310,11 +316,22 @@ export function AppearanceEditor(props: Props) {
       <RefNav tab="agendar" onChange={() => {}} onTarget={selectAppearanceTarget} />
     </div>
   );
+  const informationPreview = (
+    <div className="relative min-h-[42rem]">
+      <div className="pointer-events-none select-none opacity-75">{bookingPreview}</div>
+      <BookingInformationPreview
+        appearance={appearance}
+        service={previewServices[0]!}
+        professionals={professionals}
+      />
+    </div>
+  );
 
   return (
     <>
       <VisualEditorShell
-        preview={preview}
+        bookingPreview={bookingPreview}
+        informationPreview={informationPreview}
         previewMode={previewMode}
         onPreviewModeChange={setPreviewMode}
         dirty={dirty}

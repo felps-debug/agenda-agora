@@ -1,14 +1,15 @@
 import type { ReactNode } from "react";
-import { Monitor, SlidersHorizontal, Smartphone, Undo2, X } from "lucide-react";
+import { Info, SlidersHorizontal, Smartphone, Undo2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from "@/components/ui/drawer";
 
-export type VisualPreviewMode = "mobile" | "desktop";
+export type VisualPreviewMode = "booking" | "information";
 
 /** Desktop is a split editor; touch devices are deliberately preview-first with a drawer. */
 export function VisualEditorShell({
   children,
-  preview,
+  bookingPreview,
+  informationPreview,
   previewMode,
   onPreviewModeChange,
   dirty,
@@ -20,7 +21,8 @@ export function VisualEditorShell({
   mobilePanelTitle = "Editar aparência",
 }: {
   children: ReactNode;
-  preview: ReactNode;
+  bookingPreview: ReactNode;
+  informationPreview: ReactNode;
   previewMode: VisualPreviewMode;
   onPreviewModeChange: (mode: VisualPreviewMode) => void;
   dirty: boolean;
@@ -88,37 +90,37 @@ export function VisualEditorShell({
             <div
               className="inline-flex rounded-xl border bg-background p-1"
               role="group"
-              aria-label="Tamanho da prévia"
+              aria-label="Painel em prévia"
             >
               <Button
                 type="button"
                 size="sm"
-                variant={previewMode === "mobile" ? "default" : "ghost"}
-                onClick={() => onPreviewModeChange("mobile")}
+                variant={previewMode === "booking" ? "default" : "ghost"}
+                onClick={() => onPreviewModeChange("booking")}
               >
                 <Smartphone className="size-4" />
-                <span className="hidden sm:inline">Celular</span>
+                <span className="hidden sm:inline">Painel de agendamento</span>
               </Button>
               <Button
                 type="button"
                 size="sm"
-                variant={previewMode === "desktop" ? "default" : "ghost"}
-                onClick={() => onPreviewModeChange("desktop")}
+                variant={previewMode === "information" ? "default" : "ghost"}
+                onClick={() => onPreviewModeChange("information")}
               >
-                <Monitor className="size-4" />
-                <span className="hidden sm:inline">Desktop</span>
+                <Info className="size-4" />
+                <span className="hidden sm:inline">Painel de informações</span>
               </Button>
             </div>
           </div>
           <div className="min-h-[calc(100dvh-10rem)] rounded-2xl border bg-slate-200/70 p-2 shadow-inner dark:bg-slate-900 sm:p-3 lg:min-h-0 lg:rounded-3xl">
             <div
               className={
-                previewMode === "mobile"
+                previewMode === "booking"
                   ? "mx-auto min-h-[calc(100dvh-12rem)] max-w-[430px] overflow-hidden rounded-[1.5rem] border-4 border-slate-950 bg-background shadow-2xl sm:rounded-[2rem] sm:border-8 lg:min-h-0"
                   : "mx-auto max-w-5xl overflow-hidden rounded-2xl border bg-background shadow-xl"
               }
             >
-              {preview}
+              {previewMode === "booking" ? bookingPreview : informationPreview}
             </div>
           </div>
         </section>

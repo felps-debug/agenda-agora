@@ -254,6 +254,21 @@ function AppearanceEditorPage() {
     },
   });
 
+  const professionalsQuery = useQuery({
+    queryKey: ["appearance-editor-professionals", businessId],
+    enabled: !!businessId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("professionals")
+        .select("id, name, role")
+        .eq("business_id", businessId!)
+        .eq("active", true)
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
   const uploadQueuedImage = async (file: File, kind: "logo" | "background") => {
     if (!businessId) throw new Error("Selecione um negócio para publicar a aparência.");
     const validation = await validateLogoFile(file, kind === "background" ? "background" : "logo");
@@ -360,6 +375,7 @@ function AppearanceEditorPage() {
         businessAddress={business?.address ?? null}
         businessCategory={business?.category ?? null}
         services={servicesQuery.data ?? []}
+        professionals={professionalsQuery.data ?? []}
         pageBackground={pageBackground}
         onPageBackgroundChange={setPageBackground}
         onLogoFileSelected={(file) => setPendingLogoFile(file)}
