@@ -59,8 +59,23 @@ export function appSurfaceHref(
   return `https://${APP_HOSTS[surface]}${safePath}`;
 }
 
+// Páginas da barra lateral do master (platformNav em painel.tsx): vivem no host admin,
+// senão o clique leva ao host do painel, onde o master não tem sessão (sessão é por host).
+const MASTER_PANEL_PATHS = [
+  "/painel/master",
+  "/painel/recebiveis",
+  "/painel/em-teste",
+  "/painel/assinantes",
+  "/painel/precisa-de-atencao",
+  "/painel/pix-aprovacao",
+  "/painel/carteira-desempenho",
+  "/painel/notificacoes-alertas",
+  "/painel/equipe-geral",
+  "/painel/suporte",
+] as const;
+
 export function surfaceForPanelPath(pathname: string): AppSurface {
-  return pathname === "/painel/master" || pathname.startsWith("/painel/master/")
+  return MASTER_PANEL_PATHS.some((base) => pathname === base || pathname.startsWith(`${base}/`))
     ? "admin"
     : "panel";
 }

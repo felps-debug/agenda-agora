@@ -28,6 +28,27 @@ describe("separação dos painéis por subdomínio", () => {
     );
   });
 
+  it("mantém todas as páginas da barra lateral do master no host admin", () => {
+    for (const path of [
+      "/painel/recebiveis",
+      "/painel/em-teste",
+      "/painel/assinantes",
+      "/painel/precisa-de-atencao",
+      "/painel/pix-aprovacao",
+      "/painel/carteira-desempenho",
+      "/painel/notificacoes-alertas",
+      "/painel/equipe-geral",
+      "/painel/suporte",
+    ]) {
+      expect(panelPathHref(path, productionLocation, true)).toBe(
+        `https://admin.agendagora.company${path}`,
+      );
+    }
+    expect(panelPathHref("/painel/servicos", productionLocation, true)).toBe(
+      "https://painel.agendagora.company/painel/servicos",
+    );
+  });
+
   it("preserva rotas relativas em desenvolvimento e previews", () => {
     expect(
       appSurfaceHref("admin", "/painel/master", { hostname: "localhost", protocol: "http:" }, true),
