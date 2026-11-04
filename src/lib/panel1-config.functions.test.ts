@@ -11,6 +11,7 @@ vi.mock("@tanstack/react-start", () => ({
 vi.mock("@/integrations/supabase/auth-middleware", () => ({ requireSupabaseAuth: {} }));
 
 const { appearancePatch, preferencesPatch } = await import("./panel1-config.functions");
+const { DEFAULT_PANEL1_PREFERENCES } = await import("./panel1-config");
 const { normalizePanel1Config } = await import("./panel1-config");
 
 describe("preferências parciais do Painel 1", () => {
@@ -21,6 +22,11 @@ describe("preferências parciais do Painel 1", () => {
     expect(effective.notify_clients).toBe(true);
     expect(effective.cancellations_enabled).toBe(true);
     expect(effective.reschedule_enabled).toBe(false);
+  });
+
+  it("aceita todas as chaves de Panel1Preferences (o formulário de Configurações envia todas)", () => {
+    const patch = preferencesPatch.parse({ ...DEFAULT_PANEL1_PREFERENCES });
+    expect(Object.keys(patch).sort()).toEqual(Object.keys(DEFAULT_PANEL1_PREFERENCES).sort());
   });
 
   it("aceita e preserva o prazo valido de antecedencia", () => {

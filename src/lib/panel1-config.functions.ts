@@ -72,6 +72,12 @@ export const preferencesPatch = z
     reschedule_enabled: z.boolean().default(false),
     reschedule_notice_minutes: z.number().int().min(0).max(1440),
     greeting: z.string().max(80),
+    greeting_enabled: z.boolean(),
+    post_service_enabled: z.boolean(),
+    post_service_minutes: z.number().int().min(0).max(1440),
+    post_service_send_to: z.string().max(40),
+    post_service_template: z.string().max(800),
+    post_service_clients: z.string().max(4000),
   })
   .partial()
   .strict();
