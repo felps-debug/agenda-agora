@@ -414,15 +414,16 @@ export function EleganceBookingDialog({
           )}
         </section>
 
-        {showProfessional ? (
+        {showProfessional || showTimes ? (
           <RevealSection aria-labelledby="bf-person" className="mt-6">
             <h2
               id="bf-person"
               className="m-0 mb-3.5 text-[15px] font-medium"
               style={{ color: modalText, opacity: 0.75 }}
             >
-              Profissional e horário
+              {showProfessional ? "Profissional e horário" : "Horário"}
             </h2>
+            {showProfessional ? (
             <div
               ref={professionalBoxRef}
               className="relative mb-5"
@@ -569,6 +570,7 @@ export function EleganceBookingDialog({
                 </ul>
               ) : null}
             </div>
+            ) : null}
 
             {slotsLoading ? (
               <p className="flex items-center justify-center gap-2 text-sm">
