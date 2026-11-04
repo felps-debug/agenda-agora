@@ -14,7 +14,7 @@ export const VISUAL_NICHE_IDS = [
 ] as const;
 
 export type VisualNicheId = (typeof VISUAL_NICHE_IDS)[number];
-export type VisualLayoutKey = "classic" | "liquid_glass";
+export type VisualLayoutKey = "classic" | "elegance";
 
 export type SemanticVisualTokens = {
   primary: string;
@@ -74,12 +74,10 @@ export const PANEL_LAYOUT_MODELS: ReadonlyArray<{
   label: string;
   description: string;
 }> = [
-  { id: "classic", label: "Clássico", description: "O modelo atual, direto e familiar." },
   {
-    // O id gravado no banco continua "liquid_glass" (restrição da coluna); só o nome mudou.
-    id: "liquid_glass",
-    label: "Vitrine",
-    description: "Capa grande, logo sobreposto e serviços em cards com foto.",
+    id: "elegance",
+    label: "Elegance",
+    description: "Visual sofisticado com capa, logo circular e navegação flutuante.",
   },
 ];
 

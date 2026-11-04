@@ -2,10 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin, getSuperAdminStatus } from "@/lib/auth/require-super-admin";
+import { nextAccessAfterPayment, subscriptionTotalCents } from "@/lib/billing-cycle";
+
+const brlCharge = (cents: number) =>
+  (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const phoneLogin = (phone: string) => `${onlyDigits(phone)}@agenda.local`;
 const phonePassword = (senha: string) => `agendaagora:${senha}`;
+const isExistingAuthUserError = (error: { code?: string | undefined; message: string }) =>
+  ["email_exists", "user_already_exists", "identity_already_exists"].includes(error.code ?? "") ||
+  /already (registered|exists)|already been registered/i.test(error.message);
 
 /** Verifica exclusivamente se a sessão atual pertence ao responsável master. */
 export const getMasterStatus = createServerFn({ method: "GET" })
@@ -23,7 +30,7 @@ export const listAllBusinesses = createServerFn({ method: "GET" })
     const { data, error } = await supabaseAdmin
       .from("businesses")
       .select(
-        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, agpay_split_email, agpay_split_status, agpay_commission_percent",
+        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, agpay_split_email, agpay_split_status, agpay_commission_percent, agpay_auto_first_key, trial_days, trial_registration_name, trial_created_at",
       )
       .order("created_at", { ascending: false });
     let businesses = (data ?? []).map((business) => ({ ...business, agpay_schema_ready: true }));
@@ -42,7 +49,11 @@ export const listAllBusinesses = createServerFn({ method: "GET" })
         agpay_split_email: null,
         agpay_split_status: "pendente",
         agpay_commission_percent: 0,
+        agpay_auto_first_key: false,
         agpay_schema_ready: false,
+        trial_days: null,
+        trial_registration_name: null,
+        trial_created_at: null,
       }));
     }
     const { data: owners } = await supabaseAdmin.from("profiles").select("id, full_name, email");
@@ -74,6 +85,8 @@ const createInput = z.object({
   ownerName: z.string().min(2),
   phone: z.string().min(10),
   password: z.string().min(4),
+  trialDays: z.number().int().min(0).optional(),
+  registrationName: z.string().optional(),
 });
 
 export const createBusinessWithOwner = createServerFn({ method: "POST" })
@@ -84,6 +97,8 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
     const digits = onlyDigits(data.phone);
     const email = phoneLogin(digits);
     let ownerId: string | null = null;
+    // Senha em texto puro no dossiê: o master precisa ver a senha do painel.
+    const accountPassword = data.password.replace(/^agendaagora:/, "");
     const created = await supabaseAdmin.auth.admin.createUser({
       email,
       password: phonePassword(data.password),
@@ -91,16 +106,8 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
       user_metadata: { full_name: data.ownerName, phone: digits },
     });
     if (created.error) {
-      const { data: existing } = await supabaseAdmin
-        .from("profiles")
-        .select("id")
-        .eq("email", email)
-        .maybeSingle();
-      if (!existing) throw new Error(created.error.message);
-      ownerId = existing.id;
-      await supabaseAdmin.auth.admin.updateUserById(ownerId, {
-        password: phonePassword(data.password),
-      });
+      if (isExistingAuthUserError(created.error)) throw new Error("PHONE_ALREADY_REGISTERED");
+      throw new Error("Não foi possível criar o acesso do dono.");
     } else ownerId = created.data.user?.id ?? null;
     if (!ownerId) throw new Error("Não foi possível criar o acesso do dono.");
     await supabaseAdmin
@@ -122,11 +129,21 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
         category: data.category,
         phone: digits,
         owner_id: ownerId,
+        trial_days: data.trialDays ?? null,
+        trial_registration_name: data.registrationName ?? null,
+        // 0 dias = "Sem Período de teste": nasce vencido. A data precisa existir
+        // para o isExpiredTrial considerar o teste como terminado no ato.
+        trial_created_at: data.trialDays != null ? new Date().toISOString() : null,
+        // Vencimento rolante: fim do teste (ou criação, sem teste).
+        access_until:
+          data.trialDays != null
+            ? new Date(Date.now() + data.trialDays * 86_400_000).toISOString()
+            : new Date().toISOString(),
       })
       .select("id, slug")
       .single();
     if (error) throw new Error(error.message);
-    return { businessId: business.id, slug: business.slug, phone: digits };
+    return { businessId: business.id, slug: business.slug, phone: digits, initialPassword: accountPassword };
   });
 
 /** T033: estabelecimentos com saldo disponível negativo (revisão manual, FR-014). */
@@ -210,19 +227,27 @@ export const setBusinessAgpaySplit = createServerFn({ method: "POST" })
     z
       .object({
         businessId: z.string().uuid(),
-        splitEmail: z.string().email(),
+        splitEmail: z.string().email().optional(),
         commissionPercent: z.number().min(0).max(99.99),
+        autoFirstKey: z.boolean().optional(),
       })
       .parse(data),
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
+    const patch: {
+      agpay_commission_percent: number;
+      agpay_split_email?: string;
+      agpay_auto_first_key?: boolean;
+    } = { agpay_commission_percent: data.commissionPercent };
+    // E-mail ficou opcional: sem valor, o campo atual da conta é preservado.
+    if (data.splitEmail != null && data.splitEmail.trim().length > 0) {
+      patch.agpay_split_email = data.splitEmail;
+    }
+    if (data.autoFirstKey != null) patch.agpay_auto_first_key = data.autoFirstKey;
     const { error: businessError } = await supabaseAdmin
       .from("businesses")
-      .update({
-        agpay_split_email: data.splitEmail,
-        agpay_commission_percent: data.commissionPercent,
-      })
+      .update(patch)
       .eq("id", data.businessId);
     if (businessError) throw new Error(businessError.message);
     return { ok: true };
@@ -264,22 +289,31 @@ export const registerSubscriptionCharge = createServerFn({ method: "POST" })
     const supabaseAdmin = await assertSuperAdmin(context);
     const { data: business, error: bErr } = await supabaseAdmin
       .from("businesses")
-      .select("monthly_fee_cents")
+      .select("monthly_fee_cents, access_until")
       .eq("id", data.businessId)
       .maybeSingle();
     if (bErr) throw new Error(bErr.message);
     if (!business) throw new Error("Estabelecimento não encontrado.");
+    // Valor cobrado: base + R$ 10 por profissional adicional (1º é grátis).
+    const { count: professionalsCount } = await supabaseAdmin
+      .from("professionals")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", data.businessId);
+    const chargeCents = subscriptionTotalCents(
+      business.monthly_fee_cents ?? 8990,
+      professionalsCount ?? 0,
+    );
     const referenceMonth = `${data.month}-01`;
     const { data: existing } = await supabaseAdmin
       .from("subscription_payments")
-      .select("id")
+      .select("id, status")
       .eq("business_id", data.businessId)
       .eq("reference_month", referenceMonth)
       .maybeSingle();
     const payload = {
       business_id: data.businessId,
       reference_month: referenceMonth,
-      amount_cents: business.monthly_fee_cents ?? 8990,
+      amount_cents: chargeCents,
       status: data.status,
       paid_at: data.status === "pago" ? new Date().toISOString() : null,
     };
@@ -287,6 +321,27 @@ export const registerSubscriptionCharge = createServerFn({ method: "POST" })
       ? await supabaseAdmin.from("subscription_payments").update(payload).eq("id", existing.id)
       : await supabaseAdmin.from("subscription_payments").insert(payload);
     if (error) throw new Error(error.message);
+    // Regra de ouro do vencimento rolante: cada pagamento confirmado adiciona
+    // 30 dias A PARTIR DO FIM DO ACESSO VIGENTE — pagar antecipado nunca come
+    // dias e pagar atrasado não cria vencimento fixo.
+    if (data.status === "pago" && existing?.status !== "pago") {
+      const newAccessUntil = nextAccessAfterPayment(business.access_until, new Date());
+      await supabaseAdmin
+        .from("businesses")
+        .update({ access_until: newAccessUntil })
+        .eq("id", data.businessId);
+      try {
+        await supabaseAdmin.from("master_business_events").insert({
+          business_id: data.businessId,
+          actor_id: context.userId,
+          type: "pagamento",
+          title: "Assinatura confirmada",
+          description: `Referência ${data.month} — ${brlCharge(chargeCents)} · acesso até ${new Date(newAccessUntil).toLocaleDateString("pt-BR")}.`,
+        });
+      } catch (eventError) {
+        console.error("Falha ao registrar evento de assinatura:", eventError);
+      }
+    }
     return { ok: true };
   });
 export const getPlatformMetrics = createServerFn({ method: "GET" })

@@ -31,6 +31,7 @@ export const saveServiceInput = z.object({
   depositPercentBps: z.number().int().min(0).max(10_000),
   description: z.string().max(2000).nullable(),
   isCombo: z.boolean().default(false),
+  availableDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
   showPrice: z.boolean().default(true),
   showDuration: z.boolean().default(true),
   showService: z.boolean().default(true),
@@ -87,6 +88,7 @@ export function buildServiceRow(input: SaveServiceInput): ServiceRow {
     deposit_cents: shadowDepositCents,
     description: input.description?.trim() || null,
     is_combo: input.isCombo,
+    available_days: input.availableDays,
     show_price: input.showPrice,
     show_duration: input.showDuration,
     show_service: input.showService,
@@ -136,3 +138,63 @@ export const saveService = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) =>
     saveServiceForOwner(context.supabase, context.userId, data),
   );
+
+export const saveServiceDepositInput = z.object({
+  businessId: z.string().uuid(),
+  serviceId: z.string().uuid(),
+  requiresDeposit: z.boolean(),
+  depositMode: z.enum(["fixed", "percent"]),
+  /** Centavos (modo fixo) ou pontos-base (modo percentual, 10000 = 100%). */
+  amount: z.number().int().min(0).max(10000000),
+}).superRefine((data, ctx) => {
+  if (data.depositMode === "percent" && data.amount > 10000) {
+    ctx.addIssue({ code: "custom", path: ["amount"], message: "O percentual do sinal deve ficar entre 0% e 100%." });
+  }
+});
+
+/** Atualiza somente o sinal de um serviço (atalho da tela de regras). */
+export const saveServiceDeposit = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => saveServiceDepositInput.parse(data))
+  .handler(async ({ context, data }) => {
+    const { data: business, error: businessError } = await context.supabase
+      .from("businesses")
+      .select("id")
+      .eq("id", data.businessId)
+      .eq("owner_id", context.userId)
+      .maybeSingle();
+    if (businessError) throw new Error("Não foi possível validar o negócio.");
+    if (!business) throw new Error("Somente o dono pode configurar o sinal dos serviços.");
+
+    const { data: service, error: serviceError } = await context.supabase
+      .from("services")
+      .select("id, price_cents")
+      .eq("id", data.serviceId)
+      .eq("business_id", data.businessId)
+      .maybeSingle();
+    if (serviceError || !service) throw new Error("Serviço não encontrado neste negócio.");
+
+    const depositMode: DepositMode = data.depositMode;
+    const depositPercentBps = depositMode === "percent" ? data.amount : 0;
+    const depositCents =
+      depositMode === "percent"
+        ? Math.round(((service.price_cents ?? 0) * depositPercentBps) / 10000)
+        : data.amount;
+    if (data.requiresDeposit && depositCents > 0 && depositCents < MIN_PIX_DEPOSIT_CENTS) {
+      throw new Error("O sinal deve ser R$ 0,00 (sem sinal) ou pelo menos R$ 5,00.");
+    }
+    const { error } = await context.supabase
+      .from("services")
+      .update({
+        requires_deposit: data.requiresDeposit,
+        deposit_cents: depositCents,
+        ...({ deposit_mode: depositMode, deposit_percent_bps: depositPercentBps } as Record<
+          string,
+          unknown
+        >),
+      })
+      .eq("id", data.serviceId)
+      .eq("business_id", data.businessId);
+    if (error) throw new Error("Não foi possível salvar o sinal do serviço.");
+    return { id: data.serviceId };
+  });

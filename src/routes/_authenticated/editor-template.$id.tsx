@@ -107,7 +107,7 @@ function OutreachTemplateEditorPage() {
     );
 
   return (
-    <main className="min-h-[calc(100vh-4rem)] bg-slate-50 text-slate-950 dark:bg-slate-950 dark:text-slate-50">
+    <main className="min-h-[calc(100vh-4rem)] bg-[var(--c-f8fafc)] text-[var(--c-020617)] dark:bg-[var(--c-020617)] dark:text-[var(--c-f8fafc)]">
       <header className="sticky top-0 z-20 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">

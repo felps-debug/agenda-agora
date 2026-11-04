@@ -18,13 +18,6 @@ import {
 
 const businessIdInput = z.object({ businessId: z.string().uuid() });
 
-const visualSettingsInput = z.object({ businessId: z.string().uuid() });
-const publishVisualSettingsInput = z.object({
-  businessId: z.string().uuid(),
-  expectedRevision: z.number().int().min(0),
-  config: z.unknown(),
-});
-
 async function assertBusinessPermission(supabase: SupabaseClient<Database>, businessId: string) {
   const { data: allowed, error } = await supabase.rpc("has_business_permission", {
     _business_id: businessId,
@@ -33,55 +26,6 @@ async function assertBusinessPermission(supabase: SupabaseClient<Database>, busi
   if (error) throw new Error(error.message);
   if (!allowed) throw new Error("Você não tem permissão para configurar este negócio.");
 }
-
-async function assertAppearancePermission(supabase: SupabaseClient<Database>, businessId: string) {
-  const { data: allowed, error } = await supabase.rpc("has_business_permission", {
-    _business_id: businessId,
-    _permission: "manage_appearance",
-  });
-  if (error) throw new Error(error.message);
-  if (!allowed) {
-    const forbidden = new Error("Você não tem permissão para editar a aparência deste negócio.");
-    forbidden.name = "FORBIDDEN";
-    throw forbidden;
-  }
-}
-
-/** V2 read never creates a row; legacy JSON remains a read-only fallback. */
-export const getVisualSettings = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => visualSettingsInput.parse(data))
-  .handler(async ({ context, data }) => {
-    await assertAppearancePermission(context.supabase, data.businessId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { loadVisualSettings } = await import("@/lib/visual-settings.server");
-    return loadVisualSettings(supabaseAdmin, data.businessId);
-  });
-
-export const publishVisualSettings = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => publishVisualSettingsInput.parse(data))
-  .handler(async ({ context, data }) => {
-    await assertAppearancePermission(context.supabase, data.businessId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { normalizePanel1Config } = await import("@/lib/panel1-config");
-    const { publishVisualSettings: publish } = await import("@/lib/visual-settings.server");
-    try {
-      return await publish(supabaseAdmin, {
-        businessId: data.businessId,
-        userId: context.userId,
-        expectedRevision: data.expectedRevision,
-        config: normalizePanel1Config(data.config),
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "VisualSettingsConflictError") {
-        const conflict = new Error(error.message);
-        conflict.name = "REVISION_CONFLICT";
-        throw conflict;
-      }
-      throw error;
-    }
-  });
 
 /** Lê a configuração de Preferências/Aparência do Painel 1; retorna defaults se nunca salva. */
 export const getPanel1Config = createServerFn({ method: "GET" })
@@ -94,13 +38,21 @@ export const getPanel1Config = createServerFn({ method: "GET" })
   });
 
 const appearanceColorKeys = Object.keys(DEFAULT_PANEL1_APPEARANCE).filter(
-  (key) => key !== "font_family" && key !== "logo_fit",
-) as Array<Exclude<keyof Panel1Appearance, "font_family" | "logo_fit">>;
+  (key) =>
+    key !== "font_family" &&
+    key !== "logo_fit" &&
+    key !== "brand_tagline" &&
+    key !== "page_gradient_enabled" &&
+    key !== "page_gradient_direction",
+) as Array<Exclude<keyof Panel1Appearance, "font_family" | "logo_fit" | "brand_tagline" | "page_gradient_enabled" | "page_gradient_direction">>;
 const colorField = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const appearancePatch = z
   .object({
     font_family: z.enum(PANEL1_FONTS),
     logo_fit: z.enum(PANEL1_LOGO_FITS),
+    brand_tagline: z.string().max(80),
+    page_gradient_enabled: z.boolean(),
+    page_gradient_direction: z.enum(["to bottom", "to right", "to bottom right", "radial"]),
     ...Object.fromEntries(appearanceColorKeys.map((key) => [key, colorField])),
   })
   .partial()
@@ -125,8 +77,16 @@ export const preferencesPatch = z
   .strict();
 export const visualPreferencesPatch = z
   .object({
-    layout_key: z.enum(["classic", "liquid_glass"]),
+    layout_key: z.enum(["classic", "elegance"]),
     niche_id: z.enum(["barbearia", "salao", "consultorio", "estetica", "pet", "outro"]),
+    layout_media: z
+      .record(
+        z.object({
+          logoPath: z.string().max(512).nullable(),
+          backgroundPath: z.string().max(512).nullable(),
+        }),
+      )
+      .optional(),
   })
   .partial()
   .strict();

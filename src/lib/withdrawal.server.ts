@@ -3,6 +3,8 @@ import type { Database } from "@/integrations/supabase/types";
 import {
   MIN_WITHDRAWAL_CENTS,
   WITHDRAWAL_FEE_CENTS,
+  savePaymentRulesInput,
+  saveWithdrawalPinInput,
   saveWithdrawalPixKeyInput,
 } from "@/lib/withdrawal.functions";
 import { AgpayApiError, createCashoutPix } from "@/lib/agpay.server";
@@ -26,11 +28,15 @@ export async function createWithdrawal(
   const ownerDb = client;
   const { data: business, error } = await ownerDb
     .from("businesses")
-    .select("id, withdrawal_pix_key")
+    .select("id, withdrawal_pix_key, agpay_withdrawal_blocked, agpay_access_blocked")
     .eq("id", businessId)
     .eq("owner_id", userId)
     .maybeSingle();
   if (error || !business) throw new Error("Negócio não encontrado.");
+  if (business.agpay_access_blocked)
+    throw new Error("Sua carteira Ag Pay está bloqueada pelo suporte.");
+  if (business.agpay_withdrawal_blocked)
+    throw new Error("Os saques da sua carteira estão bloqueados pelo suporte.");
   if (!business.withdrawal_pix_key)
     throw new Error("Cadastre uma chave Pix antes de solicitar o saque.");
   if (!Number.isInteger(amountCents) || amountCents < MIN_WITHDRAWAL_CENTS)
@@ -180,5 +186,163 @@ export async function saveWithdrawalPixKeyForOwner(
     businessId: validData.businessId,
     pixKey: validData.pixKey,
     pixKeyType: validData.pixKeyType,
+  };
+}
+
+/**
+ * Persists the business transfer PIN (4 digits) as a salted SHA-256 hash.
+ */
+export async function saveWithdrawalPinForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = saveWithdrawalPinInput.parse(data);
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!business) throw new Error("Somente o dono pode cadastrar a senha de transferência.");
+
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${validData.businessId}:${validData.pin}`),
+  );
+  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  const { error } = await supabase
+    .from("businesses")
+    .update({ withdrawal_pin_hash: hash })
+    .eq("id", validData.businessId);
+  if (error) {
+    if ((error as { code?: string }).code === "42703") {
+      throw new Error(
+        "Atualize o banco: aplique a migration 20261013000000_withdrawal_pin no Supabase.",
+      );
+    }
+    throw new Error(error.message);
+  }
+
+  return { businessId: validData.businessId };
+}
+
+/** Compara o hash e confirma a senha de transferência do dono. */
+export async function verifyWithdrawalPinForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = saveWithdrawalPinInput.parse(data);
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("id, withdrawal_pin_hash")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!business) throw new Error("Negócio não encontrado.");
+  if (!business.withdrawal_pin_hash) {
+    throw new Error("Configure a senha de transferência na carteira Ag Pay.");
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${validData.businessId}:${validData.pin}`),
+  );
+  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (hash !== business.withdrawal_pin_hash) {
+    throw new Error("Senha de transferência incorreta.");
+  }
+  return { ok: true };
+}
+
+/** Tells whether the business already set its transfer PIN. */
+export async function getWithdrawalPinStatusForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = saveWithdrawalPinInput.pick({ businessId: true }).parse(data) as {
+    businessId: string;
+  };
+  const { data: business, error } = await supabase
+    .from("businesses")
+    .select("id, withdrawal_pin_hash")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (error) {
+    if ((error as { code?: string }).code === "42703") {
+      throw new Error(
+        "Atualize o banco: aplique a migration 20261013000000_withdrawal_pin no Supabase.",
+      );
+    }
+    throw new Error(error.message);
+  }
+  if (!business) throw new Error("Negócio não encontrado.");
+  return { pinSet: !!business.withdrawal_pin_hash };
+}
+
+/** Persists the AgPay wallet payment rules (Pix mode + exempt clients). */
+export async function savePaymentRulesForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = savePaymentRulesInput.parse(data);
+  const { data: business } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (!business) throw new Error("Somente o dono pode configurar as regras de pagamento.");
+
+  const { error } = await supabase
+    .from("businesses")
+    .update({
+      pix_mode: validData.pixMode,
+      pix_exception_clients: validData.pixExceptionClients,
+    })
+    .eq("id", validData.businessId);
+  if (error) {
+    if ((error as { code?: string }).code === "42703") {
+      throw new Error(
+        "Atualize o banco: aplique a migration 20261014000000_payment_rules no Supabase.",
+      );
+    }
+    throw new Error(error.message);
+  }
+
+  return { businessId: validData.businessId };
+}
+
+/** Reads the AgPay wallet payment rules. */
+export async function getPaymentRulesForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = savePaymentRulesInput.pick({ businessId: true }).parse(data) as {
+    businessId: string;
+  };
+  const { data: business, error } = await supabase
+    .from("businesses")
+    .select("id, pix_mode, pix_exception_clients")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (error) {
+    if ((error as { code?: string }).code === "42703") {
+      throw new Error(
+        "Atualize o banco: aplique a migration 20261014000000_payment_rules no Supabase.",
+      );
+    }
+    throw new Error(error.message);
+  }
+  if (!business) throw new Error("Negócio não encontrado.");
+  return {
+    pixMode: (business.pix_mode ?? "opcional") as "desabilitado" | "opcional" | "obrigatorio",
+    pixExceptionClients: (business.pix_exception_clients ?? []) as string[],
   };
 }

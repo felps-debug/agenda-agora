@@ -5,8 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { completedReportMetrics } from "@/lib/report-metrics";
-import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
-import { Button } from "@/components/ui/button";
+import { NoBusiness } from "@/components/painel/PageHeader";
 import { ReportChart } from "@/components/painel/ReportChart";
 import {
   CalendarCheck2,
@@ -118,24 +117,40 @@ function RelatorioPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Relatório"
-        subtitle="Faturamento, atendimentos e ocupação do período."
-        action={
-          <div className="flex gap-2">
+      <section className="report-luminous-card report-effect-strong p-4 sm:p-6">
+        <div className="relative">
+          <span className="-mt-1 inline-flex items-center gap-1.5 rounded-full border border-[var(--c-1677ff)]/35 bg-[var(--c-1677ff)]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--c-6db3ff)]">
+            <span
+              aria-hidden="true"
+              className="size-1.5 rounded-full bg-[var(--c-4d9bff)] shadow-[0_0_8px_var(--c-rgba-77-155-255-a0d9)]"
+            />
+            VISÃO GERAL
+          </span>
+          <h1 className="mt-2 max-w-2xl font-['Manrope'] text-xl font-black tracking-tight text-white md:text-2xl">
+            Relatório
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--c-9aa4b2)]">
+            Faturamento, atendimentos e ocupação do período.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
             {RANGES.map((r) => (
-              <Button
+              <button
                 key={r.days}
-                size="sm"
-                variant={days === r.days ? "default" : "outline"}
+                type="button"
                 onClick={() => setDays(r.days)}
+                aria-pressed={days === r.days}
+                className={
+                  days === r.days
+                    ? "rounded-lg bg-[var(--c-1677ff)] px-4 py-2 text-sm font-semibold text-white shadow-[0_0_18px_var(--c-rgba-22-119-255-a0d45)]"
+                    : "rounded-lg border border-[var(--c-2a3441)] bg-[var(--c-0c1118)] px-4 py-2 text-sm font-medium text-[var(--c-c3ccd7)] hover:border-[var(--c-1677ff)]/50 hover:text-white"
+                }
               >
                 {r.label}
-              </Button>
+              </button>
             ))}
           </div>
-        }
-      />
+        </div>
+      </section>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Card
@@ -227,7 +242,7 @@ function Card({
         <p className="text-[0.68rem] font-medium uppercase tracking-[0.14em] text-[#70757f]">
           {label}
         </p>
-        <p className="mt-1.5 text-[1.35rem] font-semibold leading-none tracking-[-0.025em] text-[#f2f4f8]">
+        <p className="mt-1.5 text-[1.35rem] font-semibold leading-none tracking-[-0.025em] text-[var(--c-f2f4f8)]">
           {value}
         </p>
         {hint && <p className="mt-2 text-xs leading-relaxed text-[#777d87]">{hint}</p>}
@@ -242,7 +257,7 @@ function ReportCardTitle({ icon: Icon, title }: { icon: LucideIcon; title: strin
       <div className="report-icon-box">
         <Icon className="size-[1.05rem]" strokeWidth={1.8} aria-hidden="true" />
       </div>
-      <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[#eef1f6]">{title}</h2>
+      <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--c-eef1f6)]">{title}</h2>
     </div>
   );
 }
@@ -266,7 +281,7 @@ function ListCard({
               key={r.name}
               className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.055] bg-black/20 px-3.5 py-3"
             >
-              <span className="text-[#dfe3ea]">{r.name}</span>
+              <span className="text-[var(--c-dfe3ea)]">{r.name}</span>
               <span className="shrink-0 text-[#777d87]">{r.value}</span>
             </li>
           ))}

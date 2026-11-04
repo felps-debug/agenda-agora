@@ -1,0 +1,7 @@
+[Unit]
+Description=Run Agenda Agora subscription lifecycle
+After=agenda-agora.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/agenda-cron subscription-lifecycle

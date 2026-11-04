@@ -16,6 +16,7 @@ export type Panel1LogoFit = (typeof PANEL1_LOGO_FITS)[number];
 export type Panel1Appearance = {
   font_family: Panel1Font;
   logo_fit: Panel1LogoFit;
+  brand_tagline: string;
   page_text: string;
   header_background: string;
   header_text: string;
@@ -38,6 +39,16 @@ export type Panel1Appearance = {
   agenda_background: string;
   agenda_text: string;
   agenda_border: string;
+  wave_color: string;
+  wave_color_2: string;
+  infoPageBackground: string;
+  selectedServiceBorderColor: string;
+  backButtonBackgroundColor: string;
+  backButtonIconColor: string;
+  page_gradient_enabled: boolean;
+  page_gradient_start: string;
+  page_gradient_end: string;
+  page_gradient_direction: string;
 };
 
 export type Panel1Preferences = {
@@ -54,11 +65,26 @@ export type Panel1Preferences = {
   reschedule_enabled: boolean;
   reschedule_notice_minutes: number;
   greeting: string;
+  greeting_enabled: boolean;
+  post_service_enabled: boolean;
+  post_service_minutes: number;
+  post_service_send_to: string;
+  post_service_template: string;
+  post_service_clients: string;
+};
+
+export type Panel1LayoutMedia = {
+  logoPath: string | null;
+  backgroundPath: string | null;
 };
 
 export type Panel1VisualPreferences = {
-  layout_key: "classic" | "liquid_glass";
+  layout_key: "classic" | "elegance";
   niche_id: "barbearia" | "salao" | "consultorio" | "estetica" | "pet" | "outro";
+  // Mídia (logo e capa/banner) isolada por modelo de layout. Cores permanecem
+  // compartilhadas em `appearance`/`pageBackground`, mas cada tema mantém suas
+  // próprias imagens, evitando que uma sobrescreva a outra.
+  layout_media: Partial<Record<"classic" | "elegance", Panel1LayoutMedia>>;
 };
 
 export type Panel1Config = {
@@ -75,6 +101,7 @@ export const DEFAULT_EXTRA_REMINDER_TEMPLATE =
 export const DEFAULT_PANEL1_APPEARANCE: Panel1Appearance = {
   font_family: "inter",
   logo_fit: "quadrado",
+  brand_tagline: "Seu olhar ainda mais especial",
   page_text: "#f3f4f6",
   header_background: "#050607",
   header_text: "#f3f4f6",
@@ -97,6 +124,16 @@ export const DEFAULT_PANEL1_APPEARANCE: Panel1Appearance = {
   agenda_background: "#0b0d0f",
   agenda_text: "#f3f4f6",
   agenda_border: "#2a2d32",
+  wave_color: "#E95487",
+  wave_color_2: "#F2B7C8",
+  infoPageBackground: "#f7e9ed",
+  selectedServiceBorderColor: "#e75a8b",
+  backButtonBackgroundColor: "#f7d9e4",
+  backButtonIconColor: "#a4556d",
+  page_gradient_enabled: false,
+  page_gradient_start: "#FFF0F3",
+  page_gradient_end: "#FDE8ED",
+  page_gradient_direction: "to bottom",
 };
 
 export const PANEL1_APPEARANCE_PRESETS = {
@@ -315,11 +352,18 @@ export const DEFAULT_PANEL1_PREFERENCES: Panel1Preferences = {
   reschedule_enabled: false,
   reschedule_notice_minutes: 0,
   greeting: "Agende seu horário",
+  greeting_enabled: true,
+  post_service_enabled: false,
+  post_service_minutes: 0,
+  post_service_send_to: "todos",
+  post_service_template: "Olá {Cliente}, obrigado pela sua visita! Esperamos você novamente. 😊",
+  post_service_clients: "",
 };
 
 export const DEFAULT_PANEL1_VISUAL_PREFERENCES: Panel1VisualPreferences = {
   layout_key: "classic",
   niche_id: "outro",
+  layout_media: {},
 };
 
 export const PANEL1_SETTINGS_FILENAME = "panel1-settings.json";
@@ -374,9 +418,21 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
   const appearance = { ...DEFAULT_PANEL1_APPEARANCE };
 
   for (const key of Object.keys(appearance) as Array<keyof Panel1Appearance>) {
-    if (key === "font_family" || key === "logo_fit") continue;
+    if (
+      key === "font_family" ||
+      key === "logo_fit" ||
+      key === "brand_tagline" ||
+      key === "page_gradient_enabled" ||
+      key === "page_gradient_direction"
+    )
+      continue;
     appearance[key] = colorValue(rawAppearance[key], appearance[key]);
   }
+  appearance.brand_tagline =
+    typeof rawAppearance["brand_tagline"] === "string" &&
+    (rawAppearance["brand_tagline"] as string).trim().length > 0
+      ? (rawAppearance["brand_tagline"] as string).slice(0, 80)
+      : DEFAULT_PANEL1_APPEARANCE.brand_tagline;
   appearance.font_family = (PANEL1_FONTS as readonly string[]).includes(
     rawAppearance["font_family"] as string,
   )
@@ -387,6 +443,18 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
   )
     ? (rawAppearance["logo_fit"] as Panel1LogoFit)
     : DEFAULT_PANEL1_APPEARANCE.logo_fit;
+  appearance.wave_color_2 = colorValue(
+    rawAppearance["wave_color_2"] ?? rawAppearance["wave_color"],
+    DEFAULT_PANEL1_APPEARANCE.wave_color_2,
+  );
+  appearance.page_gradient_enabled = boolValue(
+    rawAppearance["page_gradient_enabled"],
+    DEFAULT_PANEL1_APPEARANCE.page_gradient_enabled,
+  );
+  appearance.page_gradient_direction =
+    typeof rawAppearance["page_gradient_direction"] === "string"
+      ? rawAppearance["page_gradient_direction"]
+      : DEFAULT_PANEL1_APPEARANCE.page_gradient_direction;
 
   const rawListing = Math.round(
     numberValue(
@@ -466,18 +534,72 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
       ),
     ),
     greeting: stringValue(rawPreferences["greeting"], DEFAULT_PANEL1_PREFERENCES.greeting, 80),
+    greeting_enabled: boolValue(rawPreferences["greeting_enabled"], DEFAULT_PANEL1_PREFERENCES.greeting_enabled),
+    post_service_enabled: boolValue(rawPreferences["post_service_enabled"], DEFAULT_PANEL1_PREFERENCES.post_service_enabled),
+    post_service_minutes: Math.floor(
+      numberValue(
+        rawPreferences["post_service_minutes"],
+        DEFAULT_PANEL1_PREFERENCES.post_service_minutes,
+        0,
+        1440,
+      ),
+    ),
+    post_service_send_to: stringValue(
+      rawPreferences["post_service_send_to"],
+      DEFAULT_PANEL1_PREFERENCES.post_service_send_to,
+      40,
+    ),
+    post_service_template: stringValue(
+      rawPreferences["post_service_template"],
+      DEFAULT_PANEL1_PREFERENCES.post_service_template,
+      800,
+    ),
+    post_service_clients: stringValue(
+      rawPreferences["post_service_clients"],
+      DEFAULT_PANEL1_PREFERENCES.post_service_clients,
+      4000,
+    ),
   };
 
+  const rawMedia = object(rawVisual["layout_media"]);
+  const layoutMedia: Panel1VisualPreferences["layout_media"] = {};
+  for (const key of ["classic", "elegance"] as const) {
+    const rawEntry = object(rawMedia[key]);
+    const logoRaw = rawEntry["logoPath"];
+    const backgroundRaw = rawEntry["backgroundPath"];
+    const logoPath =
+      logoRaw === null
+        ? null
+        : typeof logoRaw === "string"
+          ? logoRaw.slice(0, 512)
+          : undefined;
+    const backgroundPath =
+      backgroundRaw === null
+        ? null
+        : typeof backgroundRaw === "string"
+          ? backgroundRaw.slice(0, 512)
+          : undefined;
+    if (logoPath !== undefined || backgroundPath !== undefined) {
+      layoutMedia[key] = {
+        logoPath: logoPath === undefined ? null : logoPath,
+        backgroundPath: backgroundPath === undefined ? null : backgroundPath,
+      };
+    }
+  }
+
   const visual: Panel1VisualPreferences = {
+    // 'liquid_glass' legível em documentos antigos apontava para o mesmo layout
+    // sofisticado, hoje publicado como 'elegance'.
     layout_key:
-      rawVisual["layout_key"] === "liquid_glass"
-        ? "liquid_glass"
+      rawVisual["layout_key"] === "elegance" || rawVisual["layout_key"] === "liquid_glass"
+        ? "elegance"
         : DEFAULT_PANEL1_VISUAL_PREFERENCES.layout_key,
     niche_id: ["barbearia", "salao", "consultorio", "estetica", "pet", "outro"].includes(
       rawVisual["niche_id"] as string,
     )
       ? (rawVisual["niche_id"] as Panel1VisualPreferences["niche_id"])
       : DEFAULT_PANEL1_VISUAL_PREFERENCES.niche_id,
+    layout_media: layoutMedia,
   };
 
   return {

@@ -43,3 +43,6 @@ supabase/.temp/
 
 # Local deployment and diagnostic artifacts
 .tmp/
+
+# banco de ensaio (Spec 010)
+scripts/ensaio/.data/

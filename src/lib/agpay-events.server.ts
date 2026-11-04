@@ -393,6 +393,9 @@ export async function synchronizeDepositPayment(chargeId: string) {
   return { status: "pendente" as const };
 }
 
+/** Evento chegou antes de a referência local existir: fica em retry e expira em 24 h. */
+class MissingLocalReferenceError extends Error {}
+
 async function processWebhookEvent(row: {
   event_type: string;
   transaction_uuid: string | null;
@@ -405,7 +408,7 @@ async function processWebhookEvent(row: {
     payload.data?.uuid ??
     row.transaction_uuid;
   if (row.event_type.startsWith("withdrawal.")) {
-    if (!withdrawalRef) return;
+    if (!withdrawalRef) throw new MissingLocalReferenceError("Evento de saque sem referência do provedor.");
     const db = await database();
     const terminalStatus =
       row.event_type === "withdrawal.completed"
@@ -413,36 +416,33 @@ async function processWebhookEvent(row: {
         : ["withdrawal.failed", "withdrawal.rejected"].includes(row.event_type)
           ? "failed"
           : "processing";
-    if (terminalStatus !== "processing") {
-      const { data: withdrawal, error: lookupError } = await db
-        .from("withdrawals")
-        .select("id")
-        .eq("provider_ref", withdrawalRef)
-        .maybeSingle();
-      if (lookupError) throw new Error(lookupError.message);
-      if (withdrawal) {
-        await settleWithdrawal(db, {
-          withdrawalId: withdrawal.id,
-          outcome: terminalStatus,
-          providerRef: withdrawalRef,
-        });
-        return;
-      }
-    }
-    const { error } = await db
+    const { data: withdrawal, error: lookupError } = await db
       .from("withdrawals")
-      .update({
-        status: terminalStatus,
-        provider_ref: withdrawalRef,
-        updated_at: new Date().toISOString(),
-      })
+      .select("id, status")
       .eq("provider_ref", withdrawalRef)
-      .in("status", ["requested", "processing"]);
-    if (error) throw new Error(error.message);
+      .maybeSingle();
+    if (lookupError) throw new Error(lookupError.message);
+    if (!withdrawal) throw new MissingLocalReferenceError("Saque ainda não encontrado localmente.");
+    if (terminalStatus !== "processing") {
+      await settleWithdrawal(db, {
+        withdrawalId: withdrawal.id,
+        outcome: terminalStatus,
+        providerRef: withdrawalRef,
+      });
+      return;
+    }
+    if (["requested", "processing"].includes(withdrawal.status)) {
+      const { error } = await db
+        .from("withdrawals")
+        .update({ status: terminalStatus, updated_at: new Date().toISOString() })
+        .eq("id", withdrawal.id)
+        .in("status", ["requested", "processing"]);
+      if (error) throw new Error(error.message);
+    }
     return;
   }
   const transactionUuid = row.transaction_uuid;
-  if (!transactionUuid) return;
+  if (!transactionUuid) throw new MissingLocalReferenceError("Evento de depósito sem referência do provedor.");
   const providerStatus = payload.data?.status ?? row.event_type;
 
   if (isRefundEvent(row.event_type, payload.data?.status)) {
@@ -463,7 +463,8 @@ async function processWebhookEvent(row: {
   }
 
   if (row.event_type === "deposit.completed") {
-    await confirmDepositPayment(transactionUuid, "completed");
+    const result = await confirmDepositPayment(transactionUuid, "completed");
+    if (result.outcome === "not_found") throw new MissingLocalReferenceError("Pagamento ainda não encontrado localmente.");
     return;
   }
   if (row.event_type === "transaction.failed") {
@@ -474,7 +475,8 @@ async function processWebhookEvent(row: {
       .eq("provider_payment_id", transactionUuid)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (charge) await expireLocalCharge(charge.id, charge.appointment_id, providerStatus);
+    if (!charge) throw new MissingLocalReferenceError("Cobrança ainda não encontrada localmente.");
+    await expireLocalCharge(charge.id, charge.appointment_id, providerStatus);
   }
   // waiting_payment fica registrado apenas para auditoria.
 }
@@ -505,7 +507,7 @@ export async function processAgpayWebhookEvents(limit = 25) {
   const now = new Date().toISOString();
   const { data: candidates, error } = await db
     .from("agpay_webhook_events")
-    .select("id, event_type, transaction_uuid, payload, attempts")
+    .select("id, event_type, transaction_uuid, payload, attempts, received_at")
     .in("status", ["pending", "failed"])
     .lte("available_at", now)
     .order("received_at", { ascending: true })
@@ -539,10 +541,16 @@ export async function processAgpayWebhookEvents(limit = 25) {
     } catch (processError) {
       const attempts = candidate.attempts + 1;
       const delaySeconds = Math.min(900, 15 * 2 ** Math.min(attempts, 6));
+      const receivedAt = new Date(candidate.received_at).getTime();
+      const expired =
+        processError instanceof MissingLocalReferenceError &&
+        Number.isFinite(receivedAt) &&
+        Date.now() - receivedAt >= 24 * 60 * 60_000;
       await db
         .from("agpay_webhook_events")
         .update({
-          status: "failed",
+          // Depois de 24 h tentando, o evento sai da fila automática e vai para reconciliação manual.
+          status: expired ? "error" : "failed",
           attempts,
           locked_at: null,
           available_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),

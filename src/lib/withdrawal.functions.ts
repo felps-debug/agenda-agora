@@ -191,3 +191,73 @@ export const saveWithdrawalPixKey = createServerFn({ method: "POST" })
     const { saveWithdrawalPixKeyForOwner } = await import("./withdrawal.server");
     return saveWithdrawalPixKeyForOwner(context.supabase, context.userId, data);
   });
+
+export const saveWithdrawalPinInput = z.object({
+  businessId: z.string().uuid(),
+  pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
+});
+
+export const verifyWithdrawalPinInput = saveWithdrawalPinInput;
+
+/** Confirma a senha de transferência antes de efetuar o saque. */
+export const verifyWithdrawalPin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) =>
+    z
+      .object({
+        businessId: z.string().uuid(),
+        pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
+      })
+      .parse(data),
+  )
+  .handler(async ({ context, data }) => {
+    const { verifyWithdrawalPinForOwner } = await import("./withdrawal.server");
+    return verifyWithdrawalPinForOwner(context.supabase, context.userId, data);
+  });
+
+/**
+ * Cadastra a senha de transferência (4 dígitos) do negócio; restrito ao dono.
+ * Apenas o hash é persistido. Preenchida uma única vez junto da chave Pix.
+ */
+export const saveWithdrawalPin = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => saveWithdrawalPinInput.parse(data))
+  .handler(async ({ context, data }) => {
+    const { saveWithdrawalPinForOwner } = await import("./withdrawal.server");
+    return saveWithdrawalPinForOwner(context.supabase, context.userId, data);
+  });
+
+/** Informa se o negócio já cadastrou a senha de transferência. */
+export const getWithdrawalPinStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { getWithdrawalPinStatusForOwner } = await import("./withdrawal.server");
+    return getWithdrawalPinStatusForOwner(context.supabase, context.userId, data);
+  });
+
+export const paymentPixModes = ["desabilitado", "opcional", "obrigatorio"] as const;
+
+export const savePaymentRulesInput = z.object({
+  businessId: z.string().uuid(),
+  pixMode: z.enum(paymentPixModes),
+  pixExceptionClients: z.array(z.string().trim().min(1).max(80)).max(200).default([]),
+});
+
+/** Regras de pagamento da carteira AgPay do negócio; restrito ao dono. */
+export const savePaymentRules = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => savePaymentRulesInput.parse(data))
+  .handler(async ({ context, data }) => {
+    const { savePaymentRulesForOwner } = await import("./withdrawal.server");
+    return savePaymentRulesForOwner(context.supabase, context.userId, data);
+  });
+
+/** Lê as regras de pagamento da carteira AgPay do negócio. */
+export const getPaymentRules = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { getPaymentRulesForOwner } = await import("./withdrawal.server");
+    return getPaymentRulesForOwner(context.supabase, context.userId, data);
+  });

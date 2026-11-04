@@ -5,7 +5,14 @@ import { describe, expect, it } from "vitest";
 //   Lança erro para modo desconhecido, centavos negativos/não inteiros e
 //   pontos-base fora de 0–10000 ou não inteiros (data-model.md, FR-011/012).
 // - `percentToBps(percent)`: percentual da UI (0–100, até duas casas) em pontos-base.
-import { assertRequiredDepositAmount, effectiveDepositCents, percentToBps } from "./deposit-amount";
+import {
+  assertRequiredDepositAmount,
+  convertDepositField,
+  depositFieldText,
+  effectiveDepositCents,
+  parseDepositField,
+  percentToBps,
+} from "./deposit-amount";
 
 type ServiceDeposit = Parameters<typeof effectiveDepositCents>[0];
 
@@ -144,4 +151,52 @@ describe("percentToBps", () => {
       expect(() => percentToBps(value)).toThrow();
     },
   );
+});
+
+describe("campo da tela de sinal (US5)", () => {
+  const fixed = { price_cents: 10_000, deposit_cents: 2_500, deposit_mode: "fixed", deposit_percent_bps: 0 } as const;
+  const percent = { price_cents: 10_000, deposit_cents: 3_000, deposit_mode: "percent", deposit_percent_bps: 3_000 } as const;
+
+  it("mostra o sinal na unidade em que o serviço foi salvo", () => {
+    expect(depositFieldText(fixed, "fixed")).toBe("25,00");
+    expect(depositFieldText(percent, "percent")).toBe("30");
+  });
+
+  it("converte entre reais e percentual usando o preço atual", () => {
+    expect(depositFieldText(fixed, "percent")).toBe("25");
+    expect(depositFieldText(percent, "fixed")).toBe("30,00");
+  });
+
+  it("percentual com casas decimais usa vírgula", () => {
+    expect(depositFieldText({ ...percent, deposit_percent_bps: 1_234 }, "percent")).toBe("12,34");
+  });
+
+  it("serviço sem preço não gera divisão por zero", () => {
+    expect(depositFieldText({ ...fixed, price_cents: 0 }, "percent")).toBe("0");
+  });
+
+  it("parseDepositField devolve centavos no modo fixo e pontos-base no percentual", () => {
+    expect(parseDepositField("25,50", "fixed")).toBe(2_550);
+    expect(parseDepositField("30", "percent")).toBe(3_000);
+    expect(parseDepositField("12,34", "percent")).toBe(1_234);
+  });
+
+  it("parseDepositField recusa vazio, negativo, texto e percentual acima de 100", () => {
+    expect(() => parseDepositField("", "fixed")).toThrow();
+    expect(() => parseDepositField("-5", "fixed")).toThrow();
+    expect(() => parseDepositField("abc", "percent")).toThrow();
+    expect(() => parseDepositField("101", "percent")).toThrow();
+  });
+
+  it("trocar a unidade preserva o que o dono digitou", () => {
+    expect(convertDepositField("30", "percent", "fixed", 10_000)).toBe("30,00");
+    expect(convertDepositField("25,00", "fixed", "percent", 10_000)).toBe("25");
+    expect(convertDepositField("lixo", "fixed", "percent", 10_000)).toBe("lixo");
+    expect(convertDepositField("30", "percent", "percent", 10_000)).toBe("30");
+  });
+
+  it("o cálculo do sinal percentual arredonda para centavos", () => {
+    const service = { requires_deposit: true, deposit_mode: "percent", deposit_percent_bps: 3_333, price_cents: 5_000, deposit_cents: 0 } as const;
+    expect(effectiveDepositCents(service)).toBe(1_667);
+  });
 });

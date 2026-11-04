@@ -17,6 +17,8 @@ const inputSchema = z.object({
     .or(z.literal("")),
   createAccess: z.boolean().default(false),
   avatarPath: z.string().nullable().optional(),
+  agendaName: z.string().trim().max(11).optional().default(""),
+  publicName: z.string().trim().max(80).optional().default(""),
   workingDays: z.array(z.number().int().min(0).max(6)),
   permissions: permissionsSchema,
   serviceIds: z.array(z.string().uuid()),
@@ -56,6 +58,16 @@ export const saveProfessional = createServerFn({ method: "POST" })
         new Set(validServices?.map((service) => service.id)).size !== new Set(data.serviceIds).size
       ) {
         throw new Error("Selecione apenas serviços deste negócio.");
+      }
+    }
+    // Limite de 10 profissionais por estabelecimento (criação de novos).
+    if (!data.id) {
+      const { count } = await supabaseAdmin
+        .from("professionals")
+        .select("id", { count: "exact", head: true })
+        .eq("business_id", data.businessId);
+      if ((count ?? 0) >= 10) {
+        throw new Error("Limite de 10 profissionais atingido neste estabelecimento.");
       }
     }
     const loginEmail = data.email.trim().toLowerCase() || `${digits(data.phone)}@agenda.local`;
@@ -105,6 +117,8 @@ export const saveProfessional = createServerFn({ method: "POST" })
       business_id: data.businessId,
       user_id: userId,
       name: data.name,
+      agenda_name: data.agendaName || null,
+      public_name: data.publicName || null,
       role: data.role || null,
       phone: digits(data.phone) || null,
       email: data.email || null,

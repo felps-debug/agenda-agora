@@ -13,6 +13,14 @@ export type Business = {
   address: string | null;
   status: string;
   monthly_fee_cents: number;
+  created_at: string;
+  trial_days: number | null;
+  trial_created_at: string | null;
+  trial_registration_name?: string | null;
+  /** Tema de cor do sistema do SaaS por estabelecimento ('azul' | 'rosa' | 'dourado'). */
+  theme?: string | null;
+  /** Vencimento rolante do acesso (fim do teste ou da assinatura paga). */
+  access_until?: string | null;
 };
 
 const STORAGE_KEY = "agendaagora:business";
@@ -44,7 +52,7 @@ const BusinessContext = createContext<BusinessState>({
 export function BusinessProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [businessId, setBusinessIdState] = useState<string | null>(null);
+  const [businessIdOverride, setBusinessIdState] = useState<string | null>(null);
 
   const { data: isPlatformAdmin = false, isSuccess: roleLoaded } = useQuery({
     queryKey: ["current-super-admin", user?.id],
@@ -67,7 +75,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, name, slug, category, phone, address, status, monthly_fee_cents")
+        .select("id, name, slug, category, phone, address, status, monthly_fee_cents, created_at, trial_days, trial_created_at, trial_registration_name, access_until")
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Business[];
@@ -76,22 +84,17 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   const businesses = useMemo(() => (isPlatformAdmin ? [] : (data ?? [])), [data, isPlatformAdmin]);
 
-  useEffect(() => {
-    if (isPlatformAdmin) {
-      setBusinessIdState(null);
-      return;
-    }
-    if (!businesses.length) {
-      setBusinessIdState(null);
-      return;
-    }
-    const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-    setBusinessIdState((current) => {
-      if (current && businesses.some((b) => b.id === current)) return current;
-      if (stored && businesses.some((b) => b.id === stored)) return stored;
-      return businesses[0]!.id;
-    });
-  }, [businesses, isPlatformAdmin]);
+  // Resolve o negócio de forma síncrona (sem useEffect) para não exibir
+  // "aguardando configuração" por um render após a lista carregar.
+  const stored =
+    typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+  const businessId = isPlatformAdmin
+    ? null
+    : businessIdOverride && businesses.some((b) => b.id === businessIdOverride)
+      ? businessIdOverride
+      : stored && businesses.some((b) => b.id === stored)
+        ? stored
+        : (businesses[0]?.id ?? null);
 
   const setBusinessId = (id: string) => {
     if (isPlatformAdmin || !businesses.some((business) => business.id === id)) return;
@@ -113,6 +116,36 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
       return !!data;
     },
   });
+
+  // Tema de cor do sistema por estabelecimento (azul | rosa | dourado). Consulta
+  // tolerante: enquanto a coluna `theme` não existir no banco (migração pendente),
+  // o erro é ignorado em silêncio e vale a preferência local no localStorage.
+  const { data: businessTheme } = useQuery({
+    queryKey: ["business-theme", businessId],
+    enabled: !!businessId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("businesses")
+        .select("theme")
+        .eq("id", businessId!)
+        .maybeSingle();
+      if (error) return null;
+      const t = data?.theme;
+      return t === "rosa" || t === "dourado" || t === "azul" ? t : null;
+    },
+  });
+
+  useEffect(() => {
+    if (!businessTheme || typeof document === "undefined") return;
+    const root = document.documentElement;
+    if (businessTheme === "rosa" || businessTheme === "dourado") {
+      root.setAttribute("data-theme", businessTheme);
+    } else {
+      root.removeAttribute("data-theme");
+    }
+    window.localStorage.setItem("agendaagora:tema", businessTheme);
+  }, [businessTheme]);
 
   const value: BusinessState = {
     businesses,

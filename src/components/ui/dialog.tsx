@@ -21,7 +21,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/80  data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-black/80 animate-backdrop",
       className,
     )}
     {...props}
@@ -31,14 +31,17 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
+    /** Estilo inline aplicado ao overlay (ex.: animação desativada sem mexer na cor de fundo). */
+    overlayStyle?: React.CSSProperties;
+  }
+>(({ className, children, overlayStyle, ...props }, ref) => (
   <DialogPortal>
-    <DialogOverlay />
+    <DialogOverlay style={overlayStyle} />
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:rounded-lg",
+        "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-lg animate-modal-in rounded-2xl",
         className,
       )}
       {...props}
@@ -46,7 +49,7 @@ const DialogContent = React.forwardRef<
       {children}
       <DialogPrimitive.Close
         data-slot="dialog-close"
-        className="absolute right-2 top-2 z-50 grid size-11 cursor-pointer place-items-center rounded-lg bg-[#202630] text-white opacity-100 shadow-sm ring-offset-background transition-colors hover:bg-[#343b48] hover:text-white focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:text-white"
+        className="absolute right-2 top-2 z-50 grid size-11 cursor-pointer place-items-center rounded-lg bg-[var(--c-202630)] text-white opacity-100 shadow-sm ring-offset-background transition-colors hover:bg-[var(--c-343b48)] hover:text-white focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:text-white"
       >
         <X className="h-4 w-4" />
         <span className="sr-only">Close</span>

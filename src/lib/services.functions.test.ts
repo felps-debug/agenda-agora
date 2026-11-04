@@ -27,10 +27,16 @@ const input = (overrides: Partial<SaveServiceInput> = {}): SaveServiceInput => (
   showDuration: true,
   showService: true,
   imagePath: null,
+  availableDays: [1, 2, 3, 4, 5, 6],
   ...overrides,
 });
 
 describe("buildServiceRow", () => {
+  it("grava available_days como recebido", () => {
+    const row = buildServiceRow(input({ availableDays: [1, 3, 5] }));
+    expect(row).toMatchObject({ available_days: [1, 3, 5] });
+  });
+
   it("modo percentual grava deposit_cents como sombra do valor calculado", () => {
     const row = buildServiceRow(
       input({ depositMode: "percent", depositPercentBps: 1_000, depositCents: 999 }),
@@ -244,3 +250,27 @@ describe("saveServiceForOwner", () => {
     ).rejects.toThrow(/não encontrado/);
   });
 });
+
+describe("dias de atendimento do serviço (US9)", () => {
+  it("serviço novo sem escolha nasce de segunda a sábado", () => {
+    const { availableDays: _omit, ...withoutDays } = input();
+    const parsed = saveServiceInput.parse(withoutDays);
+    expect(parsed.availableDays).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it("o dono pode marcar o domingo e desmarcar qualquer dia", () => {
+    expect(saveServiceInput.parse(input({ availableDays: [0, 1, 2, 3, 4, 5, 6] })).availableDays).toEqual([
+      0, 1, 2, 3, 4, 5, 6,
+    ]);
+    expect(buildServiceRow(input({ availableDays: [0, 6] }))).toMatchObject({ available_days: [0, 6] });
+    expect(buildServiceRow(input({ availableDays: [1, 2, 3, 4, 5] }))).toMatchObject({
+      available_days: [1, 2, 3, 4, 5],
+    });
+  });
+
+  it("recusa dia fora de 0 a 6", () => {
+    expect(() => saveServiceInput.parse(input({ availableDays: [7] }))).toThrow();
+    expect(() => saveServiceInput.parse(input({ availableDays: [-1] }))).toThrow();
+  });
+});
+

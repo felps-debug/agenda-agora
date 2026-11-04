@@ -77,17 +77,21 @@ export async function validateLogoFile(
   return { valid: true, extension };
 }
 
-export function logoStorageErrorMessage(error: {
-  status: number | undefined;
-  statusCode: string | undefined;
-}): string {
+export function logoStorageErrorMessage(
+  error: {
+    status: number | undefined;
+    statusCode: string | undefined;
+  },
+  context: "logo" | "background" = "logo",
+): string {
+  const subject = context === "background" ? "imagem de fundo" : "logotipo";
   if (error.statusCode === "NoSuchBucket") {
     return "O armazenamento de imagens está indisponível. Tente novamente mais tarde.";
   }
   if (error.status === 401 || error.status === 403 || error.statusCode === "AccessDenied") {
-    return "Você não tem permissão para enviar o logotipo deste negócio.";
+    return `Você não tem permissão para enviar a ${subject} deste negócio.`;
   }
-  return "Não foi possível enviar o logotipo. Tente novamente.";
+  return `Não foi possível enviar a ${subject}. Tente novamente.`;
 }
 
 export async function getBusinessImageUrl(
@@ -110,6 +114,35 @@ export function getLogoUrl(path: string | null | undefined, businessId: string) 
 export function getBackgroundImageUrl(path: string | null | undefined, businessId: string) {
   return getBusinessImageUrl(path, businessId, "background");
 }
+
+export const backgroundImageUrlInput = z.object({
+  businessId: z.string().uuid(),
+  path: z.string().max(512),
+});
+
+/**
+ * URL assinada da capa para o editor. O bucket privado não tem política de SELECT em
+ * <business_id>/background/* (só logo-* e services/*), então o createSignedUrl do
+ * navegador falha com 400; aqui a assinatura é feita no servidor com service role,
+ * igual à resolução usada pela página pública.
+ */
+export const resolveBackgroundImageUrl = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => backgroundImageUrlInput.parse(data))
+  .handler(async ({ context, data }) => {
+    if (!isBusinessImagePath(data.path, data.businessId, "background")) return null;
+    const { data: allowed, error } = await context.supabase.rpc("has_business_permission", {
+      _business_id: data.businessId,
+      _permission: "manage_settings",
+    });
+    if (error || !allowed) return null;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: signed, error: signError } = await supabaseAdmin.storage
+      .from(LOGO_BUCKET)
+      .createSignedUrl(data.path, 60 * 60 * 24);
+    if (signError) return null;
+    return signed?.signedUrl ?? null;
+  });
 
 export async function decodeBusinessImageFile(file: Blob): Promise<boolean> {
   if (typeof createImageBitmap === "function") {

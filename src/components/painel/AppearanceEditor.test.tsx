@@ -46,17 +46,16 @@ describe("AppearanceEditor contraste", () => {
         onApplyPreset: () => {},
         onSave: () => {},
         saving: false,
-        layoutKey: "classic",
-        onLayoutKeyChange: () => {},
         nicheId: "barbearia",
         onNicheIdChange: () => {},
+        layoutKey: "classic",
+        onLayoutKeyChange: () => {},
         businessName: "Barbearia teste",
         businessLogoUrl: null,
         businessAddress: null,
         pageBackground: "#ffffff",
         onPageBackgroundChange: () => {},
         services: [],
-        professionals: [],
         onLogoFileSelected: () => {},
         logoUploading: false,
         backgroundImageUrl: null,
@@ -79,10 +78,10 @@ describe("AppearanceEditor contraste", () => {
         onApplyPreset: () => {},
         onSave: () => {},
         saving: false,
-        layoutKey: "classic",
-        onLayoutKeyChange: () => {},
         nicheId: "barbearia",
         onNicheIdChange: () => {},
+        layoutKey: "classic",
+        onLayoutKeyChange: () => {},
         businessName: "Barbearia felipe",
         businessLogoUrl: null,
         businessAddress: null,
@@ -99,7 +98,6 @@ describe("AppearanceEditor contraste", () => {
             show_duration: true,
           },
         ],
-        professionals: [],
         onLogoFileSelected: () => {},
         logoUploading: false,
         backgroundImageUrl: null,
@@ -113,48 +111,6 @@ describe("AppearanceEditor contraste", () => {
     expect(markup).toContain("Corte masculino de verdade");
     expect(markup).not.toContain("Nome do negócio");
     expect(markup).not.toContain("Corte de cabelo");
-  });
-
-  it("oferece prévias separadas para o Painel de agendamento e o Painel de informações", () => {
-    const markup = renderToStaticMarkup(
-      createElement(AppearanceEditor, {
-        appearance: DEFAULT_PANEL1_APPEARANCE,
-        onChange: () => {},
-        onApplyPreset: () => {},
-        onSave: () => {},
-        saving: false,
-        layoutKey: "classic",
-        onLayoutKeyChange: () => {},
-        nicheId: "barbearia",
-        onNicheIdChange: () => {},
-        businessName: "Barbearia teste",
-        businessLogoUrl: null,
-        businessAddress: null,
-        pageBackground: "#ffffff",
-        onPageBackgroundChange: () => {},
-        services: [
-          {
-            id: "s1",
-            name: "Corte real",
-            duration_minutes: 40,
-            price_cents: 6000,
-            effectiveDepositCents: 0,
-            show_price: true,
-            show_duration: true,
-          },
-        ],
-        professionals: [{ id: "p1", name: "Profissional real", role: "Barbeiro" }],
-        onLogoFileSelected: () => {},
-        logoUploading: false,
-        backgroundImageUrl: null,
-        onBackgroundImageFileSelected: () => {},
-        onClearBackgroundImage: () => {},
-        backgroundImageUploading: false,
-      }),
-    );
-
-    expect(markup).toContain("Painel de agendamento");
-    expect(markup).toContain("Painel de informações");
   });
 });
 

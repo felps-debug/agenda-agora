@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ImageIcon, Palette, Tags, Trash2, Type } from "lucide-react";
+import { ImageIcon, Layers, LayoutTemplate, Palette, Tags, Trash2, Type } from "lucide-react";
 import { accessibleTextColor, contrastRatio } from "@/lib/contrast";
 import {
   PANEL1_APPEARANCE_PRESETS,
@@ -12,44 +12,27 @@ import {
   type Panel1LogoFit,
 } from "@/lib/panel1-config";
 import {
-  PANEL_LAYOUT_MODELS,
   recommendedPalettesForNiche,
   VISUAL_NICHES,
-  type VisualLayoutKey,
+  PANEL_LAYOUT_MODELS,
   type VisualNicheId,
+  type VisualLayoutKey,
 } from "@/lib/visual-presets";
 import { loadOutreachFont, outreachFontFamily } from "@/components/template-editor/fonts";
-import {
-  type AppearanceSelectionTarget,
-  type PreviewService,
+import type {
+  AppearanceSelectionTarget,
+  PreviewService,
 } from "@/components/public-booking/appearance-preview";
-import {
-  VitrineHero,
-  VitrineMain,
-  VitrineNav,
-  VitrineServices,
-  vitrineSubtitle,
-  vitrineTheme,
-} from "@/components/public-booking/vitrine";
-import {
-  RefHeader,
-  RefLogo,
-  RefMain,
-  RefNav,
-  RefServices,
-  refPageTheme,
-} from "@/components/public-booking/liquid-glass-reference";
+import { ElegancePanel, EleganceServiceList } from "@/components/public-booking/elegance";
+import { EleganceBookingDialog } from "@/components/public-booking/elegance-booking";
 import {
   VisualEditorShell,
-  type VisualPreviewMode,
+  type VisualPreviewScreen,
 } from "@/components/painel/visual-editor/VisualEditorShell";
-import {
-  BookingInformationPreview,
-  type PreviewProfessional,
-} from "@/components/public-booking/BookingInformationPreview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ColorPicker } from "@/components/ui/color-picker";
 import {
   Dialog,
   DialogContent,
@@ -91,12 +74,12 @@ const TARGET_CONTROLS: Record<AppearanceSelectionTarget, { section: string; cont
   "header-background": { section: "colors", control: "header-background" },
   "service-background": { section: "colors", control: "service-background" },
   "logo-cover": { section: "brand", control: "logo-cover" },
-  logo: { section: "brand", control: "logo" },
-  cover: { section: "brand", control: "cover" },
   "service-images": { section: "service-images", control: "service-images" },
   "business-title": { section: "text", control: "business-title" },
   "service-name": { section: "text", control: "service-name" },
   "service-price": { section: "text", control: "service-price" },
+  "brand-tagline": { section: "text", control: "brand-tagline" },
+  "wave-color": { section: "backgrounds", control: "wave-color" },
   "page-text": { section: "text", control: "page-text" },
   buttons: { section: "buttons", control: "buttons" },
 };
@@ -125,16 +108,14 @@ type Props = {
   saving: boolean;
   dirty?: boolean;
   onUndo?: () => void;
-  layoutKey: VisualLayoutKey;
-  onLayoutKeyChange: (layoutKey: VisualLayoutKey) => void;
   nicheId: VisualNicheId;
   onNicheIdChange: (nicheId: VisualNicheId) => void;
+  layoutKey: VisualLayoutKey;
+  onLayoutKeyChange: (layoutKey: VisualLayoutKey) => void;
   businessName: string;
   businessLogoUrl: string | null;
   businessAddress: string | null;
-  businessCategory?: string | null;
   services: PreviewService[];
-  professionals: PreviewProfessional[];
   pageBackground: string;
   onPageBackgroundChange: (value: string) => void;
   onLogoFileSelected: (file: File) => void;
@@ -154,16 +135,14 @@ export function AppearanceEditor(props: Props) {
     saving,
     dirty = true,
     onUndo,
-    layoutKey,
-    onLayoutKeyChange,
     nicheId,
     onNicheIdChange,
+    layoutKey,
+    onLayoutKeyChange,
     businessName,
     businessLogoUrl,
     businessAddress,
-    businessCategory,
     services,
-    professionals,
     pageBackground,
     onPageBackgroundChange,
     onLogoFileSelected,
@@ -173,7 +152,7 @@ export function AppearanceEditor(props: Props) {
     onClearBackgroundImage,
     backgroundImageUploading,
   } = props;
-  const [previewMode, setPreviewMode] = useState<VisualPreviewMode>("booking");
+  const [previewScreen, setPreviewScreen] = useState<VisualPreviewScreen>("principal");
   const [pendingPreset, setPendingPreset] = useState<Panel1AppearancePreset | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const backgroundInputRef = useRef<HTMLInputElement>(null);
@@ -185,6 +164,7 @@ export function AppearanceEditor(props: Props) {
     "service-images": false,
     text: true,
     buttons: true,
+    informacoes: true,
   });
   const [activeControl, setActiveControl] = useState<string | null>(null);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
@@ -193,6 +173,10 @@ export function AppearanceEditor(props: Props) {
   useEffect(() => {
     loadOutreachFont(appearance.font_family);
   }, [appearance.font_family]);
+
+  useEffect(() => {
+    if (layoutKey === "elegance") loadOutreachFont("playfair-display");
+  }, [layoutKey]);
 
   const update = (key: keyof Panel1Appearance, value: string) =>
     onChange({ ...appearance, [key]: value });
@@ -235,105 +219,82 @@ export function AppearanceEditor(props: Props) {
     ),
   ];
 
-  // A prévia usa os mesmos componentes da página pública, então mostra exatamente o que o cliente vê.
-  const vitrineLayout = layoutKey === "liquid_glass";
-  const previewTextBase = pageBackground;
-  const previewText = (() => {
-    try {
-      if (contrastRatio(appearance.page_text, previewTextBase) >= 4.5) return appearance.page_text;
-    } catch {
-      /* cor inválida: usa o automático */
-    }
-    return accessibleTextColor(previewTextBase);
-  })();
-  const previewTheme = vitrineLayout
-    ? vitrineTheme({
-        appearance,
-        pageBackground,
-        fontFamily: outreachFontFamily(appearance.font_family),
-        text: previewText,
-      })
-    : refPageTheme({
-        layout: "classic",
-        appearance,
-        pageBackground,
-        pageBackgroundImage: backgroundImageUrl,
-        fontFamily: outreachFontFamily(appearance.font_family),
-        text: previewText,
-        extraClass: "lg-preview",
-      });
-
-  const bookingPreview = vitrineLayout ? (
+  const elegancePreview = (
     <div
-      className={previewTheme.className}
-      style={previewTheme.style}
-      onClick={() => selectAppearanceTarget("page-background")}
+      className="flex flex-1 min-h-full flex-col [&>div]:flex-1"
+      style={{
+        backgroundColor: pageBackground,
+        fontFamily: `'${outreachFontFamily(appearance.font_family)}', sans-serif`,
+      }}
     >
-      <VitrineHero
-        name={businessName || "Nome do negócio"}
-        subtitle={vitrineSubtitle(businessAddress, businessCategory)}
-        coverUrl={backgroundImageUrl}
-        logoUrl={businessLogoUrl}
-        onTarget={selectAppearanceTarget}
-      />
-      <VitrineMain>
-        <VitrineServices
-          services={previewServices}
-          onSchedule={() => {}}
-          onTarget={selectAppearanceTarget}
-        />
-      </VitrineMain>
-      <VitrineNav
-        tab="agendar"
-        onChange={() => {}}
-        onContact={() => {}}
-        onTarget={selectAppearanceTarget}
-      />
-    </div>
-  ) : (
-    <div
-      className={previewTheme.className}
-      style={previewTheme.style}
-      onClick={() => selectAppearanceTarget("page-background")}
-    >
-      <RefHeader phone={null} color={appearance.header_text} onTarget={selectAppearanceTarget} />
-      <RefMain
-        logo={
-          <RefLogo
-            name={businessName || "Nome do negócio"}
-            logoUrl={businessLogoUrl}
-            onTarget={selectAppearanceTarget}
-          />
-        }
-      >
-        <RefServices
-          services={previewServices}
-          selectedId={null}
-          onToggle={() => {}}
-          onTarget={selectAppearanceTarget}
-        />
-      </RefMain>
-      <RefNav tab="agendar" onChange={() => {}} onTarget={selectAppearanceTarget} />
-    </div>
-  );
-  const informationPreview = (
-    <div className="relative min-h-[42rem]">
-      <div className="pointer-events-none select-none opacity-75">{bookingPreview}</div>
-      <BookingInformationPreview
+      <ElegancePanel
         appearance={appearance}
-        service={previewServices[0]!}
-        professionals={professionals}
-      />
+        brandName={businessName || "Nome do negócio"}
+        logoUrl={businessLogoUrl}
+        coverUrl={backgroundImageUrl}
+        pageBackground={pageBackground}
+        activeTab="agendar"
+        fullHeight={false}
+        minimalist={layoutKey === "classic"}
+        onAppearanceTargetSelect={selectAppearanceTarget}
+      >
+        <EleganceServiceList
+          services={previewServices}
+          onSelect={() => {}}
+          appearance={appearance}
+          onAppearanceTargetSelect={selectAppearanceTarget}
+        />
+      </ElegancePanel>
     </div>
   );
+  const informacoesPreview = (
+    <EleganceBookingDialog
+      asPreview
+      minimalist={layoutKey === "classic"}
+      service={{ name: businessName || "Barber Richard", price_cents: 4500, duration_minutes: 40, show_price: true, show_duration: true, image_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='160' height='160' fill='%23f7d9e4'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='24' fill='%23a4556d'%3EServiço%3C/text%3E%3C/svg%3E" }}
+      appearance={appearance}
+      pageBackground={appearance.infoPageBackground}
+      modalText={accessibleTextColor(appearance.modal_background)}
+      modalActiveText={accessibleTextColor(appearance.modal_active_background)}
+      onClose={() => setPreviewScreen("principal")}
+      professionals={[{ id: "p1", name: "Profissional Agenda", role: "Barbeiro", avatar_url: null }]}
+      professional={{ id: "p1", name: "Profissional Agenda", role: "Barbeiro", avatar_url: null }}
+      onProfessionalChange={() => {}}
+      days={[
+        { date: new Date().toISOString().slice(0, 10), weekday: 1 },
+        { date: new Date(Date.now() + 86400000).toISOString().slice(0, 10), weekday: 2 },
+        { date: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10), weekday: 3 },
+      ]}
+      date={new Date().toISOString().slice(0, 10)}
+      onDateSelect={() => {}}
+      time={null}
+      onTimeSelect={() => {}}
+      slots={["09:00", "09:30", "10:00", "14:00", "14:30"]}
+      slotsLoading={false}
+      slotsError={false}
+      formName=""
+      onNameChange={() => {}}
+      formPhone=""
+      onPhoneChange={() => {}}
+      formEmail=""
+      onEmailChange={() => {}}
+      formCpfCnpj=""
+      onCpfCnpjChange={() => {}}
+      needsDocument={false}
+      formError={null}
+      pending={false}
+      onSubmit={() => {}}
+      noteText="Seus dados são usados apenas para este agendamento."
+    />
+  );
+  const preview = previewScreen === "informacoes" ? informacoesPreview : elegancePreview;
 
   return (
     <>
       <VisualEditorShell
-        bookingPreview={bookingPreview}
-        informationPreview={informationPreview}
-        previewMode={previewMode}
-        onPreviewModeChange={setPreviewMode}
+        preview={preview}
+        previewScreen={previewScreen}
+        onPreviewScreenChange={setPreviewScreen}
         dirty={dirty}
         {...(onUndo ? { onUndo } : {})}
         onPublish={onSave}
@@ -351,52 +312,56 @@ export function AppearanceEditor(props: Props) {
             id="model"
             open={!!openSections["model"]}
             onOpenChange={(open) => setOpenSections((current) => ({ ...current, model: open }))}
-            icon={<Palette className="size-5" />}
+            icon={<LayoutTemplate className="size-5" />}
             title="Modelo"
-            description="Escolha a base visual da página."
+            description="Escolha o visual do painel público e alterne quando quiser."
           >
-            <div className="grid grid-cols-2 gap-3">
-              {PANEL_LAYOUT_MODELS.map((model) => (
-                <button
-                  key={model.id}
-                  type="button"
-                  aria-pressed={layoutKey === model.id}
-                  onClick={() => onLayoutKeyChange(model.id)}
-                  className={
-                    layoutKey === model.id
-                      ? "rounded-xl border-2 border-primary bg-primary/5 p-3 text-left"
-                      : "rounded-xl border bg-card p-3 text-left hover:border-primary/50"
-                  }
-                >
-                  <span className="block font-semibold">{model.label}</span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {model.description}
-                  </span>
-                </button>
-              ))}
+            <div className="grid grid-cols-1 gap-2">
+              {PANEL_LAYOUT_MODELS.map((model) => {
+                const selected = model.id === "elegance";
+                return (
+                  <button
+                    key={model.id}
+                    type="button"
+                    aria-pressed={selected}
+                    className={`rounded-xl border bg-card p-2 text-left transition-colors hover:border-primary/60 ${
+                      selected ? "border-primary ring-2 ring-primary ring-offset-2" : ""
+                    }`}
+                    onClick={() => onLayoutKeyChange(model.id)}
+                  >
+                    <span
+                      className={`mb-2 flex h-16 items-end justify-center overflow-hidden rounded-md px-3 pt-2 ${
+                        model.id === "elegance"
+                          ? "bg-[#fff0f3]"
+                          : "bg-[var(--c-eef0f2)]"
+                      }`}
+                      aria-hidden="true"
+                    >
+                      {model.id === "elegance" ? (
+                        <span className="relative block h-9 w-full">
+                          <span className="absolute inset-x-2 top-0 h-3 rounded-b-3xl bg-[#e75a8b]/70" />
+                          <span className="absolute left-1/2 top-2 size-5 -translate-x-1/2 rounded-full border-2 border-white bg-[#ffd9e4]" />
+                          <span className="absolute bottom-0 left-1/2 flex w-full -translate-x-1/2 justify-center gap-[5px]">
+                            {[0, 1].map((item) => (
+                              <span key={item} className="h-4 w-9 rounded-lg bg-white shadow-sm" />
+                            ))}
+                          </span>
+                          <span className="absolute bottom-0 left-0 right-0 h-1.5 rounded-t-full bg-[#e75a8b]" />
+                        </span>
+                      ) : (
+                        <span className="flex w-full flex-col items-end gap-1 pb-1">
+                          <span className="block h-2.5 w-3/4 rounded-full bg-[var(--c-c9ced4)]" />
+                          <span className="block h-2.5 w-full rounded-full bg-[var(--c-dfe2e6)]" />
+                          <span className="block h-2.5 w-2/3 rounded-full bg-[var(--c-dfe2e6)]" />
+                        </span>
+                      )}
+                    </span>
+                    <span className="block text-sm font-semibold">{model.label}</span>
+                    <span className="block text-xs text-muted-foreground">{model.description}</span>
+                  </button>
+                );
+              })}
             </div>
-          </EditorSection>
-
-          <EditorSection
-            id="niche"
-            open={!!openSections["niche"]}
-            onOpenChange={(open) => setOpenSections((current) => ({ ...current, niche: open }))}
-            icon={<Tags className="size-5" />}
-            title="Nicho"
-            description="Use recomendações que combinam com seu negócio."
-          >
-            <select
-              aria-label="Nicho do negócio"
-              value={nicheId}
-              onChange={(event) => onNicheIdChange(event.target.value as VisualNicheId)}
-              className="h-11 w-full rounded-lg border bg-background px-3 text-sm"
-            >
-              {VISUAL_NICHES.map((niche) => (
-                <option key={niche.id} value={niche.id}>
-                  {niche.label}
-                </option>
-              ))}
-            </select>
           </EditorSection>
 
           <EditorSection
@@ -482,42 +447,36 @@ export function AppearanceEditor(props: Props) {
               data-appearance-control="logo-cover"
               className={`flex flex-wrap gap-2 rounded-xl ${activeControl === "logo-cover" ? "ring-2 ring-primary ring-offset-2" : ""}`}
             >
-              <div
-                data-appearance-control="logo"
-                className={`rounded-xl ${activeControl === "logo" ? "ring-2 ring-primary ring-offset-2" : ""}`}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading}
               >
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => logoInputRef.current?.click()}
-                  disabled={logoUploading}
-                >
-                  <ImageIcon className="size-4" /> {logoUploading ? "Enviando..." : "Trocar logo"}
-                </Button>
-              </div>
-              <div
-                data-appearance-control="cover"
-                className={`flex flex-wrap gap-2 rounded-xl ${activeControl === "cover" ? "ring-2 ring-primary ring-offset-2" : ""}`}
-              >
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => backgroundInputRef.current?.click()}
-                  disabled={backgroundImageUploading}
-                >
-                  <ImageIcon className="size-4" />{" "}
-                  {backgroundImageUploading
-                    ? "Enviando..."
-                    : backgroundImageUrl
-                      ? "Trocar capa"
-                      : "Adicionar capa"}
-                </Button>
-                {backgroundImageUrl ? (
-                  <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
-                    <Trash2 className="size-4" /> Remover capa
+                <ImageIcon className="size-4" /> {logoUploading ? "Enviando..." : "Trocar logo"}
+              </Button>
+              {layoutKey !== "classic" ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => backgroundInputRef.current?.click()}
+                    disabled={backgroundImageUploading}
+                  >
+                    <ImageIcon className="size-4" />{" "}
+                    {backgroundImageUploading
+                      ? "Enviando..."
+                      : backgroundImageUrl
+                        ? "Trocar capa"
+                        : "Adicionar capa"}
                   </Button>
-                ) : null}
-              </div>
+                  {backgroundImageUrl ? (
+                    <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
+                      <Trash2 className="size-4" /> Remover capa
+                    </Button>
+                  ) : null}
+                </>
+              ) : null}
             </div>
             <Label className="mt-3 flex items-center justify-between gap-3">
               Formato da logo
@@ -538,21 +497,78 @@ export function AppearanceEditor(props: Props) {
           </EditorSection>
 
           <EditorSection
-            id="service-images"
-            open={!!openSections["service-images"]}
-            onOpenChange={(open) =>
-              setOpenSections((current) => ({ ...current, "service-images": open }))
-            }
-            icon={<ImageIcon className="size-5" />}
-            title="Imagens dos serviços"
-            description="As imagens mostradas nos cards são cadastradas em Serviços."
+            id="backgrounds"
+            open={!!openSections["backgrounds"]}
+            onOpenChange={(open) => setOpenSections((current) => ({ ...current, backgrounds: open }))}
+            icon={<Layers className="size-5" />}
+            title="Fundos da página"
+            description="Personalize a cor base e os detalhes de fundo da página."
           >
-            <div
-              data-appearance-control="service-images"
-              className={`rounded-xl border border-dashed p-3 text-sm text-muted-foreground ${activeControl === "service-images" ? "ring-2 ring-primary ring-offset-2" : ""}`}
-            >
-              Para trocar arquivos ou definir a foto de cada serviço, use o módulo Serviços. Aqui a
-              prévia mostra exatamente como elas aparecem para o cliente.
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ColorField
+                id="wave-color"
+                active={activeControl === "wave-color"}
+                label="Onda 1"
+                value={appearance.wave_color}
+                onChange={(value) => update("wave_color", value)}
+              />
+              <ColorField
+                id="wave-color-2"
+                active={activeControl === "wave-color-2"}
+                label="Onda 2"
+                value={appearance.wave_color_2}
+                onChange={(value) => update("wave_color_2", value)}
+              />
+            </div>
+            <div className="mt-3 space-y-3">
+              <Label className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Fundo Principal</span>
+                <select
+                  className="h-10 rounded-lg border bg-background px-2 text-sm"
+                  value={appearance.page_gradient_enabled ? "gradiente" : "solido"}
+                  onChange={(event) =>
+                    onChange({ ...appearance, page_gradient_enabled: event.target.value === "gradiente" })
+                  }
+                >
+                  <option value="solido">Cor Sólida</option>
+                  <option value="gradiente">Fundo Gradiente</option>
+                </select>
+              </Label>
+              {appearance.page_gradient_enabled ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <ColorField
+                    label="Cor Inicial"
+                    value={appearance.page_gradient_start}
+                    onChange={(value) => update("page_gradient_start", value)}
+                  />
+                  <ColorField
+                    label="Cor Final"
+                    value={appearance.page_gradient_end}
+                    onChange={(value) => update("page_gradient_end", value)}
+                  />
+                  <Label className="flex items-center justify-between gap-3 sm:col-span-2">
+                    <span className="text-sm font-medium">Direção</span>
+                    <select
+                      className="h-10 rounded-lg border bg-background px-2 text-sm"
+                      value={appearance.page_gradient_direction}
+                      onChange={(event) =>
+                        update("page_gradient_direction", event.target.value)
+                      }
+                    >
+                      <option value="to bottom">Vertical (cima → baixo)</option>
+                      <option value="to right">Horizontal (esq → dir)</option>
+                      <option value="to bottom right">Diagonal</option>
+                      <option value="radial">Radial</option>
+                    </select>
+                  </Label>
+                </div>
+              ) : (
+                <ColorField
+                  label="Cor de fundo"
+                  value={appearance.agenda_background}
+                  onChange={(value) => update("agenda_background", value)}
+                />
+              )}
             </div>
           </EditorSection>
 
@@ -564,7 +580,19 @@ export function AppearanceEditor(props: Props) {
             title="Textos e informações"
             description="Ajuste a tipografia e a leitura da página."
           >
-            <Label className="flex items-center justify-between gap-3">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Label className="flex flex-col gap-1.5 sm:col-span-2">
+                <span className="text-sm font-medium">Subtítulo da marca</span>
+                <Input
+                  data-appearance-control="brand-tagline"
+                  value={appearance.brand_tagline}
+                  maxLength={80}
+                  placeholder="Ex.: Seu olhar ainda mais especial"
+                  onChange={(event) => update("brand_tagline", event.target.value)}
+                />
+              </Label>
+            </div>
+            <Label className="mt-3 flex items-center justify-between gap-3">
               Fonte
               <select
                 className="h-10 rounded-lg border bg-background px-2 text-sm"
@@ -643,6 +671,38 @@ export function AppearanceEditor(props: Props) {
                 label="Cor ao passar"
                 value={appearance.modal_hover_background}
                 onChange={(value) => update("modal_hover_background", value)}
+              />
+            </div>
+          </EditorSection>
+
+          <EditorSection
+            id="informacoes"
+            open={!!openSections["informacoes"]}
+            onOpenChange={(open) => setOpenSections((current) => ({ ...current, informacoes: open }))}
+            icon={<Type className="size-5" />}
+            title="Informações"
+            description="Cores da tela de agendamento/detalhes."
+          >
+            <div className="grid gap-2 sm:grid-cols-2">
+              <ColorField
+                label="Fundo da página (Informações)"
+                value={appearance.infoPageBackground}
+                onChange={(value) => update("infoPageBackground", value)}
+              />
+              <ColorField
+                label="Contorno do serviço selecionado"
+                value={appearance.selectedServiceBorderColor}
+                onChange={(value) => update("selectedServiceBorderColor", value)}
+              />
+              <ColorField
+                label="Fundo do botão de voltar"
+                value={appearance.backButtonBackgroundColor}
+                onChange={(value) => update("backButtonBackgroundColor", value)}
+              />
+              <ColorField
+                label="Ícone do botão de voltar"
+                value={appearance.backButtonIconColor}
+                onChange={(value) => update("backButtonIconColor", value)}
               />
             </div>
           </EditorSection>
@@ -741,10 +801,10 @@ function EditorSection({
     <details
       open={open}
       onToggle={(event) => onOpenChange((event.currentTarget as HTMLDetailsElement).open)}
-      className="rounded-2xl border bg-card p-4"
+      className="report-luminous-card report-effect-strong report-metric-card p-4 sm:p-[1.125rem]"
     >
-      <summary className="flex cursor-pointer list-none items-start gap-3">
-        <span className="mt-0.5 text-primary">{icon}</span>
+      <summary className="relative z-10 flex cursor-pointer list-none items-start gap-3">
+        <span className="report-icon-box">{icon}</span>
         <span>
           <span className="block font-semibold">{title}</span>
           <span className="mt-0.5 block text-sm font-normal text-muted-foreground">
@@ -752,7 +812,7 @@ function EditorSection({
           </span>
         </span>
       </summary>
-      <div className="mt-4">{children}</div>
+      <div className="relative z-10 mt-4">{children}</div>
     </details>
   );
 }
@@ -775,14 +835,7 @@ function ColorField({
       className={`flex items-center justify-between gap-2 rounded-lg border bg-background px-2 py-1.5 text-xs ${active ? "ring-2 ring-primary ring-offset-2" : ""}`}
     >
       <span className="min-w-0 truncate">{label}</span>
-      <Input
-        data-appearance-control={id}
-        aria-label={label}
-        className="size-9 shrink-0 border-0 bg-transparent p-0"
-        type="color"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
+      <ColorPicker value={value} onChange={onChange} />
     </Label>
   );
 }

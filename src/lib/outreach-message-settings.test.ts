@@ -8,6 +8,13 @@ import {
 describe("configuração das mensagens de divulgação", () => {
   it("aceita placeholders conhecidos e rejeita nomes desconhecidos", () => {
     expect(validateOutreachMessage("Olá {nome}, seu horário é {hora} em {negocio}.")).toBe(true);
+    expect(validateOutreachMessage("👋 {negocio} {Cliente}! Agende em {Link}")).toBe(true);
+    expect(validateOutreachMessage("{Saudacao}, passe em {Link}")).toBe(true);
+    expect(
+      validateOutreachMessage(
+        "❕ Resumo: 📅 {Data} 🕗 {Horario} 🛠 {Serviço} 👤 {Funcionario} 💰 {Valor}",
+      ),
+    ).toBe(true);
     expect(validateOutreachMessage("Olá {cliente}")).toBe(false);
     expect(() => outreachMessageSchema.parse("Mensagem {cliente}")).toThrow();
   });

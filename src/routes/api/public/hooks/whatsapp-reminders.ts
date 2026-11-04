@@ -6,6 +6,7 @@ import {
 } from "@/lib/whatsapp-notify.server";
 import { loadPanel1Config } from "@/lib/panel1-config.storage";
 import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
+import { processPostServiceMessages } from "@/lib/whatsapp-greeting.server";
 
 // Agendador de lembretes de WhatsApp: chamado pelo cron da infraestrutura a cada hora.
 // Envia o lembrete para agendamentos confirmados cuja janela de aviso abriu
@@ -98,11 +99,14 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
           }
         }
 
+        const postService = await processPostServiceMessages();
+
         return Response.json({
           ok: true,
           sent,
           failed,
           businesses: businesses?.length ?? 0,
+          postService,
           ranAt: now.toISOString(),
         });
       },

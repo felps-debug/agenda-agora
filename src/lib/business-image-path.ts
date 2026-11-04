@@ -56,6 +56,10 @@ export function isBusinessImagePath(
     return relativePath.startsWith("logo-") && imageFilenamePattern.test(relativePath);
   }
   if (kind === "background") {
+    if (relativePath.startsWith("background/")) {
+      const fileName = relativePath.slice("background/".length);
+      return fileName.length > 0 && !fileName.includes("/") && imageFilenamePattern.test(fileName);
+    }
     return relativePath.startsWith("background-") && imageFilenamePattern.test(relativePath);
   }
   return (

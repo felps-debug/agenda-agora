@@ -6,6 +6,14 @@ export const OUTREACH_MESSAGE_PLACEHOLDERS = [
   "{hora}",
   "{data}",
   "{negocio}",
+  "{Cliente}",
+  "{Saudacao}",
+  "{Link}",
+  "{Data}",
+  "{Horario}",
+  "{Serviço}",
+  "{Funcionario}",
+  "{Valor}",
 ] as const;
 
 export function validateOutreachMessage(text: string) {
@@ -26,3 +34,10 @@ export function toggleOutreachTemplateSelection(ids: string[], id: string, check
   if (checked) return ids.includes(id) ? ids : [...ids, id];
   return ids.filter((item) => item !== id);
 }
+
+/**
+ * Mensagem de lembrete ("Avisar") fixa do sistema: enviada exatamente assim
+ * para todos os estabelecimentos, sem personalização.
+ */
+export const FIXED_REMINDER_TEMPLATE =
+  "{Saudacao} {Cliente}, só estou passando aqui para lembrar que você tem um horário agendado conosco hoje às {Horario} 🥰\nEspero por você, até breve! 👋";

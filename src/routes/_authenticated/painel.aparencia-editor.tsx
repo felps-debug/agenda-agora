@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
 import { AppearanceEditor } from "@/components/painel/AppearanceEditor";
+import { ImageCropDialog } from "@/components/painel/ImageCropDialog";
 import type { PreviewService } from "@/components/public-booking/appearance-preview";
 import { useBusiness } from "@/lib/business";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,10 +13,10 @@ import {
   LOGO_BUCKET,
   clearBusinessBackgroundImage,
   decodeBusinessImageFile,
-  getBackgroundImageUrl,
   getBusinessImageUrl,
   getLogoUrl,
   logoStorageErrorMessage,
+  resolveBackgroundImageUrl,
   saveBusinessBackgroundImage,
   saveBusinessLogo,
   validateLogoFile,
@@ -47,6 +48,7 @@ function AppearanceEditorPage() {
   const saveLogoFn = useServerFn(saveBusinessLogo);
   const saveBackgroundImageFn = useServerFn(saveBusinessBackgroundImage);
   const clearBackgroundImageFn = useServerFn(clearBusinessBackgroundImage);
+  const resolveBackgroundUrlFn = useServerFn(resolveBackgroundImageUrl);
   const [appearance, setAppearance] = useState<Panel1Appearance>(DEFAULT_PANEL1_APPEARANCE);
   const [visual, setVisual] = useState<Panel1VisualPreferences>(DEFAULT_PANEL1_VISUAL_PREFERENCES);
   const [pageBackground, setPageBackground] = useState(DEFAULT_PAGE_BACKGROUND);
@@ -78,10 +80,11 @@ function AppearanceEditorPage() {
         logoUrl: await getLogoUrl(data?.logo_url ?? null, businessId!),
         brandBackground: data?.brand_background ?? DEFAULT_PAGE_BACKGROUND,
         backgroundImagePath: data?.brand_background_image ?? null,
-        backgroundImageUrl: await getBackgroundImageUrl(
-          data?.brand_background_image ?? null,
-          businessId!,
-        ),
+        backgroundImageUrl: data?.brand_background_image
+          ? await resolveBackgroundUrlFn({
+              data: { businessId: businessId!, path: data.brand_background_image },
+            })
+          : null,
       };
     },
   });
@@ -89,10 +92,36 @@ function AppearanceEditorPage() {
     if (profile.data) setPageBackground(profile.data.brandBackground);
   }, [profile.data]);
 
+  const [resolvedLogoUrl, setResolvedLogoUrl] = useState<string | null>(null);
+  const [resolvedBackgroundUrl, setResolvedBackgroundUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!businessId) return;
+    let cancelled = false;
+    const media = visual.layout_media?.[visual.layout_key];
+    void (async () => {
+      const logo = media?.logoPath ? await getLogoUrl(media.logoPath, businessId) : null;
+      const background = media?.backgroundPath
+        ? await resolveBackgroundUrlFn({ data: { businessId, path: media.backgroundPath } })
+        : null;
+      if (!cancelled) {
+        setResolvedLogoUrl(logo);
+        setResolvedBackgroundUrl(background);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [businessId, visual]);
+
   const [logoUploading, setLogoUploading] = useState(false);
   const [backgroundImageUploading, setBackgroundImageUploading] = useState(false);
   const [pendingLogoFile, setPendingLogoFile] = useState<File | null>(null);
   const [pendingBackgroundFile, setPendingBackgroundFile] = useState<File | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [cropKind, setCropKind] = useState<"logo" | "background" | null>(null);
+  const [cropError, setCropError] = useState<string | null>(null);
+  const [cropBusy, setCropBusy] = useState(false);
   const [removeBackgroundImage, setRemoveBackgroundImage] = useState(false);
   const [pendingLogoUrl, setPendingLogoUrl] = useState<string | null>(null);
   const [pendingBackgroundUrl, setPendingBackgroundUrl] = useState<string | null>(null);
@@ -158,12 +187,12 @@ function AppearanceEditorPage() {
       if (!(await decodeBusinessImageFile(file))) {
         throw new Error("Não foi possível abrir a imagem. Escolha um arquivo PNG, JPEG ou WebP.");
       }
-      const uploadPath = `${businessId}/background-${crypto.randomUUID()}.${validation.extension}`;
+      const uploadPath = `${businessId}/background/${crypto.randomUUID()}.${validation.extension}`;
       const result = await supabase.storage.from(LOGO_BUCKET).upload(uploadPath, file, {
         upsert: false,
         contentType: file.type,
       });
-      if (result.error) throw new Error(logoStorageErrorMessage(result.error));
+      if (result.error) throw new Error(logoStorageErrorMessage(result.error, "background"));
       await saveBackgroundImageFn({ data: { businessId: businessId!, path: uploadPath } });
     },
     onMutate: () => setBackgroundImageUploading(true),
@@ -222,7 +251,7 @@ function AppearanceEditorPage() {
       const { data, error } = await supabase
         .from("services")
         .select(
-          "id, name, description, duration_minutes, price_cents, image_path, show_price, show_duration, requires_deposit, deposit_cents, deposit_mode, deposit_percent_bps",
+          "id, name, duration_minutes, price_cents, image_path, show_price, show_duration, requires_deposit, deposit_cents, deposit_mode, deposit_percent_bps",
         )
         .eq("business_id", businessId!)
         .eq("active", true)
@@ -235,7 +264,6 @@ function AppearanceEditorPage() {
           return {
             id: row.id,
             name: row.name,
-            description: row.description ?? null,
             duration_minutes: row.duration_minutes,
             price_cents: row.price_cents,
             show_price: row.show_price,
@@ -254,21 +282,6 @@ function AppearanceEditorPage() {
     },
   });
 
-  const professionalsQuery = useQuery({
-    queryKey: ["appearance-editor-professionals", businessId],
-    enabled: !!businessId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("professionals")
-        .select("id, name, role")
-        .eq("business_id", businessId!)
-        .eq("active", true)
-        .order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
-
   const uploadQueuedImage = async (file: File, kind: "logo" | "background") => {
     if (!businessId) throw new Error("Selecione um negócio para publicar a aparência.");
     const validation = await validateLogoFile(file, kind === "background" ? "background" : "logo");
@@ -276,40 +289,104 @@ function AppearanceEditorPage() {
     if (!(await decodeBusinessImageFile(file))) {
       throw new Error("Não foi possível abrir a imagem. Escolha um arquivo PNG, JPEG ou WebP.");
     }
-    const uploadPath = [
-      businessId,
-      kind + "-" + crypto.randomUUID() + "." + validation.extension,
-    ].join("/");
+    const uploadPath =
+      kind === "background"
+        ? [businessId, "background", crypto.randomUUID() + "." + validation.extension].join("/")
+        : [businessId, "logo-" + crypto.randomUUID() + "." + validation.extension].join("/");
     const result = await supabase.storage.from(LOGO_BUCKET).upload(uploadPath, file, {
       upsert: false,
       contentType: file.type,
     });
-    if (result.error) throw new Error(logoStorageErrorMessage(result.error));
+    if (result.error) throw new Error(logoStorageErrorMessage(result.error, kind === "background" ? "background" : "logo"));
     return uploadPath;
+  };
+
+  const handleImageSelect = (file: File, kind: "logo" | "background") => {
+    cropError && setCropError(null);
+    const validationPromise = validateLogoFile(file, kind === "background" ? "background" : "logo");
+    void validationPromise.then((signature) => {
+      if (!signature.valid) {
+        setCropError(signature.message);
+        toast.error("Escolha uma imagem PNG, JPEG ou WebP válida.");
+        return;
+      }
+      setCropFile(file);
+      setCropKind(kind);
+      setCropOpen(true);
+    });
+  };
+
+  const uploadCropped = async (blob: Blob, extension: "png" | "jpg") => {
+    if (!cropKind) return;
+    const type = extension === "png" ? "image/png" : "image/jpeg";
+    const file = new File([blob], `recorte.${extension}`, { type });
+    setCropBusy(true);
+    try {
+      const signature = await validateLogoFile(file, cropKind === "background" ? "background" : "logo");
+      if (!signature.valid) {
+        setCropError(signature.message);
+        return;
+      }
+      if (!(await decodeBusinessImageFile(file))) {
+        setCropError("Não foi possível abrir a imagem. Escolha outra imagem.");
+        return;
+      }
+      setCropError(null);
+      if (cropKind === "logo") {
+        setPendingLogoFile(file);
+        setRemoveBackgroundImage(false);
+      } else {
+        setRemoveBackgroundImage(false);
+        setPendingBackgroundFile(file);
+      }
+      setCropOpen(false);
+      setCropFile(null);
+      setCropKind(null);
+    } catch (error) {
+      console.error("Erro ao enviar imagem recortada:", error);
+      setCropError("Não foi possível processar a imagem. Tente novamente.");
+    } finally {
+      setCropBusy(false);
+    }
   };
 
   const save = useMutation({
     mutationFn: async () => {
       if (!businessId) throw new Error("Selecione um negócio para publicar a aparência.");
       const backgroundChanged = !!profile.data && pageBackground !== profile.data.brandBackground;
+      const activeLayout = visual.layout_key;
+      const currentMedia = visual.layout_media?.[activeLayout] ?? { logoPath: null, backgroundPath: null };
+      let nextLogoPath = currentMedia.logoPath;
+      let nextBackgroundPath = currentMedia.backgroundPath;
+
       if (pendingLogoFile) {
         const path = await uploadQueuedImage(pendingLogoFile, "logo");
-        await saveLogoFn({ data: { businessId, path } });
-        if (profile.data?.logoPath) {
-          await supabase.storage
-            .from(LOGO_BUCKET)
-            .remove([profile.data.logoPath])
-            .catch(() => {});
+        if (currentMedia.logoPath && currentMedia.logoPath !== path) {
+          await supabase.storage.from(LOGO_BUCKET).remove([currentMedia.logoPath]).catch(() => {});
         }
+        nextLogoPath = path;
       }
       if (pendingBackgroundFile) {
         const path = await uploadQueuedImage(pendingBackgroundFile, "background");
-        await saveBackgroundImageFn({ data: { businessId, path } });
-      } else if (removeBackgroundImage && profile.data?.backgroundImagePath) {
-        await clearBackgroundImageFn({ data: { businessId } });
+        if (currentMedia.backgroundPath && currentMedia.backgroundPath !== path) {
+          await supabase.storage.from(LOGO_BUCKET).remove([currentMedia.backgroundPath]).catch(() => {});
+        }
+        nextBackgroundPath = path;
+      } else if (removeBackgroundImage && currentMedia.backgroundPath) {
+        await supabase.storage.from(LOGO_BUCKET).remove([currentMedia.backgroundPath]).catch(() => {});
+        nextBackgroundPath = null;
       }
+      const nextVisual = {
+        ...visual,
+        layout_media: {
+          ...(visual.layout_media ?? {}),
+          [activeLayout]: { logoPath: nextLogoPath, backgroundPath: nextBackgroundPath },
+        },
+      };
+      setVisual(nextVisual);
+
       await Promise.all([
-        saveFn({ data: { businessId, patch: { appearance, visual } } }),
+        saveFn({ data: { businessId, patch: { appearance, visual: nextVisual } } }),
         backgroundChanged
           ? updateProfileFn({ data: { businessId, brand_background: pageBackground } })
           : Promise.resolve(),
@@ -360,10 +437,15 @@ function AppearanceEditorPage() {
           setPendingBackgroundFile(null);
           setRemoveBackgroundImage(false);
         }}
-        layoutKey={visual.layout_key}
-        onLayoutKeyChange={(layout_key) => setVisual((current) => ({ ...current, layout_key }))}
         nicheId={visual.niche_id}
         onNicheIdChange={(niche_id) => setVisual((current) => ({ ...current, niche_id }))}
+        layoutKey={visual.layout_key}
+        onLayoutKeyChange={(layout_key) => {
+          setVisual((current) => ({ ...current, layout_key }));
+          setPendingLogoFile(null);
+          setPendingBackgroundFile(null);
+          setRemoveBackgroundImage(false);
+        }}
         onApplyPreset={(preset) => {
           setAppearance((current) => applyPanel1AppearancePreset(current, preset));
           setPageBackground(PANEL1_PRESET_DETAILS[preset].pageBackground);
@@ -371,29 +453,44 @@ function AppearanceEditorPage() {
         onSave={() => save.mutate()}
         saving={save.isPending}
         businessName={business?.name ?? ""}
-        businessLogoUrl={pendingLogoUrl ?? profile.data?.logoUrl ?? null}
+        businessLogoUrl={pendingLogoUrl ?? resolvedLogoUrl ?? profile.data?.logoUrl ?? null}
         businessAddress={business?.address ?? null}
-        businessCategory={business?.category ?? null}
         services={servicesQuery.data ?? []}
-        professionals={professionalsQuery.data ?? []}
         pageBackground={pageBackground}
         onPageBackgroundChange={setPageBackground}
-        onLogoFileSelected={(file) => setPendingLogoFile(file)}
+        onLogoFileSelected={(file) => handleImageSelect(file, "logo")}
         logoUploading={save.isPending}
         backgroundImageUrl={
           removeBackgroundImage
             ? null
-            : (pendingBackgroundUrl ?? profile.data?.backgroundImageUrl ?? null)
+            : (pendingBackgroundUrl ?? resolvedBackgroundUrl ?? profile.data?.backgroundImageUrl ?? null)
         }
         onBackgroundImageFileSelected={(file) => {
           setRemoveBackgroundImage(false);
-          setPendingBackgroundFile(file);
+          handleImageSelect(file, "background");
         }}
         onClearBackgroundImage={() => {
           setPendingBackgroundFile(null);
           setRemoveBackgroundImage(!!profile.data?.backgroundImagePath);
         }}
         backgroundImageUploading={save.isPending}
+      />
+      <ImageCropDialog
+        open={cropOpen}
+        file={cropFile}
+        busy={cropBusy}
+        error={cropError}
+        fixedAspect={cropKind === "logo" ? 1 : undefined}
+        cropShape={cropKind === "logo" ? (visual.layout_key === "elegance" ? "round" : "rounded") : undefined}
+        onCancel={() => {
+          setCropOpen(false);
+          setCropFile(null);
+          setCropKind(null);
+          setCropError(null);
+        }}
+        onConfirm={(blob, extension) => {
+          void uploadCropped(blob, extension);
+        }}
       />
       {save.isError && (
         <p role="alert" className="text-sm text-destructive">

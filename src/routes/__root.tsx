@@ -3,6 +3,7 @@ import {
   Outlet,
   Link,
   createRootRouteWithContext,
+  type ErrorComponentProps,
   useRouter,
   HeadContent,
   Scripts,
@@ -34,7 +35,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
   console.error(error);
   const router = useRouter();
   return (
@@ -72,7 +73,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Agenda Agora — sistema de agendamento para comércios" },
       {
         name: "description",
@@ -84,6 +85,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Manrope:wght@500;600;700;800&family=Bebas+Neue&family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@500;600;700&family=Space+Grotesk:wght@700&display=swap",
+      },
       {
         rel: "preload",
         href: "/fonts/general-sans-400.woff2",
@@ -93,7 +100,21 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       {
         rel: "preload",
+        href: "/fonts/general-sans-500.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
         href: "/fonts/general-sans-600.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
+        href: "/fonts/general-sans-700.woff2",
         as: "font",
         type: "font/woff2",
         crossOrigin: "anonymous",
@@ -109,11 +130,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 
 function RootShell({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR" className="dark">
+    <html lang="pt-BR" className="dark antialiased">
       <head>
         <HeadContent />
+        {/* Tema de cor do sistema: aplica "rosa"/"dourado" antes do primeiro paint (sem flash). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('agendaagora:tema');if(t==='rosa'||t==='dourado'){document.documentElement.setAttribute('data-theme',t)}}catch(e){}",
+          }}
+        />
       </head>
-      <body>
+      <body className="antialiased">
         {children}
         <Scripts />
       </body>

@@ -70,10 +70,10 @@ export function ProfessionalBubbles({
             title={p.name}
             onClick={() => onSelect(p.id)}
             className={cn(
-              "size-14 shrink-0 rounded-full transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "size-14 shrink-0 rounded-full transition-all duration-200 ease-in-out active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "scale-110 ring-2 ring-white shadow-[0_0_14px_rgba(255,255,255,0.35)]"
-                : "opacity-60 hover:opacity-90",
+                : "opacity-60 hover:scale-105 hover:opacity-100",
             )}
           >
             <ProfessionalAvatar professional={p} />

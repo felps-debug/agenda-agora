@@ -2,10 +2,16 @@ import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Camera } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { LOGO_ACCEPT, LOGO_BUCKET, validateLogoFile } from "@/lib/logo";
+import {
+  LOGO_ACCEPT,
+  LOGO_BUCKET,
+  decodeBusinessImageFile,
+  validateLogoFile,
+} from "@/lib/logo";
 import { friendlyError } from "@/lib/error-page";
 import { Button } from "@/components/ui/button";
 import { ProfessionalAvatar } from "@/components/painel/ProfessionalBubbles";
+import { ImageCropDialog } from "@/components/painel/ImageCropDialog";
 
 /** Caminho no bucket privado; a policy de storage só aceita este formato. */
 export function professionalPhotoPath(businessId: string, extension: string) {
@@ -25,26 +31,57 @@ export function ProfessionalPhotoField({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
 
-  const pick = async (file: File) => {
+  const uploadCropped = async (blob: Blob, extension: "png" | "jpg") => {
+    if (!businessId) return;
+    const type = extension === "png" ? "image/png" : "image/jpeg";
+    const file = new File([blob], `recorte.${extension}`, { type });
     setBusy(true);
     try {
-      const validation = await validateLogoFile(file);
-      if (!validation.valid) {
-        toast.error("Escolha uma foto PNG, JPEG ou WebP de até 5 MB.");
+      const signature = await validateLogoFile(file);
+      if (!signature.valid) {
+        setImageError(signature.message);
         return;
       }
-      const path = professionalPhotoPath(businessId, validation.extension);
+      if (!(await decodeBusinessImageFile(file))) {
+        setImageError("O arquivo não contém uma imagem válida. Escolha outra imagem.");
+        return;
+      }
+      setImageError(null);
+      const path = professionalPhotoPath(businessId, signature.extension);
       const { error } = await supabase.storage
         .from(LOGO_BUCKET)
         .upload(path, file, { upsert: false, contentType: file.type });
-      if (error) throw new Error("Não foi possível enviar a foto. Tente novamente.");
+      if (error) {
+        setImageError("Não foi possível enviar a foto. Tente novamente.");
+        return;
+      }
       onChange(path);
+      setCropOpen(false);
+      setCropFile(null);
+      setImageError(null);
     } catch (error) {
-      toast.error(friendlyError(error as Error));
+      console.error("Erro ao enviar foto recortada:", error);
+      setImageError("Não foi possível enviar a foto. Tente novamente.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleImageSelect = async (file?: File) => {
+    if (!file || !businessId) return;
+    setImageError(null);
+    const signature = await validateLogoFile(file);
+    if (!signature.valid) {
+      setImageError(signature.message);
+      toast.error("Escolha uma foto PNG, JPEG ou WebP de até 5 MB.");
+      return;
+    }
+    setCropFile(file);
+    setCropOpen(true);
   };
 
   return (
@@ -62,7 +99,7 @@ export function ProfessionalPhotoField({
           onChange={(event) => {
             const file = event.target.files?.[0];
             event.target.value = "";
-            if (file) void pick(file);
+            if (file) void handleImageSelect(file);
           }}
         />
         <div className="flex gap-2">
@@ -83,7 +120,27 @@ export function ProfessionalPhotoField({
           ) : null}
         </div>
         <p className="text-xs text-muted-foreground">PNG, JPEG ou WebP, até 5 MB.</p>
+        {imageError && (
+          <p role="alert" className="text-sm text-destructive">
+            {imageError}
+          </p>
+        )}
       </div>
+
+      <ImageCropDialog
+        open={cropOpen}
+        file={cropFile}
+        busy={busy}
+        error={imageError}
+        onCancel={() => {
+          setCropOpen(false);
+          setCropFile(null);
+          setImageError(null);
+        }}
+        onConfirm={(blob, extension) => {
+          void uploadCropped(blob, extension);
+        }}
+      />
     </div>
   );
 }

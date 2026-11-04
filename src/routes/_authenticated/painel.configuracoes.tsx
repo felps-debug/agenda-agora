@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -9,8 +10,11 @@ import {
   CalendarX2,
   Clock3,
   Globe2,
+  Link2,
   Menu,
+  MessageCircle,
   MessageSquareText,
+  Search,
   Settings2,
   Timer,
   type LucideIcon,
@@ -77,6 +81,7 @@ const preferenceItems = [
   ["cancel", "Cancelamentos", CalendarX2],
   ["reschedule", "Remarcar", CalendarClock],
   ["greeting", "Saudação", MessageSquareText],
+  ["posatendimento", "Pós Atendimento", MessageCircle],
 ] as const;
 
 type PreferenceKey = (typeof preferenceItems)[number][0];
@@ -134,6 +139,26 @@ const EXTRA_REMINDER_OPTIONS: Array<readonly [number, string]> = [
   [720, "12 Horas"],
 ];
 
+const POST_SERVICE_OPTIONS: Array<readonly [number, string]> = [
+  [0, "Desabilitado"],
+  [30, "30 minutos"],
+  [40, "40 minutos"],
+  [45, "45 minutos"],
+  [50, "50 minutos"],
+  [60, "1 hora"],
+  [120, "2 horas"],
+  [180, "3 horas"],
+  [240, "4 horas"],
+  [300, "5 horas"],
+  [360, "6 horas"],
+  [420, "7 horas"],
+  [480, "8 horas"],
+  [540, "9 horas"],
+  [600, "10 horas"],
+  [720, "12 horas"],
+  [1440, "24 horas"],
+];
+
 const CANCELLATION_OPTIONS: Array<readonly [number, string]> = [
   [0, "0 Minutos"],
   [30, "30 Minutos"],
@@ -160,8 +185,90 @@ const CANCELLATION_OPTIONS: Array<readonly [number, string]> = [
 
 const RESCHEDULE_OPTIONS = CANCELLATION_OPTIONS;
 
+function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function renderWhatsappPreview(text: string) {
+  return escapeHtml(text).replace(/\n/g, "<br />");
+}
+
+function PreferencesSidebarInner({
+  selected,
+  onSelect,
+  decorations = true,
+}: {
+  selected: PreferenceKey;
+  onSelect: (key: PreferenceKey) => void;
+  decorations?: boolean;
+}) {
+  return (
+    <>
+      {decorations ? (
+        <>
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-20 -top-24 size-72 rounded-full bg-[var(--c-1677ff)]/20 blur-[75px]"
+          />
+        </>
+      ) : null}
+
+      <div className="relative z-10">
+        <div className="flex items-center gap-3 px-3 pb-7 pt-1 lg:px-5 lg:pt-10">
+          <span className="flex size-9 items-center justify-center rounded-xl border border-[var(--c-367bdc)]/25 bg-[var(--c-1677ff)]/10 text-[var(--c-69a8ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_22px_var(--c-rgba-22-119-255-a0d14)]">
+            <Settings2 className="size-[18px]" strokeWidth={1.8} />
+          </span>
+          <div>
+            <h1 className="!text-[1.35rem] font-medium tracking-[-0.03em] text-[var(--c-f5f7fb)]">
+              Configurações
+            </h1>
+            <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.13em] text-[var(--c-5d7da9)]">
+              Preferências
+            </p>
+          </div>
+        </div>
+
+        <nav aria-label="Preferências do agendamento">
+          <p className="flex items-center gap-2 px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--c-536b8c)]">
+            <span className="size-1 rounded-full bg-[var(--c-1677ff)] shadow-[0_0_8px_var(--c-1677ff)]" />
+            Agenda
+          </p>
+          <div className="space-y-1.5">
+            {preferenceItems.slice(0, 5).map(([key, label, Icon]) => (
+              <PreferenceButton
+                key={key}
+                icon={Icon}
+                active={selected === key}
+                onClick={() => onSelect(key)}
+              >
+                {label}
+              </PreferenceButton>
+            ))}
+          </div>
+
+          <p className="mt-8 flex items-center gap-2 px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[var(--c-536b8c)]">
+            <span className="size-1 rounded-full bg-[var(--c-1677ff)] shadow-[0_0_8px_var(--c-1677ff)]" />
+            Empresa e clientes
+          </p>
+          <div className="space-y-1.5">
+            {preferenceItems.slice(5).map(([key, label, Icon]) => (
+              <PreferenceButton
+                key={key}
+                icon={Icon}
+                active={selected === key}
+                onClick={() => onSelect(key)}
+              >
+                {label}
+              </PreferenceButton>
+            ))}
+          </div>
+        </nav>
+      </div>
+    </>
+  );
+}
+
 function ConfiguracoesPage() {
-  const { businessId } = useBusiness();
+  const { businessId, business } = useBusiness();
   const { secao } = Route.useSearch();
   const [appearanceSaveStatus, setAppearanceSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
@@ -194,67 +301,71 @@ function ConfiguracoesPage() {
 
   if (secao === "aparencia") {
     return (
-      <div className="space-y-6">
-        <SettingsSectionSwitcher activeSection="aparencia" />
-        <PageHeader title="Configurações" subtitle="Personalize o Painel 1 que o cliente acessa." />
-        <p className="-mb-4 min-h-4 text-right text-xs text-muted-foreground" aria-live="polite">
-          {appearanceSaveStatus === "saving"
-            ? "Salvando..."
-            : appearanceSaveStatus === "saved"
-              ? "Salvo"
-              : null}
-        </p>
-        <Suspense fallback={null}>
-          <AppearanceSettings
-            businessId={businessId}
-            onSaveStart={markAppearanceSaving}
-            onSaveComplete={markAppearanceSaved}
-            onSaveError={() => setAppearanceSaveStatus("idle")}
-          />
-        </Suspense>
+      <div className="-m-4 sm:-m-7 lg:-m-8">
+        <div className="space-y-6">
+          <PageHeader title="Configurações" subtitle="Personalize o Painel 1 que o cliente acessa." />
+          <p className="-mb-4 min-h-4 text-right text-xs text-muted-foreground" aria-live="polite">
+            {appearanceSaveStatus === "saving"
+              ? "Salvando..."
+              : appearanceSaveStatus === "saved"
+                ? "Salvo"
+                : null}
+          </p>
+          <Suspense fallback={null}>
+            <AppearanceSettings
+              businessId={businessId}
+              onSaveStart={markAppearanceSaving}
+              onSaveComplete={markAppearanceSaved}
+              onSaveError={() => setAppearanceSaveStatus("idle")}
+            />
+          </Suspense>
+          <div className="flex flex-col gap-3 rounded-2xl border border-[#25282c] bg-[var(--c-090a0c)] p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-[var(--c-367bdc)]/25 bg-[var(--c-1677ff)]/10 text-[var(--c-69a8ff)]">
+                <Globe2 className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--c-f5f7fb)]">Link do Painel 1</p>
+                <a
+                  href={`${window.location.origin}/agendar/${business?.slug ?? ""}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block truncate text-xs text-[var(--c-79b1ff)] hover:underline"
+                >
+                  {window.location.origin}/agendar/{business?.slug ?? ""}
+                </a>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(
+                    `${window.location.origin}/agendar/${business?.slug ?? ""}`,
+                  );
+                  toast.success("Link copiado!");
+                } catch {
+                  toast.error("Não foi possível copiar o link.");
+                }
+              }}
+            >
+              <Link2 className="mr-1.5 size-4" />
+              Copiar link
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <SettingsSectionSwitcher activeSection="preferencias" />
-      <PreferencesSettings businessId={businessId} />
+    <div className="-m-4 sm:-m-7 lg:-m-8">
+      <div className="space-y-6">
+        <PreferencesSettings businessId={businessId} />
+      </div>
     </div>
-  );
-}
-
-function SettingsSectionSwitcher({
-  activeSection,
-}: {
-  activeSection: "preferencias" | "aparencia";
-}) {
-  const linkClass = (active: boolean) =>
-    `rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-      active
-        ? "border-primary bg-primary text-primary-foreground"
-        : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-    }`;
-
-  return (
-    <nav aria-label="Seções de configurações" className="flex gap-2">
-      <Link
-        to="/painel/configuracoes"
-        search={{ secao: undefined }}
-        aria-current={activeSection === "preferencias" ? "page" : undefined}
-        className={linkClass(activeSection === "preferencias")}
-      >
-        Preferências
-      </Link>
-      <Link
-        to="/painel/configuracoes"
-        search={{ secao: "aparencia" }}
-        aria-current={activeSection === "aparencia" ? "page" : undefined}
-        className={linkClass(activeSection === "aparencia")}
-      >
-        Aparência
-      </Link>
-    </nav>
   );
 }
 
@@ -269,6 +380,22 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   const [prefs, setPrefs] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [ownerName, setOwnerName] = useState("");
   const [loadedBusinessId, setLoadedBusinessId] = useState<string | null>(null);
+  const [postServiceClientSearch, setPostServiceClientSearch] = useState("");
+
+  const customersQuery = useQuery({
+    queryKey: ["customers", businessId],
+    enabled: !!businessId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("customers")
+        .select("id, name, phone")
+        .eq("business_id", businessId!)
+        .order("name");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+  const customers = customersQuery.data ?? [];
 
   const loadPreferences = async () => {
     const [config, businessResult] = await Promise.all([
@@ -475,7 +602,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
   if (isError) {
     return (
-      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-2xl border border-[#25282c] bg-[#090a0c] p-6 text-center">
+      <div className="flex min-h-[320px] flex-col items-center justify-center gap-4 rounded-2xl border border-[#25282c] bg-[var(--c-090a0c)] p-6 text-center">
         <p className="text-sm text-[#a0a6af]">Não foi possível carregar as configurações.</p>
         <Button variant="outline" onClick={() => void refetch()}>
           Tentar novamente
@@ -487,7 +614,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   if (isLoading || !data || loadedBusinessId !== businessId) {
     return (
       <div
-        className="flex min-h-[620px] items-center justify-center rounded-2xl border border-[#25282c] bg-[#090a0c] p-6 text-sm text-[#a0a6af]"
+        className="flex min-h-[620px] items-center justify-center rounded-2xl border border-[#25282c] bg-[var(--c-090a0c)] p-6 text-sm text-[#a0a6af]"
         role="status"
         aria-live="polite"
       >
@@ -497,99 +624,41 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   }
 
   return (
-    <div className="relative min-h-[620px] overflow-hidden rounded-2xl border border-[#25282c] bg-[#090a0c]">
-      {menuOpen && (
-        <button
-          type="button"
-          aria-label="Fechar menu de preferências"
-          className="fixed inset-0 z-50 bg-black/65 backdrop-blur-[1px] lg:hidden"
-          onClick={() => setMenuOpen(false)}
-        />
-      )}
+    <div className="relative min-h-[calc(100vh-65px)] rounded-[32px] bg-[var(--c-090a0c)]">
+      {typeof document !== "undefined" &&
+        createPortal(
+          <>
+            {menuOpen && (
+              <button
+                type="button"
+                aria-label="Fechar menu de preferências"
+                className="fixed inset-0 z-50 bg-black/65 backdrop-blur-[1px] lg:hidden"
+                onClick={() => setMenuOpen(false)}
+              />
+            )}
+            <aside
+              className={`preferences-mini-sidebar fixed inset-y-0 left-0 z-[60] w-[min(260px,100vw)] max-w-full overflow-x-hidden overflow-y-auto border-r border-[var(--c-1b2d47)] bg-[linear-gradient(180deg,var(--c-rgba-6-9-15-a0d72)_0%,var(--c-rgba-5-7-11-a0d68)_34%,rgba(5,6,7,0.62)_100%)] px-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(0.75rem,env(safe-area-inset-left))] pt-[max(1rem,env(safe-area-inset-top))] shadow-[18px_0_55px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-transform duration-300 ease-[cubic-bezier(0.33,0,0.2,1)] lg:hidden ${
+                menuOpen
+                  ? "translate-x-0 pointer-events-auto"
+                  : "-translate-x-full pointer-events-none"
+              }`}
+            >
+              <PreferencesSidebarInner selected={selected} onSelect={selectPreference} />
+            </aside>
+          </>,
+          document.body,
+        )}
 
-      <div className="grid min-h-[620px] lg:grid-cols-[260px_minmax(0,1fr)]">
-        <aside
-          className={`preferences-mini-sidebar fixed inset-y-0 left-0 z-[60] w-[min(260px,100vw)] max-w-full overflow-x-hidden overflow-y-auto border-r border-[#18345d] bg-[radial-gradient(ellipse_120%_48%_at_0%_0%,rgba(22,119,255,0.30)_0%,rgba(22,119,255,0.12)_38%,transparent_72%),linear-gradient(180deg,#090d14_0%,#07090d_48%,#050607_100%)] px-3 pb-6 pt-4 shadow-[18px_0_55px_rgba(0,0,0,0.52),4px_0_28px_rgba(22,119,255,0.10)] backdrop-blur-xl transition-[transform,visibility,box-shadow] duration-300 ease-out lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:visible lg:pointer-events-auto lg:shadow-[inset_-1px_0_0_rgba(93,168,255,0.08)] ${
-            menuOpen
-              ? "preferences-mini-sidebar-open visible translate-x-0 pointer-events-auto"
-              : "invisible -translate-x-full pointer-events-none"
-          }`}
-        >
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-20 -top-24 size-72 rounded-full bg-[#1677ff]/20 blur-[75px] motion-safe:animate-pulse"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute left-0 top-0 h-64 w-px bg-gradient-to-b from-[#76b2ff] via-[#1677ff]/60 to-transparent shadow-[0_0_16px_rgba(22,119,255,0.75)]"
-          />
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-[#5da8ff]/70 via-[#1677ff]/25 to-transparent"
-          />
-          <div
-            aria-hidden="true"
-            className="preferences-sidebar-beam pointer-events-none absolute -right-px top-0 h-24 w-px bg-gradient-to-b from-transparent via-[#75b2ff] to-transparent shadow-[0_0_14px_rgba(93,168,255,0.9)]"
-          />
-
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 px-3 pb-7 pt-1">
-              <span className="flex size-9 items-center justify-center rounded-xl border border-[#367bdc]/25 bg-[#1677ff]/10 text-[#69a8ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_22px_rgba(22,119,255,0.14)]">
-                <Settings2 className="size-[18px]" strokeWidth={1.8} />
-              </span>
-              <div>
-                <h1 className="!text-[1.35rem] font-medium tracking-[-0.03em] text-[#f5f7fb]">
-                  Configurações
-                </h1>
-                <p className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.13em] text-[#5d7da9]">
-                  Preferências
-                </p>
-              </div>
-            </div>
-
-            <nav aria-label="Preferências do agendamento">
-              <p className="flex items-center gap-2 px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536b8c]">
-                <span className="size-1 rounded-full bg-[#1677ff] shadow-[0_0_8px_#1677ff]" />
-                Agenda
-              </p>
-              <div className="space-y-1.5">
-                {preferenceItems.slice(0, 5).map(([key, label, Icon]) => (
-                  <PreferenceButton
-                    key={key}
-                    icon={Icon}
-                    active={selected === key}
-                    onClick={() => selectPreference(key)}
-                  >
-                    {label}
-                  </PreferenceButton>
-                ))}
-              </div>
-
-              <p className="mt-8 flex items-center gap-2 px-3 pb-3 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#536b8c]">
-                <span className="size-1 rounded-full bg-[#1677ff] shadow-[0_0_8px_#1677ff]" />
-                Empresa e clientes
-              </p>
-              <div className="space-y-1.5">
-                {preferenceItems.slice(5).map(([key, label, Icon]) => (
-                  <PreferenceButton
-                    key={key}
-                    icon={Icon}
-                    active={selected === key}
-                    onClick={() => selectPreference(key)}
-                  >
-                    {label}
-                  </PreferenceButton>
-                ))}
-              </div>
-            </nav>
-          </div>
+      <div className="grid min-h-[calc(100vh-65px)] lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="preferences-mini-sidebar hidden min-h-[calc(100vh-65px)] rounded-l-[32px] border-r border-[var(--c-18345d)] bg-[radial-gradient(ellipse_120%_48%_at_0%_0%,var(--c-rgba-22-119-255-a0d30)_0%,var(--c-rgba-22-119-255-a0d12)_38%,transparent_72%),linear-gradient(180deg,var(--c-090d14)_0%,var(--c-07090d)_48%,#050607_100%)] px-3 pb-4 shadow-[inset_-1px_0_0_var(--c-rgba-93-168-255-a0d08)] lg:block lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:visible lg:pointer-events-auto">
+          <PreferencesSidebarInner selected={selected} onSelect={selectPreference} decorations={true} />
         </aside>
 
         <section className="min-w-0 p-4 sm:p-8 lg:p-10">
-          <div className="mx-auto max-w-2xl">
+          <div key={selected} className="mx-auto max-w-2xl animate-agenda-in">
             <button
               type="button"
-              className="mb-5 inline-flex h-10 items-center gap-2 rounded-xl border border-[#367bdc]/35 bg-[#1677ff]/10 px-4 text-sm font-medium text-[#79b1ff] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_20px_rgba(22,119,255,0.12)] transition-all duration-200 hover:border-[#5da8ff]/55 hover:bg-[#1677ff]/15 hover:text-white hover:shadow-[0_0_24px_rgba(22,119,255,0.18)] lg:hidden"
+              className="mb-5 inline-flex h-10 items-center gap-2 rounded-xl border border-[var(--c-367bdc)]/35 bg-[var(--c-1677ff)]/10 px-4 text-sm font-medium text-[var(--c-79b1ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_20px_var(--c-rgba-22-119-255-a0d12)] transition-all duration-200 hover:border-[var(--c-5da8ff)]/55 hover:bg-[var(--c-1677ff)]/15 hover:text-white hover:shadow-[0_0_24px_var(--c-rgba-22-119-255-a0d18)] lg:hidden"
               aria-label="Abrir menu de preferências"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(true)}
@@ -633,48 +702,15 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
             {selected === "notify" && (
               <div>
-                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[#f4f5f7]">
+                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
                   Avisar Clientes
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-[#8b929d]">
                   Escolha quanto tempo de antecedência seu cliente recebe o lembrete.
                 </p>
-                <div className="mt-12 space-y-3">
-                  <label className="block space-y-2">
-                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
-                      Enviar lembretes aos clientes
-                    </span>
-                    <NativeSelect
-                      value={prefs.notify_clients ? "ativo" : "desativado"}
-                      onChange={(value) =>
-                        setPrefs({ ...prefs, notify_clients: value === "ativo" })
-                      }
-                      options={[
-                        ["ativo", "Ativado"],
-                        ["desativado", "Desativado"],
-                      ]}
-                    />
-                  </label>
-                  <NativeSelect
-                    value={prefs.reminder_hours_before}
-                    onChange={(value) =>
-                      setPrefs({
-                        ...prefs,
-                        notify_clients: true,
-                        reminder_hours_before: Number(value),
-                      })
-                    }
-                    options={MAIN_REMINDER_OPTIONS}
-                  />
-                  <div className="flex justify-end">
-                    <Button onClick={() => save.mutate()} disabled={save.isPending}>
-                      {save.isPending ? "Salvando..." : "Salvar"}
-                    </Button>
-                  </div>
-                </div>
 
-                <div className="mt-6 rounded-xl border border-[#25282c] bg-[#111316] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:p-5">
-                  <h3 className="text-2xl font-medium tracking-[-0.025em] text-[#f4f5f7]">
+                <div className="mt-12 rounded-xl border border-[#25282c] bg-[var(--c-111316)] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:p-5">
+                  <h3 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
                     Lembrete extra
                   </h3>
                   <p className="mt-3 text-sm leading-6 text-[#a0a6af]">
@@ -691,7 +727,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                     />
                   </div>
                   <Textarea
-                    className="mt-2 min-h-[270px] resize-y rounded-xl border-[#2a2d32] bg-[#17191d] px-4 py-4 text-sm leading-6 text-[#f4f5f7]"
+                    className="mt-2 min-h-[270px] resize-y rounded-xl border-[#2a2d32] bg-[var(--c-17191d)] px-4 py-4 text-sm leading-6 text-[var(--c-f4f5f7)]"
                     value={prefs.extra_reminder_template}
                     onChange={(e) =>
                       setPrefs({
@@ -712,7 +748,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                         key={token}
                         type="button"
                         onClick={() => insertExtraToken(token!)}
-                        className="rounded-lg border border-[#2a2d32] bg-[#202226] px-4 py-2 text-xs font-medium text-[#b8bec7] transition-colors hover:border-[#1677ff]/40 hover:text-white"
+                        className="rounded-lg border border-[#2a2d32] bg-[#202226] px-4 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
                       >
                         {label}
                       </button>
@@ -766,14 +802,14 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                       ),
                     }))
                   }
-                  className="h-12 rounded-xl border-[#2a2d32] bg-[#17191d] px-4 text-sm text-[#f4f5f7]"
+                  className="h-12 rounded-xl border-[#2a2d32] bg-[var(--c-17191d)] px-4 text-sm text-[var(--c-f4f5f7)]"
                 />
               </SettingBlock>
             )}
 
             {selected === "cancel" && (
               <div>
-                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[#f4f5f7]">
+                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
                   Cancelamento
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-[#8b929d]">
@@ -781,7 +817,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                 </p>
                 <div className="mt-12 grid gap-4 sm:grid-cols-2">
                   <label className="space-y-2">
-                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
                       Permitir cancelamento dos clientes
                     </span>
                     <NativeSelect
@@ -796,7 +832,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
                       Tempo antecedente para cancelamento
                     </span>
                     <NativeSelect
@@ -813,7 +849,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
             {selected === "reschedule" && (
               <div>
-                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[#f4f5f7]">
+                <h2 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
                   Remarcação
                 </h2>
                 <p className="mt-3 max-w-xl text-sm leading-6 text-[#8b929d]">
@@ -821,7 +857,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                 </p>
                 <div className="mt-12 grid gap-4 sm:grid-cols-2">
                   <label className="space-y-2">
-                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
                       Permitir remarcação dos clientes
                     </span>
                     <NativeSelect
@@ -836,7 +872,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                     />
                   </label>
                   <label className="space-y-2">
-                    <span className="block text-sm font-semibold leading-5 text-[#f4f5f7]">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
                       Tempo antecedente para remarcar
                     </span>
                     <NativeSelect
@@ -854,29 +890,266 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
             {selected === "greeting" && (
               <SettingBlock
                 title="Saudação"
-                description="Edite a saudação pública do Painel 1 e o nome exibido no Painel 2."
+                description="Controle se o cliente pode receber a saudação."
               >
-                <div className="space-y-5">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Saudação do Painel 1</label>
-                    <Input
-                      value={prefs.greeting}
-                      onChange={(e) =>
-                        setPrefs({ ...prefs, greeting: e.target.value.slice(0, 80) })
+                <div className="mt-12 grid gap-4 sm:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
+                      Permissão para cliente receber saudação
+                    </span>
+                    <NativeSelect
+                      value={prefs.greeting_enabled ? "permitido" : "bloqueado"}
+                      onChange={(value) =>
+                        setPrefs({ ...prefs, greeting_enabled: value === "permitido" })
                       }
-                      maxLength={80}
+                      options={[
+                        ["permitido", "Permitido"],
+                        ["bloqueado", "Não Permitido"],
+                      ]}
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Nome da saudação do Painel 2</label>
-                    <Input
-                      value={ownerName}
-                      onChange={(e) => setOwnerName(e.target.value.slice(0, 40))}
-                      maxLength={40}
-                      placeholder="Ex.: Guilherme"
-                    />
-                  </div>
+                  </label>
                 </div>
+              </SettingBlock>
+            )}
+
+            {selected === "posatendimento" && (
+              <SettingBlock
+                title="Pós Atendimento"
+                description="Configure a mensagem enviada após o atendimento."
+              >
+                <div className="mt-12 space-y-3">
+                  <label className="block space-y-2">
+                    <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
+                      Mensagem pós-atendimento
+                    </span>
+                    <NativeSelect
+                      value={prefs.post_service_minutes}
+                      onChange={(value) => {
+                        const minutes = Number(value);
+                        setPrefs({
+                          ...prefs,
+                          post_service_minutes: minutes,
+                          post_service_enabled: minutes > 0,
+                        });
+                      }}
+                      options={POST_SERVICE_OPTIONS}
+                    />
+                  </label>
+
+                  {prefs.post_service_enabled && (
+                    <label className="block space-y-2">
+                      <span className="block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]">
+                        Enviar para
+                      </span>
+                      <NativeSelect
+                        value={prefs.post_service_send_to}
+                        onChange={(value) =>
+                          setPrefs({ ...prefs, post_service_send_to: value })
+                        }
+                        options={[
+                          ["todos", "Todos"],
+                          ["somente_para", "Somente para"],
+                          ["todos_exceto", "Todos exceto"],
+                        ]}
+                      />
+                    </label>
+                  )}
+
+                  {prefs.post_service_enabled &&
+                    (prefs.post_service_send_to === "somente_para" ||
+                      prefs.post_service_send_to === "todos_exceto") && (
+                      <div className="rounded-xl border border-[#25282c] bg-[var(--c-111316)] p-3 shadow-[0_10px_30px_rgba(0,0,0,0.18)]">
+                        <label
+                          htmlFor="posAtendimentoBusca"
+                          className="mb-2 block text-sm font-semibold leading-5 text-[var(--c-f4f5f7)]"
+                        >
+                          Cliente
+                        </label>
+                        <div className="relative">
+                          <input
+                            id="posAtendimentoBusca"
+                            type="text"
+                            value={postServiceClientSearch}
+                            onChange={(e) => setPostServiceClientSearch(e.target.value)}
+                            placeholder="Informe o nome ou telefone do cliente"
+                            autoComplete="off"
+                            className="h-11 w-full rounded-xl border border-[#2a2d32] bg-[var(--c-17191d)] px-4 pr-10 text-sm text-[var(--c-f4f5f7)] outline-none focus:border-[var(--c-1677ff)]/60"
+                          />
+                          <Search className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-[#8b929d]" />
+                          {postServiceClientSearch.trim() !== "" && (
+                            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-[#2a2d32] bg-[var(--c-17191d)] p-1 shadow-lg">
+                              {customers
+                                .filter((c) => {
+                                  const term = postServiceClientSearch.toLowerCase();
+                                  return (
+                                    (c.name ?? "").toLowerCase().includes(term) ||
+                                    (c.phone ?? "").includes(term)
+                                  );
+                                })
+                                .filter((c) => {
+                                  const selectedIds = prefs.post_service_clients
+                                    ? prefs.post_service_clients.split(",").filter(Boolean)
+                                    : [];
+                                  return !selectedIds.includes(c.id);
+                                })
+                                .map((c) => {
+                                  const selectedIds = prefs.post_service_clients
+                                    ? prefs.post_service_clients.split(",").filter(Boolean)
+                                    : [];
+                                  return (
+                                    <div
+                                      key={c.id}
+                                      className="user cursor-pointer rounded-lg px-3 py-2 hover:bg-[#202226]"
+                                      onClick={() => {
+                                        const next = [...selectedIds, c.id];
+                                        setPrefs({
+                                          ...prefs,
+                                          post_service_clients: next.join(","),
+                                        });
+                                        setPostServiceClientSearch("");
+                                      }}
+                                    >
+                                      <strong className="block text-sm text-[var(--c-f4f5f7)]">
+                                        {c.name ?? "Sem nome"}
+                                      </strong>
+                                      {c.phone ? (
+                                        <span className="telefone text-xs text-[#8b929d]">
+                                          {c.phone}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
+                              {customers.filter((c) => {
+                                const term = postServiceClientSearch.toLowerCase();
+                                return (
+                                  (c.name ?? "").toLowerCase().includes(term) ||
+                                  (c.phone ?? "").includes(term)
+                                );
+                              }).length === 0 && (
+                                <p className="px-3 py-2 text-xs text-[#8b929d]">
+                                  Nenhum cliente encontrado.
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="selected-list mt-2 flex flex-wrap gap-2">
+                          {(prefs.post_service_clients
+                            ? prefs.post_service_clients.split(",").filter(Boolean)
+                            : []
+                          ).map((id) => {
+                            const c = customers.find((x) => x.id === id);
+                            if (!c) return null;
+                            return (
+                              <span
+                                key={id}
+                                className="inline-flex items-center gap-1 rounded-full border border-[#2a2d32] bg-[#202226] px-3 py-1 text-xs text-[var(--c-f4f5f7)]"
+                              >
+                                {c.name ?? "Sem nome"}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const selectedIds = prefs.post_service_clients
+                                      ? prefs.post_service_clients.split(",").filter(Boolean)
+                                      : [];
+                                    const next = selectedIds.filter((x) => x !== id);
+                                    setPrefs({
+                                      ...prefs,
+                                      post_service_clients: next.join(","),
+                                    });
+                                  }}
+                                  className="ml-1 text-[#8b929d] hover:text-white"
+                                  aria-label="Remover"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                </div>
+
+                {prefs.post_service_enabled && (
+                  <>
+                    <div className="mt-6 rounded-xl border border-[#25282c] bg-[var(--c-111316)] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:p-5">
+                      <h3 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
+                        Pré-visualização
+                      </h3>
+                      <p className="mt-3 text-sm leading-6 text-[#a0a6af]">
+                        Como seu cliente vai ver no WhatsApp.
+                      </p>
+                      <div className="mt-5 rounded-xl bg-[var(--c-0d0d10)] p-3">
+                        <p className="mb-2 text-center text-[0.63rem] font-semibold uppercase tracking-[0.16em] text-[#6d6e76]">
+                          Como seu cliente vai ver
+                        </p>
+                        <div className="rounded-lg bg-[#005c4b] px-4 py-3 text-[0.95rem] leading-relaxed text-white [overflow-wrap:anywhere]">
+                          <span
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                renderWhatsappPreview(
+                                  prefs.post_service_template || " ",
+                                ) || "<br />",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6 rounded-xl border border-[#25282c] bg-[var(--c-111316)] p-4 shadow-[0_10px_30px_rgba(0,0,0,0.18)] sm:p-5">
+                      <h3 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">
+                        Editar mensagem
+                      </h3>
+                      <p className="mt-3 text-sm leading-6 text-[#a0a6af]">
+                        Personalize a mensagem de pós-atendimento.
+                      </p>
+                      <Textarea
+                        className="mt-5 min-h-[200px] resize-y rounded-xl border-[#2a2d32] bg-[var(--c-17191d)] px-4 py-4 text-sm leading-6 text-[var(--c-f4f5f7)]"
+                        value={prefs.post_service_template}
+                        onChange={(e) =>
+                          setPrefs({
+                            ...prefs,
+                            post_service_template: e.target.value.slice(0, 800),
+                          })
+                        }
+                        maxLength={800}
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {[
+                          ["Cliente", "{Cliente}"],
+                          ["Serviço", "{Serviço}"],
+                          ["Data", "{Data}"],
+                          ["Horário", "{Horario}"],
+                          ["Funcionário", "{Funcionario}"],
+                          ["Valor", "{Valor}"],
+                          ["Saudação", "{Saudacao}"],
+                        ].map(([label, token]) => (
+                          <button
+                            key={token}
+                            type="button"
+                            onClick={() =>
+                              setPrefs({
+                                ...prefs,
+                                post_service_template:
+                                  prefs.post_service_template + token,
+                              })
+                            }
+                            className="rounded-lg border border-[#2a2d32] bg-[#202226] px-4 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="mt-4 flex justify-end">
+                        <Button onClick={() => save.mutate()} disabled={save.isPending}>
+                          {save.isPending ? "Salvando..." : "Salvar"}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </SettingBlock>
             )}
 
@@ -909,24 +1182,24 @@ function PreferenceButton({
     <button
       type="button"
       onClick={onClick}
-      className={`preferences-menu-button group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200 ease-out ${active ? "preferences-menu-button-active translate-x-1 border-[#2f83ff]/30 bg-[linear-gradient(90deg,rgba(22,119,255,0.18),rgba(22,119,255,0.07))] font-semibold text-white shadow-[inset_0_1px_0_rgba(112,168,255,0.08),0_8px_24px_rgba(0,0,0,0.16),0_0_22px_rgba(22,119,255,0.07)]" : "border-transparent text-[#939ba7] hover:translate-x-1 hover:border-[#1677ff]/15 hover:bg-[#1677ff]/[0.065] hover:text-[#edf4ff]"}`}
+      className={`preferences-menu-button group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm transition-all duration-200 ease-out ${active ? "preferences-menu-button-active translate-x-1 border-[var(--c-2f83ff)]/30 bg-[linear-gradient(90deg,var(--c-rgba-22-119-255-a0d18),var(--c-rgba-22-119-255-a0d07))] font-semibold text-white shadow-[inset_0_1px_0_var(--c-rgba-112-168-255-a0d08),0_8px_24px_rgba(0,0,0,0.16),0_0_22px_var(--c-rgba-22-119-255-a0d07)]" : "border-transparent text-[var(--c-939ba7)] hover:translate-x-1 hover:border-[var(--c-1677ff)]/15 hover:bg-[var(--c-1677ff)]/[0.065] hover:text-[var(--c-edf4ff)]"}`}
     >
       {active && (
         <span
           aria-hidden="true"
-          className="preferences-menu-click-flash pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-[#5da8ff]/20 to-transparent"
+          className="preferences-menu-click-flash pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-[var(--c-5da8ff)]/20 to-transparent"
         />
       )}
       {active && (
-        <span className="absolute inset-y-2 left-0 z-10 w-[3px] rounded-r-full bg-[#3b8cff] shadow-[0_0_12px_rgba(59,140,255,0.9)]" />
+        <span className="absolute inset-y-2 left-0 z-10 w-[3px] rounded-r-full bg-[var(--c-3b8cff)] shadow-[0_0_12px_var(--c-rgba-59-140-255-a0d9)]" />
       )}
       <Icon
-        className={`relative z-10 size-[17px] shrink-0 transition-all duration-200 ${active ? "text-[#69a8ff] drop-shadow-[0_0_5px_rgba(22,119,255,0.65)]" : "text-[#596474] group-hover:text-[#5da8ff]"}`}
+        className={`relative z-10 size-[17px] shrink-0 transition-all duration-200 ${active ? "text-[var(--c-69a8ff)] drop-shadow-[0_0_5px_var(--c-rgba-22-119-255-a0d65)]" : "text-[var(--c-596474)] group-hover:text-[var(--c-5da8ff)]"}`}
         strokeWidth={1.8}
       />
       <span className="relative z-10 min-w-0 truncate">{children}</span>
       {active && (
-        <span className="relative z-10 ml-auto size-1.5 shrink-0 rounded-full bg-[#5da8ff] shadow-[0_0_9px_rgba(93,168,255,0.95)] motion-safe:animate-pulse" />
+        <span className="relative z-10 ml-auto size-1.5 shrink-0 rounded-full bg-[var(--c-5da8ff)] shadow-[0_0_9px_var(--c-rgba-93-168-255-a0d95)] motion-safe:animate-pulse" />
       )}
     </button>
   );
@@ -943,7 +1216,7 @@ function SettingBlock({
 }) {
   return (
     <div>
-      <h2 className="text-2xl font-medium tracking-[-0.025em] text-[#f4f5f7]">{title}</h2>
+      <h2 className="text-2xl font-medium tracking-[-0.025em] text-[var(--c-f4f5f7)]">{title}</h2>
       <p className="mt-3 max-w-xl text-sm leading-6 text-[#8b929d]">{description}</p>
       <div className="mt-12">{children}</div>
     </div>
@@ -963,7 +1236,7 @@ function NativeSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-12 w-full rounded-xl border border-[#2a2d32] bg-[#17191d] px-4 text-sm text-[#f4f5f7] outline-none focus:border-[#1677ff]/60"
+      className="h-12 w-full rounded-xl border border-[#2a2d32] bg-[var(--c-17191d)] px-4 text-sm text-[var(--c-f4f5f7)] outline-none focus:border-[var(--c-1677ff)]/60"
     >
       {options.map(([optionValue, label]) => (
         <option key={String(optionValue)} value={optionValue}>

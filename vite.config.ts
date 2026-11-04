@@ -21,6 +21,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     resolve: { tsconfigPaths: true },
+    server: {
+      // host:true = 0.0.0.0 + :: (IPv4 e IPv6). Com allowedHosts:true o Vite
+      // aceita localhost e IPs da rede local (ex.: 192.168.1.15) sem 403.
+      host: true,
+      port: 3000,
+      allowedHosts: mode === "development" ? true : [],
+    },
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabasePublishableKey),

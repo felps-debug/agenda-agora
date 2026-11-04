@@ -3,7 +3,6 @@ import { friendlyError } from "@/lib/error-page";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Instagram, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LOGO_ACCEPT,
@@ -15,8 +14,10 @@ import {
   validateLogoFile,
 } from "@/lib/logo";
 import { getPanel1Config } from "@/lib/panel1-config.functions";
+import { getPublicBookingCatalog } from "@/lib/booking.functions";
 import { DEFAULT_PANEL1_APPEARANCE } from "@/lib/panel1-config";
 import { Button } from "@/components/ui/button";
+import { ElegancePanel, EleganceServiceList } from "@/components/public-booking/elegance";
 
 export function AppearanceSettings({
   businessId,
@@ -31,6 +32,7 @@ export function AppearanceSettings({
 }) {
   const queryClient = useQueryClient();
   const getConfigFn = useServerFn(getPanel1Config);
+  const getCatalogFn = useServerFn(getPublicBookingCatalog);
   const saveLogoFn = useServerFn(saveBusinessLogo);
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -42,21 +44,23 @@ export function AppearanceSettings({
       const [{ data: business, error }, config] = await Promise.all([
         supabase
           .from("businesses")
-          .select("logo_url, brand_background")
+          .select("name, slug, logo_url, brand_background")
           .eq("id", businessId)
           .maybeSingle(),
         getConfigFn({ data: { businessId } }),
       ]);
       if (error) throw error;
+      const catalog = await getCatalogFn({ data: { slug: business?.slug ?? "" } });
       return {
         logoPath: business?.logo_url ?? null,
         logoUrl: await getLogoUrl(business?.logo_url ?? null, businessId),
-        background: business?.brand_background ?? "#050607",
+        catalog,
+        brandBackground: business?.brand_background ?? null,
         appearance: config.appearance,
       };
     },
   });
-  const appearance = data?.appearance ?? DEFAULT_PANEL1_APPEARANCE;
+  const appearance = data?.catalog?.appearance ?? data?.appearance ?? DEFAULT_PANEL1_APPEARANCE;
 
   const upload = useMutation({
     mutationFn: async ({ file, extension }: { file: File; extension: string }) => {
@@ -90,9 +94,12 @@ export function AppearanceSettings({
   if (isError)
     return <p role="alert">Não foi possível carregar a aparência. Tente atualizar a página.</p>;
 
-  const previewServices = ["R$ 25,00 · 30 min", "R$ 45,00 · 40 min", "R$ 80,00 · 60 min"];
+  const catalog = data?.catalog;
+  const business = catalog?.business;
+  const layoutKey = catalog?.visual?.layout_key ?? "classic";
+  const logoUrl = data?.logoUrl ?? business?.logo_url ?? null;
   return (
-    <div className="mx-auto w-full max-w-[650px] space-y-5 bg-[#4a4a4a] px-4 pb-9 pt-7 sm:px-8">
+    <div className="space-y-4">
       <input
         ref={inputRef}
         type="file"
@@ -125,76 +132,46 @@ export function AppearanceSettings({
         }}
       />
 
-      <section
-        className="mx-auto w-full max-w-[448px] rounded-xl px-5 pb-6 pt-8"
-        style={{ backgroundColor: data?.background, color: appearance.page_text }}
-      >
-        <button
-          type="button"
-          onClick={() => !busy && inputRef.current?.click()}
-          disabled={busy}
-          title="Clique para trocar o logotipo"
-          aria-label="Trocar logotipo"
-          className="mx-auto flex min-h-[78px] w-full max-w-[270px] items-center justify-center bg-transparent p-0 disabled:cursor-wait"
-        >
-          {data?.logoUrl ? (
-            <img
-              src={data.logoUrl}
-              alt="Logotipo"
-              loading="lazy"
-              decoding="async"
-              className="max-h-[76px] max-w-full object-contain"
-            />
-          ) : (
-            <span className="text-sm font-medium opacity-60">
-              {busy ? "Enviando..." : "SUA LOGO"}
-            </span>
-          )}
-        </button>
-        <p className="mt-2 text-center text-xs opacity-80">PNG, JPEG ou WebP, até 5 MB.</p>
-        {logoError && (
-          <p
-            role="alert"
-            className="mt-2 rounded bg-red-950 px-3 py-2 text-center text-sm text-red-50"
+      {/* Prévia ao vivo — mesmo enquadramento do Editor do Painel 1. */}
+      <div className="rounded-2xl border border-[#25282c] bg-[var(--c-0f172a)] p-2 shadow-inner sm:p-3">
+        <div className="mx-auto flex max-w-[430px] flex-col overflow-hidden rounded-[1.5rem] border-4 border-[var(--c-020617)] bg-background shadow-2xl sm:rounded-[2rem] sm:border-8">
+          <div
+            className="flex flex-1 min-h-full flex-col [&>div]:flex-1"
+            style={{ backgroundColor: data?.brandBackground ?? business?.brand_background ?? "#ffffff" }}
           >
-            {logoError}
-          </p>
-        )}
-        <button
-          type="button"
-          className="mt-5 block w-full text-center text-[28px] font-medium leading-none"
-          style={{ backgroundColor: appearance.header_background, color: appearance.header_title }}
-        >
-          SERVIÇOS
-        </button>
-        <div className="mx-auto mt-6 w-full max-w-[306px] space-y-6">
-          {previewServices.map((price, index) => (
-            <article
-              key={price}
-              className="flex min-h-[112px] flex-col items-center justify-center rounded-lg border-2 px-4 py-3 text-center"
-              style={{
-                backgroundColor: appearance.service_background,
-                color: appearance.service_text,
-                borderColor: appearance.service_border,
+            <ElegancePanel
+              appearance={appearance}
+              brandName={business?.name ?? "Nome do negócio"}
+              logoUrl={logoUrl}
+              coverUrl={business?.brand_background_image ?? null}
+              pageBackground={data?.brandBackground ?? business?.brand_background ?? "#ffffff"}
+              activeTab="agendar"
+              fullHeight={false}
+              minimalist={layoutKey === "classic"}
+              onAppearanceTargetSelect={(target) => {
+                if (target === "logo-cover" && !busy) inputRef.current?.click();
               }}
             >
-              <p className="text-base font-medium" style={{ color: appearance.service_name_text }}>
-                Serviço de exemplo {index + 1}
-              </p>
-              <p
-                className="mt-7 text-base font-semibold"
-                style={{ color: appearance.service_price_text }}
-              >
-                {price}
-              </p>
-            </article>
-          ))}
+              <EleganceServiceList
+                services={catalog?.services ?? []}
+                onSelect={() => {}}
+                appearance={appearance}
+              />
+            </ElegancePanel>
+          </div>
         </div>
-        <div className="mt-6 flex items-center justify-center gap-2.5">
-          <MapPin className="size-8" />
-          <Instagram className="size-8" />
-        </div>
-      </section>
+      </div>
+      <div className="mx-auto text-center text-xs text-white/70">
+        Clique na logo para trocar. A prévia mostra o painel atual do cliente em tempo real.
+      </div>
+      {logoError && (
+        <p
+          role="alert"
+          className="mx-auto max-w-[520px] rounded bg-red-950 px-3 py-2 text-center text-sm text-red-50"
+        >
+          {logoError}
+        </p>
+      )}
       <div className="mx-auto flex w-full max-w-[448px] justify-center">
         <Button asChild>
           <a href="/painel/aparencia-editor">Editar aparência</a>

@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createWithdrawal, saveWithdrawalPixKeyForOwner } from "./withdrawal.server";
+import { createHash } from "node:crypto";
+import {
+  createWithdrawal,
+  saveWithdrawalPinForOwner,
+  saveWithdrawalPixKeyForOwner,
+  verifyWithdrawalPinForOwner,
+} from "./withdrawal.server";
 import { saveWithdrawalPixKeyInput } from "./withdrawal.functions";
 import { AgpayApiError } from "./agpay.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -486,5 +492,53 @@ describe("solicitação de saque", () => {
       withdrawalId: "wd-1",
       outcome: "failed",
     });
+  });
+});
+
+describe("senha de transferência: só o hash existe (US3)", () => {
+  const BID = "7b1b0e0e-5b7a-4c1f-8a53-0e9d2f6c1a11";
+  const makeDb = () => {
+    const db = makeFinanceDb();
+    db.state["businesses"] = [{ id: BID, owner_id: "user-dono" }];
+    return db;
+  };
+  const sha = (businessId: string, pin: string) =>
+    createHash("sha256").update(`${businessId}:${pin}`).digest("hex");
+
+  it("definir o PIN grava somente withdrawal_pin_hash, sem nenhuma coluna em texto puro", async () => {
+    const { state, client } = makeDb();
+    await saveWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" });
+    const business = state["businesses"]![0]!;
+    expect(business["withdrawal_pin_hash"]).toBe(sha(BID, "4821"));
+    expect(Object.keys(business).filter((key) => /plain|password|senha/i.test(key))).toEqual([]);
+    expect(JSON.stringify(business)).not.toContain("4821");
+  });
+
+  it("a validação do saque continua funcionando com o hash já existente", async () => {
+    const { state, client } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = sha(BID, "4821");
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" }),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "0000" }),
+    ).rejects.toThrow("Senha de transferência incorreta.");
+  });
+
+  it("só o dono cadastra ou valida o PIN", async () => {
+    const { client } = makeDb();
+    await expect(
+      saveWithdrawalPinForOwner(client, "outro-usuario", { businessId: BID, pin: "4821" }),
+    ).rejects.toThrow("Somente o dono pode cadastrar a senha de transferência.");
+    await expect(
+      verifyWithdrawalPinForOwner(client, "outro-usuario", { businessId: BID, pin: "4821" }),
+    ).rejects.toThrow("Negócio não encontrado.");
+  });
+
+  it("sem PIN cadastrado a validação pede a configuração", async () => {
+    const { client } = makeDb();
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" }),
+    ).rejects.toThrow("Configure a senha de transferência");
   });
 });

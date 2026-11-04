@@ -46,3 +46,13 @@ Se a chave estiver ausente ou como `false`, o sistema volta ao modo de host úni
 - Trocar as senhas que foram compartilhadas em conversa. A VPS já usa chave SSH e não aceita login SSH por senha.
 
 Nunca registre tokens, senhas ou o conteúdo de `/etc/agenda-agora.env` neste repositório.
+# Ciclo de assinatura
+
+O serviço `subscription-lifecycle` deve ser acionado diariamente às 06:00
+(`America/Sao_Paulo`). Em instalação com systemd, habilite
+`agenda-subscription-lifecycle.timer` e `agenda-subscription-lifecycle.service`.
+No EasyPanel, adicione ao serviço de cron uma chamada POST para
+`/api/public/hooks/subscription-lifecycle` com o cabeçalho
+`Authorization: Bearer $AGENDA_CRON_SECRET` e corpo `{}`. O cancelamento no dia
+15 permanece desativado até `lifecycle_auto_cancel_enabled` ser habilitado pelo
+Master após confirmação do Welison.

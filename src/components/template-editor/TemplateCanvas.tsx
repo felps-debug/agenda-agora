@@ -198,7 +198,7 @@ export function TemplateCanvas({
                 width={layer.width + 4}
                 height={layer.height + 4}
                 fill="none"
-                stroke="#1677ff"
+                stroke="var(--c-1677ff)"
                 strokeWidth={2}
                 strokeDasharray="6 4"
                 pointerEvents="none"
@@ -223,7 +223,7 @@ export function TemplateCanvas({
               y={y - size / 2}
               width={size}
               height={size}
-              fill="#1677ff"
+              fill="var(--c-1677ff)"
               stroke="#ffffff"
               strokeWidth={1}
               aria-label={`Redimensionar pela borda ${edge}`}

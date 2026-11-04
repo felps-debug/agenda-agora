@@ -13,12 +13,16 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:db": "vitest run -c vitest.db.config.ts",
+    "db:ensaio": "node scripts/ensaio/db.mjs up",
+    "db:ensaio:check": "node scripts/ensaio/db.mjs check"
   },
   "overrides": {
     "rolldown": "1.2.1",
     "js-yaml": "4.3.2",
-    "nanoid": "3.3.18"
+    "nanoid": "3.3.18",
+    "@tanstack/router-core": "1.171.34"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -51,12 +55,13 @@
     "@supabase/supabase-js": "^2.112.3",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-query": "^5.101.1",
-    "@tanstack/react-router": "1.170.18",
-    "@tanstack/react-start": "1.168.32",
+    "@tanstack/react-router": "1.170.41",
+    "@tanstack/react-start": "1.168.60",
     "@tanstack/router-plugin": "1.168.23",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "cropperjs": "^1.6.2",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
@@ -95,5 +100,8 @@
     "typescript-eslint": "^8.56.1",
     "vite": "8.1.5",
     "vitest": "^5.0.0"
+  },
+  "resolutions": {
+    "@tanstack/router-core": "1.171.34"
   }
 }

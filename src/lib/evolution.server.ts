@@ -106,9 +106,7 @@ export async function startWhatsappConnection(
 ): Promise<WhatsappConnectionArtifact | null> {
   const instance = encodeURIComponent(instanceToken);
   const query =
-    input.method === "pairing_code"
-      ? `?number=${normalizePairingPhone(input.phone)}`
-      : "";
+    input.method === "pairing_code" ? `?number=${normalizePairingPhone(input.phone)}` : "";
   const data = await call<EvolutionConnect>(`/instance/connect/${instance}${query}`);
   if (input.method === "qr") {
     const base64 = data.base64 ?? data.qrcode?.base64;
@@ -167,6 +165,23 @@ export async function sendTextMessage(
     body: JSON.stringify({
       number: phoneToWhatsapp(phone),
       text: message,
+    }),
+  });
+}
+
+/** Registra o webhook de mensagens recebidas da instância (saudação automática). */
+export async function setInstanceWebhook(instanceToken: string, url: string, secret = ""): Promise<void> {
+  await call(`/webhook/set/${encodeURIComponent(instanceToken)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      webhook: {
+        enabled: true,
+        url,
+        webhook_by_events: false,
+        webhook_base64: false,
+        events: ["MESSAGES_UPSERT"],
+        headers: secret ? { "X-Webhook-Secret": secret } : {},
+      },
     }),
   });
 }

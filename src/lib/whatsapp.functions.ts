@@ -144,6 +144,18 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
     );
     await updateBusinessWhatsapp(business.id, { whatsapp_status: "conectando" });
 
+    // Melhor esforço: registra o webhook de mensagens recebidas para a
+    // saudação automática. Nunca quebra a conexão se falhar.
+    try {
+      const { registerGreetingWebhook } = await import("./whatsapp-greeting.server");
+      await registerGreetingWebhook(instance.instanceToken);
+    } catch (error) {
+      console.warn(
+        "Webhook de saudação não registrado:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+
     return {
       qrCode: artifact?.method === "qr" ? artifact.qrCode : null,
       pairingCode: artifact?.method === "pairing_code" ? artifact.pairingCode : null,

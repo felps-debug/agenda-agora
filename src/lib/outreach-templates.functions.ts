@@ -6,7 +6,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 import { applyOutreachPlaceholders } from "@/lib/outreach-templates.placeholders";
 import { parseOutreachDesign, type OutreachDesign } from "@/lib/outreach-design";
-import { outreachMessageSchema } from "@/lib/outreach-message-settings";
+import { outreachMessageSchema, FIXED_REMINDER_TEMPLATE } from "@/lib/outreach-message-settings";
 import {
   businessOwnerCanEdit,
   resolveEffectiveOutreachDesign,
@@ -38,6 +38,7 @@ type OutreachTables = {
     payment_confirmation_template: string | null;
     reminder_template: string | null;
     reminder_hours_before: number | null;
+    saudacao_template: string | null;
   };
 };
 
@@ -66,67 +67,6 @@ function dynamicTable<Table extends keyof OutreachTables>(
 ): DynamicQuery<OutreachTables[Table]> {
   return (client as unknown as DynamicSupabase).from(table);
 }
-
-/** Lista todos os templates de divulgação (inclusive inativos), só para o super_admin. */
-export const listOutreachTemplatesAdmin = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const { data, error } = await supabaseAdmin
-      .from("outreach_templates")
-      .select("id, title, usage_type, body, active, created_by, created_at, updated_at")
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    return data ?? [];
-  });
-
-const saveOutreachTemplateInput = z.object({
-  id: z.string().uuid().optional(),
-  title: z.string().min(2).max(80),
-  usageType: z.enum(["story", "whatsapp", "outro"]),
-  body: z.string().min(1).max(2000),
-  active: z.boolean(),
-});
-
-/** Cria ou atualiza um template de divulgação; restrito ao super_admin. */
-export const saveOutreachTemplate = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => saveOutreachTemplateInput.parse(data))
-  .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const payload = {
-      title: data.title,
-      usage_type: data.usageType,
-      body: data.body,
-      active: data.active,
-    };
-    const query = data.id
-      ? supabaseAdmin.from("outreach_templates").update(payload).eq("id", data.id).select().single()
-      : supabaseAdmin
-          .from("outreach_templates")
-          .insert({ ...payload, created_by: context.userId })
-          .select()
-          .single();
-    const { data: template, error } = await query;
-    if (error) throw new Error(error.message);
-    return template;
-  });
-
-/** Ativa/desativa um template de divulgação; restrito ao super_admin. */
-export const setOutreachTemplateActive = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) =>
-    z.object({ id: z.string().uuid(), active: z.boolean() }).parse(data),
-  )
-  .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const { error } = await supabaseAdmin
-      .from("outreach_templates")
-      .update({ active: data.active })
-      .eq("id", data.id);
-    if (error) throw new Error(error.message);
-    return { id: data.id, active: data.active };
-  });
 
 /** Lista os templates ativos já personalizados com os dados do negócio; exige vínculo (dono/profissional). */
 export const listOutreachTemplatesForBusiness = createServerFn({ method: "GET" })
@@ -269,6 +209,21 @@ export const listVisualOutreachTemplates = createServerFn({ method: "GET" })
     );
   });
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
+function isMissingSaudacaoColumn(error: unknown): boolean {
+  const message = errorMessage(error);
+  return (
+    message.includes("saudacao_template") && /does not exist|schema cache|column/i.test(message)
+  );
+}
+
 export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
@@ -276,24 +231,51 @@ export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
     const admin = await assertBusinessOwner(context, data.businessId);
     const { data: row, error } = await dynamicTable(admin, "businesses")
       .select(
-        "selected_outreach_template_ids, confirmation_template, payment_confirmation_template, reminder_template, reminder_hours_before",
+        "selected_outreach_template_ids, confirmation_template, payment_confirmation_template, reminder_template, reminder_hours_before, saudacao_template",
       )
       .eq("id", data.businessId)
       .single();
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Degradê seguro: banco ainda sem a migration usa o padrão até ela ser aplicada.
+      if (isMissingSaudacaoColumn(error)) {
+        const retry = await dynamicTable(admin, "businesses")
+          .select(
+            "selected_outreach_template_ids, confirmation_template, payment_confirmation_template, reminder_template, reminder_hours_before",
+          )
+          .eq("id", data.businessId)
+          .single();
+        if (retry.error) throw new Error(retry.error.message);
+        if (!retry.data) throw new Error("Não foi possível carregar as configurações do negócio.");
+        return {
+          selectedTemplateIds: retry.data.selected_outreach_template_ids ?? [],
+          confirmationTemplate:
+            retry.data.confirmation_template ??
+            "❕ Resumo de seu agendamento:\n\n📅 Data: {Data}\n🕗 Hora: {Horario}\n🛠 Serviço: {Serviço}\n👤 Profissional: {Funcionario}\n💰 Valor: R$ {Valor}",
+          paymentConfirmationTemplate:
+            retry.data.payment_confirmation_template ??
+            "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}.",
+          reminderTemplate:
+            retry.data.reminder_template ?? FIXED_REMINDER_TEMPLATE,
+          reminderHoursBefore: retry.data.reminder_hours_before ?? 24,
+          saudacaoTemplate: null as string | null,
+        };
+      }
+      throw new Error(error.message);
+    }
     if (!row) throw new Error("Não foi possível carregar as configurações do negócio.");
     return {
       selectedTemplateIds: row.selected_outreach_template_ids ?? [],
       confirmationTemplate:
         row.confirmation_template ??
-        "Olá, {nome}! Seu horário de {servico} está confirmado para {data} às {hora} em {negocio}.",
+        "❕ Resumo de seu agendamento:\n\n📅 Data: {Data}\n🕗 Hora: {Horario}\n🛠 Serviço: {Serviço}\n👤 Profissional: {Funcionario}\n💰 Valor: R$ {Valor}",
       paymentConfirmationTemplate:
         row.payment_confirmation_template ??
         "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}.",
-      reminderTemplate:
-        row.reminder_template ??
-        "Olá, {nome}! Lembrete: seu horário de {servico} em {negocio} é {data} às {hora}.",
+      reminderTemplate: row.reminder_template ?? FIXED_REMINDER_TEMPLATE,
       reminderHoursBefore: row.reminder_hours_before ?? 24,
+      saudacaoTemplate:
+        row.saudacao_template ??
+        "👋 {negocio} {Cliente}, seja bem-vindo!\n\n📅 Este é o link para você agendar!!\n{Link}",
     };
   });
 
@@ -304,6 +286,7 @@ const outreachSettingsInput = z.object({
   paymentConfirmationTemplate: outreachMessageSchema,
   reminderTemplate: outreachMessageSchema,
   reminderHoursBefore: z.number().int().min(1).max(168),
+  saudacaoTemplate: outreachMessageSchema,
 });
 
 export const saveOutreachBusinessSettings = createServerFn({ method: "POST" })
@@ -318,8 +301,25 @@ export const saveOutreachBusinessSettings = createServerFn({ method: "POST" })
         payment_confirmation_template: data.paymentConfirmationTemplate,
         reminder_template: data.reminderTemplate,
         reminder_hours_before: data.reminderHoursBefore,
+        saudacao_template: data.saudacaoTemplate,
       })
       .eq("id", data.businessId);
-    if (error) throw new Error(error.message);
-    return { success: true };
+    if (error) {
+      // Degradê seguro: sem a migration, salva o restante e avisa.
+      if (isMissingSaudacaoColumn(error)) {
+        const retry = await dynamicTable(admin, "businesses")
+          .update({
+            selected_outreach_template_ids: data.selectedTemplateIds,
+            confirmation_template: data.confirmationTemplate,
+            payment_confirmation_template: data.paymentConfirmationTemplate,
+            reminder_template: data.reminderTemplate,
+            reminder_hours_before: data.reminderHoursBefore,
+          })
+          .eq("id", data.businessId);
+        if (retry.error) throw new Error(retry.error.message);
+        return { success: true, saudacaoPersisted: false };
+      }
+      throw new Error(error.message);
+    }
+    return { success: true, saudacaoPersisted: true };
   });

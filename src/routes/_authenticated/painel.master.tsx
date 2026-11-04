@@ -1,6 +1,6 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import { friendlyError } from "@/lib/error-page";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -12,7 +12,17 @@ import {
   Ban,
   PlayCircle,
   Landmark,
-  Megaphone,
+  Building2,
+  Pencil,
+  Plug,
+  Users,
+  DollarSign,
+  CreditCard,
+  CalendarDays,
+  CalendarX2,
+  TriangleAlert,
+  Search,
+  ArrowRight,
 } from "lucide-react";
 import {
   createBusinessWithOwner,
@@ -27,12 +37,16 @@ import {
   setBusinessStatus,
   setMonthlyFee,
 } from "@/lib/admin.functions";
+import { BusinessDossier } from "@/components/master/BusinessDossier";
+import { PlatformOverview } from "@/components/master/PlatformOverview";
+import { PlatformSections, type PlatformSection } from "@/components/master/PlatformSections";
+import { getPlatformOverview } from "@/lib/master/platform-overview.functions";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { formatPrice } from "@/lib/format";
+import { trialInfo, isExpiredTrial } from "@/lib/trial-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -61,11 +75,6 @@ const LedgerReconciliation = lazy(() =>
     default: module.LedgerReconciliation,
   })),
 );
-const MasterTemplatesTab = lazy(() =>
-  import("@/components/template-editor/MasterTemplatesTab").then((module) => ({
-    default: module.MasterTemplatesTab,
-  })),
-);
 
 export const Route = createFileRoute("/_authenticated/painel/master")({
   // A sessão Supabase fica no localStorage, indisponível durante SSR. Cada server
@@ -91,24 +100,41 @@ const emptyForm = {
   ownerName: "",
   phone: "",
   password: "",
+  trialDays: "",
 };
 
 type AgpaySplitForm = {
   businessId: string;
   splitEmail: string;
   commissionPercent: string;
+  autoFirst: boolean;
 };
 
 const emptyAgpaySplitForm: AgpaySplitForm = {
   businessId: "",
   splitEmail: "",
   commissionPercent: "0",
+  autoFirst: false,
 };
 
 const formatBrazilianNumber = (value: number) =>
   new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
     value,
   );
+
+const brl = (cents: number) =>
+  (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const formatDateBR = (iso: string | null | undefined) =>
+  iso
+    ? new Date(iso).toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
 
 const formatPhone = (value: string) => {
   const d = value.replace(/\D/g, "").slice(0, 11);
@@ -135,6 +161,7 @@ function MasterPage() {
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [semTeste, setSemTeste] = useState(false);
   const [agpaySplitOpen, setAgpaySplitOpen] = useState(false);
   const [agpaySplitForm, setAgpaySplitForm] = useState(emptyAgpaySplitForm);
   const [diagnosticChargeId, setDiagnosticChargeId] = useState("");
@@ -146,6 +173,11 @@ function MasterPage() {
     action: "remove" | "suspend";
     name: string;
   } | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"todos" | "ativo" | "suspenso">("todos");
+  const [section, setSection] = useState<"negocios" | "saques">("negocios");
+  const [platformSection, setPlatformSection] = useState<PlatformSection>("agendamentos");
+  const [detailsId, setDetailsId] = useState<string | null>(null);
 
   const status = useQuery({ queryKey: ["master-status"], queryFn: () => statusFn() });
 
@@ -155,13 +187,36 @@ function MasterPage() {
     queryFn: () => listFn(),
   });
 
+  const overviewFn = useServerFn(getPlatformOverview);
+  const overview = useQuery({
+    queryKey: ["master-platform-overview"],
+    enabled: !!status.data?.isMaster,
+    queryFn: () => overviewFn(),
+  });
+
   const create = useMutation({
-    mutationFn: () => createFn({ data: form }),
-    onSuccess: () => {
-      toast.success("Estabelecimento e acesso do dono criados!");
+    mutationFn: () =>
+      createFn({
+        data: {
+          ...form,
+          trialDays: semTeste
+            ? 0
+            : form.trialDays.trim()
+              ? Math.max(Number(form.trialDays) || 0, 0)
+              : undefined,
+        },
+      }),
+    onSuccess: (result) => {
+      toast.success(
+        semTeste
+          ? `Estabelecimento criado. Senha inicial (mostrada uma vez): ${result.initialPassword}`
+          : `Estabelecimento e acesso criados. Senha inicial (mostrada uma vez): ${result.initialPassword}`,
+      );
       setOpen(false);
       setForm(emptyForm);
+      setSemTeste(false);
       void queryClient.invalidateQueries({ queryKey: ["master-businesses"] });
+      void queryClient.invalidateQueries({ queryKey: ["master-platform-overview"] });
     },
     onError: (e: Error) => toast.error(friendlyError(e)),
   });
@@ -171,6 +226,7 @@ function MasterPage() {
     onSuccess: () => {
       toast.success("Estabelecimento removido.");
       void queryClient.invalidateQueries({ queryKey: ["master-businesses"] });
+      void queryClient.invalidateQueries({ queryKey: ["master-platform-overview"] });
     },
     onError: () =>
       toast.error("Não foi possível remover: existem agendamentos vinculados a este negócio."),
@@ -185,6 +241,7 @@ function MasterPage() {
   const refreshAll = () => {
     void queryClient.invalidateQueries({ queryKey: ["master-businesses"] });
     void queryClient.invalidateQueries({ queryKey: ["master-metrics"] });
+    void queryClient.invalidateQueries({ queryKey: ["master-platform-overview"] });
   };
 
   const setStatus = useMutation({
@@ -230,8 +287,9 @@ function MasterPage() {
       setBusinessAgpaySplitFn({
         data: {
           businessId: agpaySplitForm.businessId,
-          splitEmail: agpaySplitForm.splitEmail,
+          splitEmail: agpaySplitForm.splitEmail.trim() || undefined,
           commissionPercent: Number(agpaySplitForm.commissionPercent.replace(",", ".")),
+          autoFirstKey: false,
         },
       }),
     onSuccess: () => {
@@ -270,374 +328,69 @@ function MasterPage() {
   }
 
   const rows = businesses.data ?? [];
+  const filteredRows = rows.filter((b) => {
+    const matchesSearch =
+      !search.trim() ||
+      b.name.toLowerCase().includes(search.toLowerCase()) ||
+      (b.owner_name ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = statusFilter === "todos" || b.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+  const pendingCount = metrics.data?.delinquentCount ?? 0;
 
   return (
     <div className="mx-auto w-full p-4 sm:p-8">
       <div className="flex flex-wrap items-center gap-3">
-        <ShieldCheck className="size-6 text-primary" />
         <div>
-          <h1 className="text-xl font-bold">Painel master</h1>
-          <p className="text-sm text-muted-foreground">
-            Cadastre estabelecimentos e gere o acesso de cada dono.
+          <h1 className="text-2xl font-bold text-[var(--c-f2f4f8)]">Visão geral</h1>
+          <p className="text-sm text-[#777d87]">
+            Acompanhe os estabelecimentos e as assinaturas da plataforma.
           </p>
         </div>
         <div className="ml-auto flex gap-2">
-          <Link to="/painel">
-            <Button variant="secondary">Meu painel</Button>
-          </Link>
+          <Button
+            onClick={() => setOpen(true)}
+            className="border border-[var(--c-1677ff)]/40 bg-[var(--c-1677ff)]/12 text-[var(--c-8fb3ff)] shadow-[0_0_18px_rgba(22,119,255,0.18)] hover:bg-[var(--c-1677ff)]/20"
+          >
+            <Plus className="size-4" /> Novo estabelecimento
+          </Button>
         </div>
       </div>
 
-      <Tabs defaultValue="negocios" className="mt-6">
-        <TabsList className="w-full flex-wrap justify-start gap-1 h-auto">
-          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="negocios">
-            Estabelecimentos
-          </TabsTrigger>
-          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="templates">
-            <Megaphone className="size-4" /> Templates de Divulgação
-          </TabsTrigger>
-          <TabsTrigger className="min-h-11 whitespace-normal py-2 leading-tight" value="saques">
-            Saques
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="negocios">
-          <div className="flex justify-end">
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="size-4" /> Novo estabelecimento
-            </Button>
-          </div>
-
-          <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
-              label="Negócios ativos"
-              value={String(metrics.data?.activeBusinesses ?? 0)}
-              hint={`${metrics.data?.suspendedBusinesses ?? 0} suspenso(s)`}
-            />
-            <MetricCard
-              label="Mensalidade prevista"
-              value={formatPrice(metrics.data?.mrrCents ?? 0)}
-              hint="Soma das mensalidades ativas"
-            />
-            <MetricCard
-              label="Recebido este mês"
-              value={formatPrice(metrics.data?.paidThisMonthCents ?? 0)}
-              hint={`${metrics.data?.delinquentCount ?? 0} em aberto`}
-            />
-            <MetricCard
-              label="Faturamento total"
-              value={formatPrice(metrics.data?.revenueTotalCents ?? 0)}
-              hint={`${metrics.data?.appointments ?? 0} agendamentos na plataforma`}
-            />
-          </div>
-
-          <section className="mt-6 rounded-md border border-border bg-card p-4">
-            <h2 className="font-semibold">Diagnóstico de cobrança Pix</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Consulte a cobrança e os webhooks recebidos usando o ID da cobrança.
-            </p>
-            <form
-              className="mt-3 flex flex-wrap gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                diagnostics.mutate(diagnosticChargeId.trim());
-              }}
-            >
-              <Input
-                aria-label="ID da cobrança"
-                placeholder="UUID da cobrança"
-                value={diagnosticChargeId}
-                onChange={(event) => setDiagnosticChargeId(event.target.value)}
-                className="min-w-64 flex-1"
-              />
-              <Button
-                type="submit"
-                variant="secondary"
-                disabled={diagnostics.isPending || !diagnosticChargeId.trim()}
-              >
-                {diagnostics.isPending ? "Consultando…" : "Consultar"}
-              </Button>
-            </form>
-            {diagnostics.data && (
-              <div className="mt-4 space-y-3 text-sm">
-                <div className="rounded-md bg-secondary/50 p-3">
-                  <p>
-                    <span className="font-medium">Cobrança:</span> {diagnostics.data.charge.id}
-                  </p>
-                  <p>
-                    <span className="font-medium">Status:</span> {diagnostics.data.charge.status}
-                    {diagnostics.data.charge.provider_status
-                      ? ` (${diagnostics.data.charge.provider_status})`
-                      : ""}
-                  </p>
-                  <p>
-                    <span className="font-medium">ID AgPay:</span>{" "}
-                    {diagnostics.data.charge.provider_payment_id ?? "—"}
-                  </p>
-                  <p>
-                    <span className="font-medium">Valor:</span>{" "}
-                    {formatPrice(diagnostics.data.charge.amount_cents)}
-                  </p>
-                </div>
-                <div>
-                  <h3 className="font-medium">Eventos de webhook</h3>
-                  {diagnostics.data.events.length ? (
-                    <ul className="mt-2 space-y-2">
-                      {diagnostics.data.events.map((webhookEvent) => (
-                        <li key={webhookEvent.id} className="rounded-md border border-border p-3">
-                          <p>
-                            {webhookEvent.event_type} · {webhookEvent.status} ·{" "}
-                            {new Date(webhookEvent.received_at).toLocaleString()}
-                          </p>
-                          {webhookEvent.last_error && (
-                            <p className="mt-1 break-words text-destructive">
-                              Erro: {webhookEvent.last_error}
-                            </p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="mt-1 text-muted-foreground">Nenhum evento recebido.</p>
-                  )}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {businesses.isError && (
-            <p
-              role="alert"
-              className="mt-6 rounded-md border border-destructive/40 p-4 text-sm text-destructive"
-            >
-              Não foi possível carregar os estabelecimentos. Atualize a página e tente novamente.
-            </p>
-          )}
-          <div className="master-business-table mt-6 rounded-md border border-border">
-            <table className="w-full table-fixed text-sm">
-              <thead className="bg-secondary text-left text-xs uppercase text-muted-foreground">
-                <tr>
-                  <th className="px-4 py-3">Estabelecimento</th>
-                  <th className="px-4 py-3">Dono</th>
-                  <th className="px-4 py-3">AgPay</th>
-                  <th className="px-4 py-3">Mensalidade</th>
-                  <th className="px-4 py-3">Mês atual</th>
-                  <th className="px-4 py-3">Situação</th>
-                  <th className="px-4 py-3">Link do cliente</th>
-                  <th className="px-4 py-3">Acesso do dono</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((b) => {
-                  const suspended = b.status === "suspenso";
-                  const paid = b.current_month_status === "pago";
-                  return (
-                    <tr key={b.id} className="border-t border-border">
-                      <td className="px-4 py-3 font-medium">
-                        {b.name}
-                        <span className="block text-xs text-muted-foreground">
-                          {b.category} · {b.appointments} agendamento(s)
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {b.owner_name ?? "—"}
-                        <span className="block text-xs text-muted-foreground">
-                          {b.phone ? formatPhone(b.phone) : "—"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {!b.agpay_schema_ready ? (
-                          <span className="text-xs text-muted-foreground">
-                            Migração AgPay pendente
-                          </span>
-                        ) : b.agpay_split_status === "pendente" && !b.agpay_split_email ? (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setAgpaySplitForm({
-                                ...emptyAgpaySplitForm,
-                                businessId: b.id,
-                              });
-                              setAgpaySplitOpen(true);
-                            }}
-                          >
-                            <Landmark className="size-4" /> Configurar
-                          </Button>
-                        ) : (
-                          <div className="space-y-1">
-                            <span className="block text-xs font-semibold">
-                              {b.agpay_split_status === "aprovada"
-                                ? "Aprovada"
-                                : b.agpay_split_status === "bloqueada"
-                                  ? "Bloqueada"
-                                  : "Em análise"}
-                            </span>
-                            {b.agpay_split_status === "pendente" && (
-                              <>
-                                <button
-                                  type="button"
-                                  className="block text-xs text-primary hover:underline"
-                                  onClick={() => {
-                                    setAgpaySplitForm({
-                                      businessId: b.id,
-                                      splitEmail: b.agpay_split_email ?? "",
-                                      commissionPercent: String(b.agpay_commission_percent ?? 0),
-                                    });
-                                    setAgpaySplitOpen(true);
-                                  }}
-                                >
-                                  Editar configuração
-                                </button>
-                                <button
-                                  type="button"
-                                  className="block text-xs text-primary hover:underline"
-                                  onClick={() =>
-                                    updateAgpaySplitStatus.mutate({
-                                      businessId: b.id,
-                                      status: "aprovada",
-                                    })
-                                  }
-                                >
-                                  marcar aprovado
-                                </button>
-                              </>
-                            )}
-                            <span className="block text-xs text-muted-foreground">
-                              Comissão:{" "}
-                              {formatBrazilianNumber(Number(b.agpay_commission_percent ?? 0))}%
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          className="text-primary hover:underline"
-                          onClick={() =>
-                            setMonthlyFeeTarget({
-                              id: b.id,
-                              value: formatBrazilianNumber((b.monthly_fee_cents ?? 0) / 100),
-                            })
-                          }
-                        >
-                          {formatPrice(b.monthly_fee_cents ?? 0)}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            paid
-                              ? "bg-success/15 text-success"
-                              : "bg-destructive/15 text-destructive"
-                          }`}
-                        >
-                          {paid ? "Pago" : "Em aberto"}
-                        </span>
-                        {!paid && (
-                          <button
-                            type="button"
-                            className="ml-2 text-xs text-primary hover:underline"
-                            onClick={() =>
-                              charge.mutate({
-                                businessId: b.id,
-                                month: currentMonth,
-                                status: "pago",
-                              })
-                            }
-                          >
-                            marcar pago
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Button
-                          variant={suspended ? "secondary" : "ghost"}
-                          size="sm"
-                          onClick={() =>
-                            suspended
-                              ? setStatus.mutate({ id: b.id, status: "ativo" })
-                              : setConfirmAction({ id: b.id, action: "suspend", name: b.name })
-                          }
-                        >
-                          {suspended ? (
-                            <>
-                              <PlayCircle className="size-4" /> Reativar
-                            </>
-                          ) : (
-                            <>
-                              <Ban className="size-4" /> Suspender
-                            </>
-                          )}
-                        </Button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <a
-                          href={`/agendar/${b.slug}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                        >
-                          /agendar/{b.slug} <ExternalLink className="size-3" />
-                        </a>
-                      </td>
-                      <td className="px-4 py-3">
-                        <a
-                          href="/auth"
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-primary hover:underline"
-                        >
-                          /auth <ExternalLink className="size-3" />
-                        </a>
-                        {b.phone && (
-                          <span className="block text-xs text-muted-foreground">
-                            Tel: {formatPhone(b.phone)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Remover ${b.name}`}
-                          className="master-business-remove"
-                          onClick={() =>
-                            setConfirmAction({ id: b.id, action: "remove", name: b.name })
-                          }
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!businesses.isPending && !businesses.isError && !rows.length && (
-                  <tr>
-                    <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
-                      Nenhum estabelecimento cadastrado ainda.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="templates">
-          <Suspense
-            fallback={
-              <p role="status" className="p-4 text-sm text-muted-foreground">
-                Carregando templates...
-              </p>
+      {section === "negocios" && (
+        <div className="mt-6 space-y-4">
+          <PlatformOverview
+            overview={overview.data}
+            legacyRows={rows}
+            isPending={overview.isPending}
+            isError={overview.isError}
+            search={search}
+            onSearchChange={setSearch}
+            statusFilter={statusFilter}
+            onStatusFilterChange={setStatusFilter}
+            onOpenDetails={(businessId) => setDetailsId(businessId)}
+            onSuspend={(business) =>
+              setConfirmAction({ id: business.id, action: "suspend", name: business.name })
             }
-          >
-            <MasterTemplatesTab />
-          </Suspense>
-        </TabsContent>
+            onReactivate={(businessId) => setStatus.mutate({ id: businessId, status: "ativo" })}
+            onRemove={(business) =>
+              setConfirmAction({ id: business.id, action: "remove", name: business.name })
+            }
+            onOpenBilling={() => setStatusFilter("todos")}
+          />
+          <PlatformSections
+            section={platformSection}
+            onSectionChange={setPlatformSection}
+            overview={overview.data}
+          />
+        </div>
+      )}
 
-        <TabsContent value="saques" className="master-withdrawals">
+      {section === "saques" && (
+        <div className="mt-6">
+          <Button variant="secondary" className="mb-4" onClick={() => setSection("negocios")}>
+            ← Voltar para negócios
+          </Button>
           <Suspense
             fallback={
               <p role="status" className="p-4 text-sm text-muted-foreground">
@@ -650,8 +403,8 @@ function MasterPage() {
               <WithdrawalsAdmin />
             </div>
           </Suspense>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -711,6 +464,53 @@ function MasterPage() {
                 />
               </div>
             </div>
+            {!semTeste && (
+              <div className="space-y-2">
+                <Label htmlFor="btrial">Dias de teste</Label>
+                <Input
+                  id="btrial"
+                  inputMode="numeric"
+                  value={form.trialDays}
+                  onChange={(e) =>
+                    setForm({ ...form, trialDays: e.target.value.replace(/\D/g, "").slice(0, 3) })
+                  }
+                  placeholder="Ex.: 7"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Deixa o painel livre por esses dias e depois ele expira pedindo renovação. Deixe
+                  vazio para criar como Assinante Premium.
+                </p>
+              </div>
+            )}
+            <label
+              htmlFor="sem-teste"
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-3 transition-colors ${
+                semTeste
+                  ? "border-amber-400/50 bg-amber-400/10"
+                  : "border-[var(--c-262a30)] bg-[var(--c-111317)] hover:border-amber-400/40"
+              }`}
+            >
+              <input
+                id="sem-teste"
+                type="checkbox"
+                checked={semTeste}
+                onChange={(e) => setSemTeste(e.target.checked)}
+                className="mt-0.5 size-4 shrink-0 accent-amber-400"
+              />
+              <CalendarX2
+                className="mt-0.5 size-4 shrink-0 text-amber-300"
+                strokeWidth={2}
+                aria-hidden="true"
+              />
+              <span>
+                <span className="block text-sm font-medium text-white">Sem Período de teste</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  O dono consegue fazer login, mas fica fixo somente na tela de assinaturas
+                  (R$ 89,90/mês) — todos os menus ficam bloqueados até pagar. Após o pagamento,
+                  tudo é liberado por 1 mês.
+                </span>
+              </span>
+            </label>
             <p className="text-xs text-muted-foreground">
               Todos que trabalham no estabelecimento entram com este telefone e esta senha.
             </p>
@@ -739,18 +539,6 @@ function MasterPage() {
           </DialogHeader>
           <div className="space-y-4">
             <Field
-              label="E-mail da conta AgPay"
-              id="agpay-split-email"
-              type="email"
-              value={agpaySplitForm.splitEmail}
-              onChange={(splitEmail) => setAgpaySplitForm({ ...agpaySplitForm, splitEmail })}
-            />
-            {!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agpaySplitForm.splitEmail) && (
-              <p className="-mt-3 text-sm text-destructive" role="alert">
-                Informe um e-mail válido.
-              </p>
-            )}
-            <Field
               label="Comissão Agenda Agora (%)"
               id="agpay-commission"
               inputMode="decimal"
@@ -766,13 +554,24 @@ function MasterPage() {
                 A comissão deve ficar entre 0 e 100.
               </p>
             )}
+            <label className="flex items-start gap-3 rounded-lg border border-[var(--c-2b3038)] bg-[var(--c-15181d)] p-3">
+              <input type="checkbox" checked disabled className="mt-0.5 size-4 shrink-0" />
+              <span>
+                <span className="block text-sm font-medium">
+                  Aprovação automática desativada
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Toda chave Pix enviada fica pendente e precisa de autorização manual no menu Pix
+                  em Aprovação — sem exceções.
+                </span>
+              </span>
+            </label>
           </div>
           <DialogFooter>
             <Button
               onClick={() => saveAgpaySplit.mutate()}
               disabled={
                 saveAgpaySplit.isPending ||
-                !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agpaySplitForm.splitEmail) ||
                 !Number.isFinite(Number(agpaySplitForm.commissionPercent.replace(",", "."))) ||
                 Number(agpaySplitForm.commissionPercent.replace(",", ".")) < 0 ||
                 Number(agpaySplitForm.commissionPercent.replace(",", ".")) > 100
@@ -783,6 +582,7 @@ function MasterPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <BusinessDossier businessId={detailsId} onClose={() => setDetailsId(null)} />
       <Dialog
         open={!!monthlyFeeTarget}
         onOpenChange={(isOpen) => !isOpen && setMonthlyFeeTarget(null)}
@@ -906,12 +706,35 @@ function Field({
   );
 }
 
-function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function MetricCard({
+  label,
+  value,
+  hint,
+  icon,
+  iconClass,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  icon?: ReactNode;
+  iconClass?: string;
+}) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-bold">{value}</p>
-      {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
+    <div className="flex items-center gap-4 rounded-xl border border-border bg-card p-4">
+      {icon && (
+        <span
+          className={`flex size-11 shrink-0 items-center justify-center rounded-lg ${iconClass ?? ""}`}
+        >
+          {icon}
+        </span>
+      )}
+      <div className="min-w-0">
+        <p className="text-[0.65rem] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <p className="mt-0.5 text-xl font-bold">{value}</p>
+        {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
+      </div>
     </div>
   );
 }

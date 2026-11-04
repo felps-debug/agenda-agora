@@ -118,3 +118,10 @@ de redirecionamento do Traefik (ou mantenha um Caddy na frente do app).
 - [ ] Crons rodando (evento AgPay e lembrete) sem erro
 - [ ] QR Code gerado e mensagem de teste enviada por um negócio de teste
 - [ ] DNS apontado, VPS antiga mantida desligada (não apagada) por alguns dias
+# Webhook de entrada
+
+Configure no serviço `app` as variáveis `PUBLIC_APP_URL` e
+`WHATSAPP_WEBHOOK_SECRET`. A URL do webhook é enviada sem segredo na query
+string; a Evolution recebe `X-Webhook-Secret` no objeto `webhook.headers` e
+envia o cabeçalho para `/api/public/whatsapp-incoming`. Não registre o valor do
+segredo neste runbook.

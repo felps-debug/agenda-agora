@@ -161,3 +161,11 @@ export async function sendTextMessage(
     }),
   });
 }
+
+/** Registra o webhook de mensagens recebidas da instância (saudação automática). */
+export async function setInstanceWebhook(instanceToken: string, url: string, secret = ""): Promise<void> {
+  await call("/webhook", instanceToken, {
+    method: "POST",
+    body: JSON.stringify({ url, events: ["messages"], enabled: true, headers: secret ? { "X-Webhook-Secret": secret } : {} }),
+  });
+}

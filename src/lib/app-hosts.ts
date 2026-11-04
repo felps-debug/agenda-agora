@@ -16,6 +16,21 @@ type LocationLike = {
 
 const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 
+// Faixas privadas (RFC 1918) + nomes .local/.lan: no dev, acessar pelo IP da
+// rede local (ex.: 192.168.1.15) deve se comportar como localhost.
+function isPrivateLanHostname(hostname: string) {
+  const host = hostname.trim().toLowerCase();
+  if (host.endsWith(".local") || host.endsWith(".lan")) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  const m172 = host.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (m172) {
+    const second = Number(m172[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  return false;
+}
+
 export function appSurfaceForHostname(
   hostname: string,
   enabled = SPLIT_PANELS_ENABLED,
@@ -28,7 +43,8 @@ export function appSurfaceForHostname(
 }
 
 export function isLocalAppHost(hostname: string) {
-  return localHosts.has(hostname.trim().toLowerCase());
+  const normalized = hostname.trim().toLowerCase();
+  return localHosts.has(normalized) || isPrivateLanHostname(normalized);
 }
 
 /** Mantém preview/local na mesma origem; em produção separa cada painel por host. */

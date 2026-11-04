@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import { friendlyError } from "@/lib/error-page";
 import { useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -13,14 +13,13 @@ import {
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import type { Panel1Appearance } from "@/lib/panel1-config";
 
 type PaymentDialogProps = {
   chargeId: string;
   booking: { amountCents: number; expiresAt: string | null } | null;
   reservedAmountCents: number | null;
-  liquidGlass?: boolean;
-  /** Tokens da paleta: o diálogo é renderizado num portal, fora da raiz que os define. */
-  liquidStyle?: CSSProperties;
+  appearance: Panel1Appearance;
   onClose: () => void;
 };
 
@@ -28,11 +27,9 @@ export default function PaymentDialog({
   chargeId,
   booking,
   reservedAmountCents,
-  liquidGlass = false,
-  liquidStyle,
+  appearance,
   onClose,
 }: PaymentDialogProps) {
-  // Snapshot gravado no servidor (deposit_payments.amount_cents); nada é recalculado aqui.
   const amountCents = booking?.amountCents ?? reservedAmountCents;
   const pixFn = useServerFn(generateDepositPix);
   const statusFn = useServerFn(getDepositStatus);
@@ -84,8 +81,6 @@ export default function PaymentDialog({
       if (!qrCode) {
         throw new Error("O código Pix ainda não está disponível. Tente novamente.");
       }
-      // A AgPay só devolve o código "copia e cola"; a imagem do QR é gerada aqui
-      // mesmo, no navegador, a partir desse texto.
       const qrImageUrl = await QRCode.toDataURL(qrCode, { margin: 1, width: 320 }).catch(
         () => null,
       );
@@ -118,6 +113,13 @@ export default function PaymentDialog({
     generate.mutate();
   };
 
+  const handleCopyPix = () => {
+    if (!pix) return;
+    void navigator.clipboard.writeText(pix.qrCode);
+    setCopied(true);
+    toast.success("Código Pix copiado!");
+  };
+
   const cancel = useMutation({
     mutationFn: () => cancelFn({ data: { chargeId } }),
     onSuccess: () => {
@@ -130,21 +132,37 @@ export default function PaymentDialog({
   const mm = String(Math.floor(left / 60)).padStart(2, "0");
   const ss = String(left % 60).padStart(2, "0");
 
+  // Cores 100% ligadas à identidade do Painel 1 (menu Aparência):
+  // fundo = "Fundo dos serviços" · textos = nome do serviço · botões = "Fundo/Texto do botão".
+  const popupBackground = appearance.service_background || "#ffffff";
+  const popupBorder = appearance.service_border || "transparent";
+  const titleColor = appearance.service_name_text || appearance.modal_text;
+  const textColor = appearance.service_text || appearance.modal_text;
+  const accent = appearance.modal_active_background;
+  const accentText = appearance.modal_active_text;
+  const codeBoxBackground = appearance.modal_hover_background || accent;
+
   if (paid)
     return (
       <Dialog open onOpenChange={onClose}>
         <DialogContent
-          className={`max-w-md text-center ${
-            liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
-          }`}
-          style={liquidGlass ? liquidStyle : undefined}
+          className="max-w-md rounded-3xl p-6 text-center shadow-xl"
+          style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
         >
-          <Check className="mx-auto size-10 text-primary" />
-          <h2 className="font-display text-xl font-bold">Agendamento confirmado!</h2>
-          <p className="text-sm text-muted-foreground">
+          <Check className="mx-auto size-10" style={{ color: accent }} />
+          <h2 className="font-display text-xl font-bold" style={{ color: titleColor }}>
+            Agendamento confirmado!
+          </h2>
+          <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
             Sinal recebido. Seu horário está reservado.
           </p>
-          <Button onClick={onClose}>Fechar</Button>
+          <Button
+            onClick={onClose}
+            className="rounded-xl"
+            style={{ backgroundColor: accent, color: accentText }}
+          >
+            Fechar
+          </Button>
         </DialogContent>
       </Dialog>
     );
@@ -152,33 +170,43 @@ export default function PaymentDialog({
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className={`max-h-[90vh] max-w-md overflow-y-auto text-center ${
-          liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
-        }`}
-        style={liquidGlass ? liquidStyle : undefined}
+        className="max-h-[90vh] max-w-md overflow-y-auto rounded-3xl p-6 text-center shadow-xl"
+        style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
       >
-        <h2 className="font-display text-xl font-bold">Agendamento aguardando pagamento</h2>
-        <p className="text-sm text-muted-foreground">
-          Para confirmar seu agendamento, efetue o pagamento do sinal via Pix.
+        <h2 className="font-display text-xl font-bold" style={{ color: titleColor }}>
+          Agendamento Aguardando Pagamento
+        </h2>
+        <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+          Para confirmar seu agendamento é necessário efetuar o pagamento via pix.
         </p>
-        <p className="mx-auto w-fit rounded-md bg-muted px-4 py-1 text-sm font-semibold">
+        <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+          Selecione a forma de pagamento desejada
+        </p>
+        <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+          Clique no valor e após isso clique em "GERAR CÓDIGO PIX" para continuar com seu pagamento.
+        </p>
+        <p
+          className="mx-auto w-fit rounded-full px-4 py-1 text-sm font-semibold"
+          style={{ backgroundColor: `${accent}24`, color: accent }}
+        >
           {amountCents === null ? "Carregando valor do sinal..." : formatPrice(amountCents)}
         </p>
         <Button
-          className="mx-auto w-fit"
+          className="mx-auto w-fit rounded-xl"
+          style={{ backgroundColor: accent, color: accentText }}
           disabled={generate.isPending || !!pix}
           onClick={requestPix}
           aria-busy={generate.isPending}
         >
           {generate.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
           {generate.isPending
-            ? "Gerando código Pix..."
+            ? "Gerando Código Pix..."
             : pixError
               ? "Tentar novamente"
-              : "Gerar código Pix"}
+              : "Gerar Código Pix"}
         </Button>
         {pixError && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm" style={{ color: titleColor }}>
             {pixError}
           </p>
         )}
@@ -197,49 +225,56 @@ export default function PaymentDialog({
               />
             )}
             {amountCents !== null && (
-              <p className="text-sm font-medium">Valor do Pix: {formatPrice(amountCents)}</p>
+              <p className="text-sm font-medium" style={{ color: textColor }}>
+                Valor do Pix: {formatPrice(amountCents)}
+              </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Use a função Pix copia e cola do seu banco para concluir o pagamento.
+            <p className="text-xs" style={{ color: textColor, opacity: 0.85 }}>
+              Utilize a função copia e cola de seu banco para efetuar o pagamento via pix
             </p>
-            <p className="min-w-0 truncate rounded-md bg-muted px-3 py-2 text-left text-xs">
+            <p
+              className="min-w-0 truncate rounded-md px-3 py-2 text-left text-xs"
+              style={{ backgroundColor: codeBoxBackground, color: accentText }}
+            >
               {pix.qrCode}
             </p>
-            <Button
-              variant="secondary"
-              className="mx-auto w-fit"
-              onClick={() => {
-                void navigator.clipboard.writeText(pix.qrCode);
-                setCopied(true);
-                toast.success("Código Pix copiado!");
-              }}
+            <button
+              onClick={handleCopyPix}
+              style={{ backgroundColor: accent, color: accentText }}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 font-medium transition-all hover:opacity-90"
             >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />} Copiar código
-              pix
-            </Button>
+              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {copied ? "Código copiado!" : "Copiar código pix"}
+            </button>
           </div>
         )}
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs" style={{ color: textColor, opacity: 0.85 }}>
           Você tem 5 minutos para efetuar seu pagamento antes que seu agendamento seja cancelado
           automaticamente
         </p>
-        <p className="font-display text-lg font-bold">
+        <p className="font-display text-lg font-bold" style={{ color: accent }}>
           Tempo restante: {mm}:{ss}
         </p>
-        <Button variant="outline" className="mx-auto w-fit" onClick={() => setConfirmCancel(true)}>
+        <Button
+          className="mx-auto w-fit rounded-xl"
+          style={{ backgroundColor: accent, color: accentText }}
+          onClick={() => setConfirmCancel(true)}
+        >
           Cancelar pagamento
         </Button>
 
         <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
           <DialogContent
-            className={`max-w-sm text-center ${
-              liquidGlass ? "liquid-glass-surface liquid-glass-regular liquid-glass-dialog" : ""
-            }`}
-            style={liquidGlass ? liquidStyle : undefined}
+            className="max-w-sm rounded-3xl p-6 text-center shadow-xl"
+            style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
           >
-            <h3 className="text-base font-semibold">Pagamento Obrigatório</h3>
-            <p className="text-sm">Você confirma o cancelamento desse agendamento?</p>
+            <h3 className="text-base font-semibold" style={{ color: titleColor }}>
+              Pagamento Obrigatório
+            </h3>
+            <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+              Você confirma o cancelamento desse agendamento?
+            </p>
             <div className="flex justify-center gap-3">
               <Button variant="secondary" onClick={() => setConfirmCancel(false)}>
                 Não quero cancelar

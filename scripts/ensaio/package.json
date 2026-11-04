@@ -1,0 +1,10 @@
+{
+  "name": "agenda-agora-banco-de-ensaio",
+  "private": true,
+  "description": "Ferramentas do banco de ensaio das migrations (Spec 010, T090). Isoladas do app: não entram no build de produção.",
+  "type": "module",
+  "dependencies": {
+    "embedded-postgres": "17.11.0-beta.19",
+    "pg": "^8.13.0"
+  }
+}

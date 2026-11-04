@@ -17,6 +17,9 @@ const business = (id: string, slug: string): Business => ({
   address: null,
   status: "ativo",
   monthly_fee_cents: 0,
+  created_at: new Date().toISOString(),
+  trial_days: null,
+  trial_created_at: null,
 });
 
 describe("sincronização do slug após updateBusinessProfile", () => {

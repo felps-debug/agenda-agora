@@ -56,5 +56,14 @@ export const setAppointmentStatus = createServerFn({ method: "POST" })
       .update({ status: data.status })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
+
+    if (data.status === "concluido" && appt.status !== "concluido") {
+      const { enqueuePostServiceMessage } = await import("@/lib/whatsapp-greeting.server");
+      try {
+        await enqueuePostServiceMessage(data.id, appt.business_id);
+      } catch (queueError) {
+        console.error("Falha ao agendar mensagem pós-atendimento:", queueError);
+      }
+    }
     return { ok: true };
   });

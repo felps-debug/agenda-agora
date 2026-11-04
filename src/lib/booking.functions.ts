@@ -29,6 +29,8 @@ type Ctx = {
     deposit_mode: ServiceDepositConfig["deposit_mode"];
     /** Sinal efetivo calculado no servidor (fixo ou percentual), em centavos. */
     depositCents: number;
+    /** Dias da semana em que o serviço pode ser agendado; null = sem restrição. */
+    availableDays: number[] | null;
   };
 };
 
@@ -239,14 +241,47 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       }
     });
 
-    const [logoUrl, backgroundImageUrl, publicServices, config] = await Promise.all([
-      signedPublicAssetUrl(business.logo_url, business.id, "logo"),
-      signedPublicAssetUrl(business.brand_background_image, business.id, "background"),
+    // Categorias ativas + vínculo serviço→categoria para agrupar no painel 1.
+    // Leitura defensiva: se a migration ainda não foi aplicada, segue sem
+    // agrupar em vez de derrubar a página.
+    let categories: Array<{ id: string; name: string; position: number }> = [];
+    let categoryLinks: Record<string, string> = {};
+    try {
+      const { data: catRows, error: catError } = await supabase
+        .from("service_categories")
+        .select("id, name, position")
+        .eq("business_id", business.id)
+        .eq("active", true)
+        .order("position")
+        .order("created_at");
+      if (catError) throw catError;
+      categories = (catRows ?? []).map((c) => ({
+        id: c.id,
+        name: c.name,
+        position: c.position ?? 0,
+      }));
+      const { data: linkRows, error: linkError } = await supabase
+        .from("services")
+        .select("id, category_id")
+        .eq("business_id", business.id)
+        .eq("active", true)
+        .not("category_id", "is", null);
+      if (linkError) throw linkError;
+      for (const row of linkRows ?? []) {
+        if (row.category_id) categoryLinks[row.id] = row.category_id;
+      }
+    } catch {
+      categories = [];
+      categoryLinks = {};
+    }
+
+    const [publicServices, config] = await Promise.all([
       Promise.all(
         priced.map(async ({ service, depositCents }) => {
           const { deposit_cents: _storedDeposit, ...publicService } = service;
           return {
             ...publicService,
+            category_id: categoryLinks[service.id] ?? null,
             effectiveDepositCents: depositCents,
             // Compatibilidade até T038: a tela pública ainda lê `deposit_cents`; aqui ele
             // já é o valor efetivo calculado no servidor, nunca a sombra gravada.
@@ -258,6 +293,15 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       loadPanel1Config(supabase, business.id),
     ]);
 
+    const activeLayout = config.visual?.layout_key ?? "classic";
+    const activeMedia = config.visual?.layout_media?.[activeLayout];
+    const logoPath = activeMedia?.logoPath ?? business.logo_url;
+    const backgroundPath = activeMedia?.backgroundPath ?? business.brand_background_image;
+    const [logoUrl, backgroundImageUrl] = await Promise.all([
+      signedPublicAssetUrl(logoPath, business.id, "logo"),
+      signedPublicAssetUrl(backgroundPath, business.id, "background"),
+    ]);
+
     const { logo_url: _logoPath, brand_background_image: _bgPath, ...publicBusiness } = business;
     return {
       business: {
@@ -266,6 +310,7 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
         brand_background_image: backgroundImageUrl,
       },
       services: publicServices,
+      categories,
       appearance: config.appearance ?? DEFAULT_PANEL1_APPEARANCE,
       preferences: config.preferences,
       visual: config.visual,
@@ -298,7 +343,7 @@ export const getPublicBookingProfessionals = createServerFn({ method: "POST" })
 
     const { data: professionals, error: professionalsError } = await supabase
       .from("professionals")
-      .select("id,name,role")
+      .select("id,name,public_name,role,avatar_path")
       .in(
         "id",
         linked.map((item) => item.professional_id),
@@ -307,7 +352,27 @@ export const getPublicBookingProfessionals = createServerFn({ method: "POST" })
       .eq("active", true)
       .order("name");
     if (professionalsError) throw new Error(professionalsError.message);
-    return professionals ?? [];
+
+    // Foto de profissional é restrita a membros no bucket; a página pública
+    // recebe a URL já assinada pelo servidor (service role), válida por 7 dias.
+    // O nome devolvido é o "nome cliente verá" (public_name), com fallback.
+    const withPhotos = await Promise.all(
+      (professionals ?? []).map(async (professional) => {
+        const displayName = professional.public_name || professional.name;
+        const base = {
+          id: professional.id,
+          name: displayName,
+          role: professional.role,
+        };
+        if (!professional.avatar_path) return { ...base, avatar_url: null };
+        const { data: signed, error: signError } = await supabase.storage
+          .from("business-logos")
+          .createSignedUrl(professional.avatar_path, 7 * 24 * 60 * 60);
+        if (signError) return { ...base, avatar_url: null };
+        return { ...base, avatar_url: signed.signedUrl };
+      }),
+    );
+    return withPhotos;
   });
 
 /**
@@ -358,15 +423,34 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   if (!business) throw new Error("Negócio não encontrado.");
   if (business.status === "suspenso")
     throw new Error("Os agendamentos deste estabelecimento estão temporariamente indisponíveis.");
-  const { data: serviceRow } = await db
+  let { data: serviceRow } = await db
     .from("services")
-    .select(`id, name, duration_minutes, ${SERVICE_DEPOSIT_COLUMNS}`)
+    .select(`id, name, duration_minutes, available_days, ${SERVICE_DEPOSIT_COLUMNS}`)
     .eq("id", serviceId)
     .eq("business_id", business.id)
     .eq("active", true)
     .maybeSingle();
+  if (!serviceRow) {
+    // Bancos sem a migration de available_days rejeitam o select inteiro
+    // (coluna inexistente). Fallback sem a coluna: ausência = todos os dias.
+    const { data: fallbackRow } = await db
+      .from("services")
+      .select(`id, name, duration_minutes, ${SERVICE_DEPOSIT_COLUMNS}`)
+      .eq("id", serviceId)
+      .eq("business_id", business.id)
+      .eq("active", true)
+      .maybeSingle();
+    if (fallbackRow)
+      serviceRow = { ...fallbackRow, available_days: null } as unknown as typeof serviceRow;
+  }
   const service = serviceRow as unknown as
-    (ServiceDepositRow & { id: string; name: string; duration_minutes: number }) | null;
+    | (ServiceDepositRow & {
+        id: string;
+        name: string;
+        duration_minutes: number;
+        available_days?: number[] | null;
+      })
+    | null;
   if (!service) throw new Error("Serviço não encontrado.");
   return {
     businessId: business.id,
@@ -377,6 +461,7 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
       requires_deposit: service.requires_deposit,
       deposit_mode: service.deposit_mode,
       depositCents: serviceDepositCents(service),
+      availableDays: service.available_days ?? null,
     },
   };
 }
@@ -574,10 +659,13 @@ async function computeAvailableSlots(params: {
   professionalId?: string | null | undefined;
   /** `working_days` do profissional; null quando o serviço não tem profissionais vinculados. */
   workingDays?: number[] | null | undefined;
+  /** Dias da semana em que o serviço pode ser agendado; null = sem restrição. */
+  serviceAvailableDays?: number[] | null | undefined;
 }): Promise<string[]> {
   const db = await admin();
   const weekday = weekdayInTimezone(params.date, params.timezone);
   if (params.workingDays && !params.workingDays.includes(weekday)) return [];
+  if (params.serviceAvailableDays && !params.serviceAvailableDays.includes(weekday)) return [];
 
   const { data: hours } = await db
     .from("business_hours")
@@ -663,6 +751,7 @@ export const getAvailability = createServerFn({ method: "POST" })
       listingIntervalMinutes: preferences.listing_time_minutes,
       professionalId: data.professionalId,
       workingDays: professional?.working_days ?? null,
+      serviceAvailableDays: service.availableDays,
     });
     return { slots, depositCents: service.depositCents };
   });
@@ -734,6 +823,7 @@ export const reserveBooking = createServerFn({ method: "POST" })
       listingIntervalMinutes: 1,
       professionalId: data.professionalId,
       workingDays: professional?.working_days ?? null,
+      serviceAvailableDays: service.availableDays,
     });
     if (!available.includes(data.time))
       throw new Error("Esse horário não está mais disponível. Escolha outro.");

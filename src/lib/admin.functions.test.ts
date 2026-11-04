@@ -210,8 +210,9 @@ describe("status Master preservado para a sessão normal", () => {
 
   it("mostra a navegação de Master somente para quem passa por getMasterStatus", () => {
     const source = read("routes", "_authenticated", "painel.tsx");
-    expect(source).toMatch(/masterStatus\?\.isMaster &&/);
-    expect(source).toMatch(/to="\/painel\/master"/);
+    expect(source).toMatch(/masterStatus\?\.isMaster === true/);
+    expect(source).toMatch(/visibleNav = platformMode \? platformNav : nav/);
+    expect(source).toMatch(/to: "\/painel\/master"/);
   });
 
   it("protege a URL Master com guarda de servidor e redireciona a rota legada", () => {

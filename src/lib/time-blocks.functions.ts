@@ -11,6 +11,7 @@ export const createTimeBlockInput = z.object({
   startsAt: z.string(),
   endsAt: z.string(),
   reason: z.string().max(500).nullable(),
+  professionalId: z.string().uuid().nullable().optional(),
 });
 
 export const createTimeBlock = createServerFn({ method: "POST" })
@@ -27,8 +28,18 @@ export const createTimeBlock = createServerFn({ method: "POST" })
       .eq("owner_id", context.userId)
       .maybeSingle();
     if (businessError || !business) throw new Error("Não foi possível validar o negócio.");
+    if (data.professionalId) {
+      const { data: professional } = await context.supabase
+        .from("professionals")
+        .select("id")
+        .eq("id", data.professionalId)
+        .eq("business_id", data.businessId)
+        .maybeSingle();
+      if (!professional) throw new Error("Profissional inválido para este negócio.");
+    }
     const { error } = await context.supabase.from("time_blocks").insert({
       business_id: data.businessId,
+      professional_id: data.professionalId ?? null,
       recurring: data.recurring,
       weekday: data.weekday,
       block_date: data.blockDate,

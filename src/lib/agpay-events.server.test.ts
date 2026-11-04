@@ -510,4 +510,57 @@ describe("eventos de pagamento AgPay", () => {
     });
     expect(charge()["status"]).toBe("expirado");
   });
+  describe("evento antes da referência local (T070)", () => {
+    const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+
+    it("saque sem referência local fica em retry (failed + attempts) e conclui quando a referência aparece", async () => {
+      const payload = { event: "withdrawal.completed", data: { uuid: "wd-tardio", status: "completed" } };
+      await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+      runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(1);
+      await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+      const event = runtime.tables["agpay_webhook_events"]![0]!;
+      expect(event["status"]).toBe("failed");
+      expect(event["attempts"]).toBe(1);
+      expect(String(event["last_error"])).toMatch(/ainda não encontrado/);
+      expect(Date.parse(String(event["available_at"]))).toBeGreaterThan(Date.now());
+
+      // a referência local aparece e o retry vence
+      runtime.tables["withdrawals"] = [{ id: "wd-row", provider_ref: "wd-tardio", status: "processing" }];
+      event["available_at"] = new Date(0).toISOString();
+      await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+      expect(event["status"]).toBe("done");
+      expect(runtime.tables["withdrawals"]![0]).toMatchObject({ status: "paid" });
+    });
+
+    it("depósito sem cobrança local fica pendente para nova tentativa", async () => {
+      runtime.tables["deposit_payments"] = [];
+      const payload = { event: "deposit.completed", data: { uuid: "tx-que-nao-existe", status: "completed" } };
+      await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+      runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(2);
+      await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+      expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "failed", attempts: 1 });
+    });
+
+    it("depois de 24 h sem referência o evento vira error e sai da fila automática", async () => {
+      const payload = { event: "withdrawal.completed", data: { uuid: "wd-nunca", status: "completed" } };
+      await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+      runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(25);
+      await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+      expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("error");
+      // não é mais candidato nas próximas rodadas
+      runtime.tables["agpay_webhook_events"]![0]!["available_at"] = new Date(0).toISOString();
+      await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 0 });
+    });
+
+    it("antes de 24 h continua tentando, mesmo com várias falhas", async () => {
+      const payload = { event: "withdrawal.completed", data: { uuid: "wd-demora", status: "completed" } };
+      await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+      runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(23);
+      for (let round = 1; round <= 3; round++) {
+        runtime.tables["agpay_webhook_events"]![0]!["available_at"] = new Date(0).toISOString();
+        await processAgpayWebhookEvents();
+        expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "failed", attempts: round });
+      }
+    });
+  });
 });

@@ -7,6 +7,7 @@ const runtime = vi.hoisted(() => ({
   greeting: "Bem-vinda!" as string | null,
   timezone: "America/Fortaleza",
   startsAt: "2026-09-28T15:00:00.000Z",
+  confirmationTemplate: null as string | null,
 }));
 vi.mock("./whatsapp-provider.server", () => ({
   loadWhatsappProvider: async () => ({
@@ -30,6 +31,7 @@ vi.mock("@/integrations/supabase/client.server", () => ({
                     customer_phone: "98999990000",
                     starts_at: runtime.startsAt,
                     service_id: "svc-1",
+                    professional_id: "prof-1",
                   }
                 : table === "businesses"
                   ? {
@@ -40,12 +42,18 @@ vi.mock("@/integrations/supabase/client.server", () => ({
                       whatsapp_instance: "inst-1",
                       whatsapp_instance_token: "token-biz-1",
                       whatsapp_status: runtime.whatsappStatus,
-                      confirmation_template: null,
+                      confirmation_template: runtime.confirmationTemplate,
                       reminder_template: "Lembrete {data} às {hora}",
+                      slug: "barbearia",
+                      saudacao_template: null,
                       payment_confirmation_template:
                         "Pagamento confirmado para {nome} em {negocio}, {data} às {hora}.",
                     }
-                  : { name: "Corte" },
+                  : table === "services"
+                    ? { name: "Corte", price_cents: 3500 }
+                    : table === "professionals"
+                      ? { name: "José" }
+                      : { name: "Corte" },
             error: null,
           }),
         }),
@@ -65,6 +73,7 @@ describe("mensagens automáticas de WhatsApp", () => {
     runtime.greeting = "Bem-vinda!";
     runtime.timezone = "America/Fortaleza";
     runtime.startsAt = "2026-09-28T15:00:00.000Z";
+    runtime.confirmationTemplate = null;
   });
 
   it("usa o texto pós-pagamento salvo, a saudação e o fuso do negócio", async () => {
@@ -76,12 +85,12 @@ describe("mensagens automáticas de WhatsApp", () => {
     );
   });
 
-  it("usa o lembrete salvo em vez do padrão", async () => {
+  it("sempre usa a mensagem fixa de lembrete (mesmo com template salvo)", async () => {
     await sendBookingReminder("appt-1");
     expect(runtime.sendTextMessage).toHaveBeenCalledWith(
       "token-biz-1",
       "98999990000",
-      "Bem-vinda!\n\nLembrete 28/09 às 12:00",
+      "Bem-vinda! Ana, só estou passando aqui para lembrar que você tem um horário agendado conosco hoje às 12:00 🥰\nEspero por você, até breve! 👋",
     );
   });
 
@@ -112,7 +121,7 @@ describe("mensagens automáticas de WhatsApp", () => {
     expect(runtime.sendTextMessage).toHaveBeenLastCalledWith(
       "token-biz-1",
       "98999990000",
-      "Lembrete 27/09 às 23:00",
+      "Olá! Ana, só estou passando aqui para lembrar que você tem um horário agendado conosco hoje às 23:00 🥰\nEspero por você, até breve! 👋",
     );
 
     vi.clearAllMocks();
@@ -121,7 +130,7 @@ describe("mensagens automáticas de WhatsApp", () => {
     expect(runtime.sendTextMessage).toHaveBeenLastCalledWith(
       "token-biz-1",
       "98999990000",
-      "Lembrete 27/09 às 22:00",
+      "Olá! Ana, só estou passando aqui para lembrar que você tem um horário agendado conosco hoje às 22:00 🥰\nEspero por você, até breve! 👋",
     );
   });
 
@@ -144,6 +153,18 @@ describe("mensagens automáticas de WhatsApp", () => {
     runtime.isConnected.mockRejectedValue(new Error("timeout"));
     await expect(sendPaymentConfirmation("appt-1")).resolves.toBeUndefined();
     expect(runtime.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it("resolve os campos do resumo (profissional, valor, data e hora)", async () => {
+    runtime.greeting = null;
+    runtime.confirmationTemplate =
+      "❕ Resumo de seu agendamento:\n\n📅 Data: {Data}\n🕗 Hora: {Horario}\n🛠 Serviço: {Serviço}\n👤 Profissional: {Funcionario}\n💰 Valor: R$ {Valor} {Cliente}";
+    await sendBookingConfirmation("appt-1");
+    expect(runtime.sendTextMessage).toHaveBeenCalledWith(
+      "token-biz-1",
+      "98999990000",
+      "❕ Resumo de seu agendamento:\n\n📅 Data: 28/09\n🕗 Hora: 12:00\n🛠 Serviço: Corte\n👤 Profissional: José\n💰 Valor: R$ 35,00 Ana",
+    );
   });
 
   it("respeita antecedência de lembrete em minutos", () => {

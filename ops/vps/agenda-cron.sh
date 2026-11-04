@@ -10,6 +10,9 @@ case "${1:-}" in
   whatsapp-reminders)
     endpoint="whatsapp-reminders"
     ;;
+  subscription-lifecycle)
+    endpoint="subscription-lifecycle"
+    ;;
   *)
     echo "unknown job" >&2
     exit 64

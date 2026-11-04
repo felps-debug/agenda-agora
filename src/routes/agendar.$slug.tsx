@@ -13,20 +13,23 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  MoreVertical,
   Clock,
   DollarSign,
+  Heart,
   History,
   Info,
   Loader2,
+  MapPin,
+  Phone,
   User,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/format";
-import { accessibleTextColor, contrastRatio } from "@/lib/contrast";
+import { accessibleTextColor } from "@/lib/contrast";
 import {
   DEFAULT_PANEL1_APPEARANCE,
-  DEFAULT_PANEL1_VISUAL_PREFERENCES,
   type Panel1Appearance,
   type Panel1Preferences,
 } from "@/lib/panel1-config";
@@ -42,40 +45,19 @@ import {
   rescheduleAppointmentPublic,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { BusinessHeader, CategoryServiceGroup, ServiceSection } from "@/components/public-booking/appearance-preview";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  RefHeader,
-  refPageTheme,
-  RefLogo,
-  RefMain,
-  RefNav,
-  RefServices,
-} from "@/components/public-booking/liquid-glass-reference";
-import {
-  VitrineHero,
-  VitrineMain,
-  VitrineNav,
-  VitrineServices,
-  vitrineSubtitle,
-  vitrineTheme,
-} from "@/components/public-booking/vitrine";
-import {
-  liquidGlassDialogBase,
-  liquidGlassDialogStyle,
-  liquidGlassPageBase,
-  liquidGlassReadableAppearance,
-} from "@/components/public-booking/liquid-glass";
+  ElegancePanel,
+  EleganceServiceList,
+} from "@/components/public-booking/elegance";
+import { EleganceBookingDialog } from "@/components/public-booking/elegance-booking";
+import type { EleganceHistoryBooking } from "@/components/public-booking/elegance-history";
+import { EleganceHistoryList } from "@/components/public-booking/elegance-history";
+import { CookieBanner } from "@/components/public-booking/CookieBanner";
+
 
 const PaymentDialog = lazy(() => import("@/components/public-booking/PaymentDialog"));
 
@@ -118,9 +100,10 @@ type Service = {
   image_url: string | null;
   show_price: boolean;
   show_duration: boolean;
+  category_id?: string | null;
 };
 
-type Professional = { id: string; name: string; role: string | null };
+type Professional = { id: string; name: string; role: string | null; avatar_url: string | null };
 
 const DAY_LABEL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
@@ -165,10 +148,86 @@ function readCharges(slug: string): string[] {
   }
 }
 
+/** Serviços agrupados por categoria ativa (colapsada); sem categoria, lista direta. */
+function GroupedServices({
+  services,
+  categories,
+  onSelect,
+  appearance,
+  pageText,
+}: {
+  services: Service[];
+  categories: Array<{ id: string; name: string; position: number }>;
+  onSelect: (service: Service) => void;
+  appearance: Panel1Appearance;
+  pageText: string;
+}) {
+  const byCategory = new Map<string, Service[]>();
+  const ungrouped: Service[] = [];
+  for (const s of services) {
+    const cat = categories.find((c) => c.id === s.category_id);
+    if (cat) {
+      const list = byCategory.get(cat.id) ?? [];
+      list.push(s);
+      byCategory.set(cat.id, list);
+    } else {
+      ungrouped.push(s);
+    }
+  }
+  const groups = categories.filter((c) => (byCategory.get(c.id) ?? []).length > 0);
+  if (groups.length === 0) {
+    return (
+      <>
+        <h2
+          className="mb-3 text-left text-[15px] font-semibold sm:text-[18px]"
+          style={{ color: pageText, fontFamily: "'Inter', sans-serif" }}
+        >
+          Nossos Serviços
+        </h2>
+        <ServiceSection
+          services={services}
+          onSelect={onSelect}
+          appearance={appearance}
+          pageText={pageText}
+        />
+      </>
+    );
+  }
+  return (
+    <div className="space-y-8">
+      <h2
+        className="mb-3 text-left text-[15px] font-semibold sm:text-[18px]"
+        style={{ color: pageText, fontFamily: "'Inter', sans-serif" }}
+      >
+        Nossos Serviços
+      </h2>
+      <div className="space-y-3">
+        {groups.map((c) => (
+          <CategoryServiceGroup
+            key={c.id}
+            name={c.name}
+            services={byCategory.get(c.id) ?? []}
+            onSelect={onSelect}
+            appearance={appearance}
+          />
+        ))}
+      </div>
+      {ungrouped.length > 0 ? (
+        <ServiceSection
+          services={ungrouped}
+          onSelect={onSelect}
+          appearance={appearance}
+          pageText={pageText}
+          title="Outros serviços"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function PublicBooking() {
   const { slug } = Route.useParams();
-  const [tab, setTab] = useState<"agendar" | "historico">("agendar");
-  const [navCompact, setNavCompact] = useState(false);
+  const [tab, setTab] = useState<"agendar" | "historico" | "perfil">("agendar");
   const [service, setService] = useState<Service | null>(null);
   const [professional, setProfessional] = useState<Professional | null>(null);
   const [date, setDate] = useState<string | null>(null);
@@ -181,7 +240,32 @@ function PublicBooking() {
   const [pageStart, setPageStart] = useState(0);
   const [charges, setCharges] = useState<string[]>([]);
   const [publicCodes, setPublicCodes] = useState<string[]>([]);
+  const [exitStage, setExitStage] = useState<"hidden" | "shown" | "hiding">("hidden");
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
+
+  const handleClientLogout = () => {
+    try {
+      document.cookie.split(";").forEach((c) => {
+        const name = c.split("=")[0]?.trim();
+        if (name) {
+          document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+        }
+      });
+      window.localStorage.removeItem(`agenda-servico:${slug}:charges`);
+      window.localStorage.removeItem(`agenda-servico:${slug}:booking-codes`);
+      window.localStorage.removeItem("aa-cookie-consent-v1");
+      window.sessionStorage.clear();
+    } catch {
+      // Sem armazenamento: segue com o feedback visual.
+    }
+    setExitStage("shown");
+    window.setTimeout(() => setExitStage("hiding"), 2500);
+    window.setTimeout(() => {
+      setExitStage("hidden");
+      // Reabre limpo após a saída.
+      window.location.reload();
+    }, 3000);
+  };
   // Snapshot do sinal devolvido pela reserva, usado até o histórico trazer a cobrança.
   const [reservedAmount, setReservedAmount] = useState<{
     chargeId: string;
@@ -231,59 +315,32 @@ function PublicBooking() {
   );
 
   const business = catalog?.business ?? null;
-  const paletteAppearance: Panel1Appearance = {
+  const appearance: Panel1Appearance = {
     ...DEFAULT_PANEL1_APPEARANCE,
     ...(catalog?.appearance ?? {}),
   };
-  const visual = catalog?.visual ?? DEFAULT_PANEL1_VISUAL_PREFERENCES;
-  // O valor gravado continua "liquid_glass" (restrição da coluna); na tela o modelo é a Vitrine.
-  const isVitrine = visual.layout_key === "liquid_glass";
-  const isLiquidGlass = false;
   const pageBackground = business?.brand_background ?? "#ffffff";
   const pageBackgroundImage = business?.brand_background_image ?? null;
-  // No Liquid Glass o texto lê sobre o vidro (não sobre a cor da página): a paleta é mantida e só
-  // as cores de texto sem contraste suficiente caem para preto/branco.
-  const glassBase = liquidGlassPageBase(pageBackground, paletteAppearance);
-  const appearance = isLiquidGlass
-    ? liquidGlassReadableAppearance(paletteAppearance, glassBase)
-    : paletteAppearance;
-  // Texto da página: o editado no painel; se não ler sobre o fundo, cai para preto/branco.
-  const pageTextBase = isLiquidGlass ? glassBase : pageBackground;
-  const pageText = (() => {
-    try {
-      if (contrastRatio(appearance.page_text, pageTextBase) >= 4.5) return appearance.page_text;
-    } catch {
-      /* cor inválida: usa o automático */
-    }
-    return accessibleTextColor(pageTextBase);
-  })();
+  const pageText = accessibleTextColor(pageBackground);
   const pageFontFamily = outreachFontFamily(appearance.font_family);
-  const theme = isVitrine
-    ? vitrineTheme({ appearance, pageBackground, fontFamily: pageFontFamily, text: pageText })
-    : refPageTheme({
-        layout: "classic",
-        appearance,
-        pageBackground,
-        pageBackgroundImage,
-        fontFamily: pageFontFamily,
-        text: pageText,
-      });
 
   useEffect(() => {
     loadOutreachFont(appearance.font_family);
   }, [appearance.font_family]);
+
+  // Os dois modelos usam o mesmo painel público. O Minimalista mantém sua
+  // identificação/configuração, mas compartilha a renderização do Elegance
+  // para que editor e página de agendamento permaneçam idênticos.
+  const layoutKey = catalog?.visual?.layout_key ?? "classic";
+  const isMinimalist = layoutKey === "classic";
+  const isElegance = true;
+  useEffect(() => {
+    if (isElegance) loadOutreachFont("playfair-display");
+  }, [isElegance]);
   const agendaText = accessibleTextColor(appearance.agenda_background);
   const modalText = accessibleTextColor(appearance.modal_background);
   const modalHoverText = accessibleTextColor(appearance.modal_hover_background);
   const modalActiveText = accessibleTextColor(appearance.modal_active_background);
-  // Liquid controls sit on the palette tint rather than the opaque classic modal background.
-  const liquidText = accessibleTextColor(liquidGlassDialogBase(pageBackground, paletteAppearance));
-  // Diálogos vivem num portal fora da raiz: levam tokens, fonte e cor de texto próprios.
-  const liquidDialogStyle = liquidGlassDialogStyle(
-    appearance,
-    pageBackground,
-    business?.brand_primary ?? "#2563eb",
-  );
   const services = (catalog?.services ?? []) as Service[];
 
   const { data: professionals } = useQuery({
@@ -460,120 +517,273 @@ function PublicBooking() {
     setFormError(null);
   };
 
-  // Menu em vidro encolhe ao rolar para baixo e volta ao rolar para cima.
-  useEffect(() => {
-    if (!isLiquidGlass) return;
-    let previousY = window.scrollY;
-    const onScroll = () => {
-      const y = window.scrollY;
-      const bottom = document.documentElement.scrollHeight - window.innerHeight;
-      if (y <= 0) setNavCompact(false);
-      else if (y < bottom - 5) {
-        if (y - previousY > 8) setNavCompact(true);
-        else if (previousY - y > 8) setNavCompact(false);
-      }
-      previousY = y;
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [isLiquidGlass]);
-
-  const pageContent = !business ? (
-    <p className="empty">Negócio não encontrado</p>
-  ) : business.status === "suspenso" ? (
-    <p className="empty">
-      Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
-    </p>
-  ) : tab === "agendar" ? (
-    services?.length ? (
-      isVitrine ? (
-        <VitrineServices services={services} onSchedule={openService} />
-      ) : (
-        <RefServices services={services} selectedId={service?.id ?? null} onToggle={openService} />
-      )
-    ) : (
-      <p className="empty">Nenhum serviço disponível no momento.</p>
-    )
-  ) : (
-    <HistoryList
-      slug={slug}
-      bookings={bookings.data?.bookings ?? []}
-      onOpen={setActiveCharge}
-      onRefresh={() => void bookings.refetch()}
-      appearance={appearance}
-      pageText={pageText}
-      liquidGlass={isLiquidGlass}
-      {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
-      onCancel={(code) => cancelAppointment.mutate(code)}
-      onReschedule={async (input) => {
-        await rescheduleAppointment.mutateAsync(input);
-      }}
-      cancelPending={cancelAppointment.isPending}
-      reschedulePending={rescheduleAppointment.isPending}
-    />
-  );
-
   return (
-    <div className={theme.className} style={theme.style}>
-      {isVitrine ? (
-        <>
-          {business && business.status !== "suspenso" ? (
-            <VitrineHero
-              name={business.name}
-              subtitle={vitrineSubtitle(business.address, business.category)}
-              coverUrl={pageBackgroundImage}
-              logoUrl={business.logo_url ?? null}
+    <div
+      className={`public-booking flex min-h-screen flex-col overflow-x-clip bg-background text-foreground ${isElegance ? "" : "pb-28"}`}
+      style={
+        {
+          ...(business?.brand_primary ? { "--primary": business.brand_primary } : {}),
+          "--background": pageBackground,
+          "--foreground": pageText,
+          "--card": pageBackground,
+          "--card-foreground": pageText,
+          "--primary-foreground": accessibleTextColor(business?.brand_primary ?? "#2563eb"),
+          backgroundColor: pageBackground,
+          color: pageText,
+          fontFamily: `'${pageFontFamily}', sans-serif`,
+          ...(pageBackgroundImage && !isElegance
+            ? {
+                backgroundImage: `url(${pageBackgroundImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundAttachment: "fixed",
+              }
+            : {}),
+        } as React.CSSProperties
+      }
+    >
+      {isElegance && business ? (
+        <ElegancePanel
+          appearance={appearance}
+          brandName={business.name}
+          title={tab === "historico" ? "Meus agendamentos" : null}
+          logoUrl={business.logo_url}
+          coverUrl={pageBackgroundImage}
+          pageBackground={pageBackground}
+          activeTab={tab === "perfil" ? "agendar" : tab}
+          onTabSelect={setTab}
+          onLogout={handleClientLogout}
+          fixedFooter
+          minimalist={isMinimalist}
+         >
+          {business.status === "suspenso" ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
+              Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+            </div>
+          ) : tab === "agendar" ? (
+            <EleganceServiceList
+              services={services}
+              onSelect={openService}
+              appearance={appearance}
             />
-          ) : null}
-          <VitrineMain>{pageContent}</VitrineMain>
-        </>
+          ) : (
+            <EleganceHistoryList
+              slug={slug}
+              bookings={(bookings.data?.bookings ?? []) as EleganceHistoryBooking[]}
+              appearance={appearance}
+              modalText={modalText}
+              timezone={catalog?.preferences?.timezone ?? "America/Sao_Paulo"}
+              serviceImageUrl={(serviceId) =>
+                services.find((s) => s.id === serviceId)?.image_url ?? null
+              }
+              cancellationEnabled={!!catalog?.preferences?.cancellations_enabled}
+              rescheduleEnabled={!!catalog?.preferences?.reschedule_enabled}
+              cancelPending={cancelAppointment.isPending}
+              reschedulePending={rescheduleAppointment.isPending}
+              onCancel={(code) => cancelAppointment.mutate(code)}
+              onReschedule={async (input) => {
+                await rescheduleAppointment.mutateAsync(input);
+              }}
+              onOpenCharge={setActiveCharge}
+            />
+          )}
+        </ElegancePanel>
       ) : (
-        <>
-          <RefHeader phone={business?.phone ?? null} color={appearance.header_text} />
-          <RefMain
-            logo={
-              business && business.status !== "suspenso" ? (
-                <RefLogo name={business.name} logoUrl={business.logo_url ?? null} />
-              ) : null
-            }
-          >
-            {pageContent}
-          </RefMain>
+      <>
+        <header className="px-4 pt-5">
+            <div className="mx-auto w-full max-w-2xl text-center">
+              <span className="text-[0.9375rem] font-semibold uppercase tracking-[0.2em]">
+                Agenda Agora
+              </span>
+            </div>
+          </header>
+
+          <main className="mx-auto w-full max-w-2xl flex-1 px-4 pb-8">
+            {!business ? (
+              <div className="flex min-h-[50vh] items-center justify-center py-10">
+                <p className="text-sm">Negócio não encontrado</p>
+              </div>
+            ) : business.status === "suspenso" ? (
+              <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-5 text-center text-sm text-destructive">
+                Os agendamentos deste estabelecimento estão temporariamente indisponíveis.
+              </div>
+            ) : tab === "agendar" ? (
+              <div className="space-y-8">
+                <BusinessHeader
+                  name={business.name}
+                  logoUrl={business.logo_url}
+                  appearance={appearance}
+                />
+                {services?.length ? (
+                  <GroupedServices
+                    services={services}
+                    categories={(catalog?.categories ?? []) as Array<{
+                      id: string;
+                      name: string;
+                      position: number;
+                    }>}
+                    onSelect={openService}
+                    appearance={appearance}
+                    pageText={pageText}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-border bg-card p-8 text-center">
+                    <p className="font-semibold">Nenhum serviço disponível no momento.</p>
+                    <p className="mt-2 text-sm">
+                      Volte mais tarde para conferir novos horários e serviços.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : tab === "perfil" ? (
+              <div className="flex flex-col items-center gap-6 py-4 text-center">
+                {business.logo_url ? (
+                  <img
+                    src={business.logo_url}
+                    alt={`Logotipo de ${business.name}`}
+                    decoding="async"
+                    className="mx-auto max-h-28 object-contain"
+                  />
+                ) : null}
+                <h2 className="text-2xl font-semibold">{business.name}</h2>
+                {business.phone || business.address ? (
+                  <div
+                    className="w-full overflow-hidden rounded-xl border text-left"
+                    style={{
+                      backgroundColor: appearance.service_background,
+                      borderColor: appearance.service_border,
+                      color: appearance.service_text,
+                    }}
+                  >
+                    {business.phone ? (
+                      <a
+                        href={`tel:${business.phone}`}
+                        className="flex items-center gap-3 px-5 py-4 text-sm"
+                        style={{ borderColor: appearance.service_border, borderBottomWidth: business.address ? 1 : 0 }}
+                      >
+                        <Phone className="size-4 shrink-0" /> {business.phone}
+                      </a>
+                    ) : null}
+                    {business.address ? (
+                      <p className="flex items-center gap-3 px-5 py-4 text-sm">
+                        <MapPin className="size-4 shrink-0" /> {business.address}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <HistoryList
+                slug={slug}
+                bookings={bookings.data?.bookings ?? []}
+                onOpen={setActiveCharge}
+                onRefresh={() => void bookings.refetch()}
+                appearance={appearance}
+                pageText={pageText}
+                {...(catalog?.preferences ? { preferences: catalog.preferences } : {})}
+                onCancel={(code) => cancelAppointment.mutate(code)}
+                onReschedule={async (input) => {
+                  await rescheduleAppointment.mutateAsync(input);
+                }}
+                cancelPending={cancelAppointment.isPending}
+                reschedulePending={rescheduleAppointment.isPending}
+              />
+            )}
+          </main>
         </>
       )}
-
       {/* Modal de agendamento */}
       <Dialog open={!!service} onOpenChange={(o) => !o && closeService()}>
+        {isElegance && service ? (
+          <EleganceBookingDialog
+            minimalist={isMinimalist}
+            service={service}
+            appearance={appearance}
+            pageBackground={pageBackground}
+            modalText={modalText}
+            modalActiveText={modalActiveText}
+            onClose={closeService}
+            professionals={professionals ?? []}
+            professional={professional}
+            onProfessionalChange={(next) => {
+              setProfessional(next ? { ...next, avatar_url: next.avatar_url ?? null } : null);
+              setTime(null);
+            }}
+            days={days}
+            date={date}
+            onDateSelect={(next) => {
+              setDate(next);
+              setTime(null);
+              // Seleciona o primeiro profissional automaticamente para que
+              // a caixa de profissional e a grade de horários abram juntas.
+              const primeiro = professionals?.[0];
+              if (!professional && primeiro) {
+                setProfessional({ ...primeiro, avatar_url: primeiro.avatar_url ?? null });
+              }
+            }}
+            time={time}
+            onTimeSelect={setTime}
+            slots={availability?.slots ?? []}
+            slotsLoading={loadingSlots}
+            slotsError={slotsError}
+            formName={name}
+            onNameChange={setName}
+            formPhone={phone}
+            onPhoneChange={setPhone}
+            formEmail={email}
+            onEmailChange={setEmail}
+            formCpfCnpj={cpfCnpj}
+            onCpfCnpjChange={setCpfCnpj}
+            needsDocument={needsDocument}
+            formError={formError}
+            pending={reserve.isPending}
+            onSubmit={submit}
+            noteText={
+              needsDocument
+                ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
+                : "Este serviço não exige sinal. O horário é confirmado ao finalizar."
+            }
+          />
+        ) : (
         <DialogContent
           className={`max-h-[92vh] max-w-lg overflow-y-auto p-0 ${
-            isLiquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+            ""
           }`}
           style={{
-            // O Radix renderiza o diálogo num portal fora da raiz, então ele precisa dos tokens próprios.
-            ...(isLiquidGlass
-              ? liquidDialogStyle
-              : { backgroundColor: appearance.modal_background }),
-            color: isLiquidGlass ? liquidText : modalText,
+            backgroundColor: appearance.modal_background,
+            color: modalText,
             borderColor: appearance.modal_border,
           }}
         >
           {service && (
             <div className="space-y-6 p-5 text-center sm:p-6">
-              <div className={isLiquidGlass ? "px-10" : ""}>
-                {service.image_url && (
-                  <img
-                    src={service.image_url}
-                    alt={service.name}
-                    loading="lazy"
-                    decoding="async"
-                    className="mx-auto mb-5 max-h-52 w-full rounded-lg object-cover"
-                  />
-                )}
-                <h2 className="font-display text-xl font-bold">{service.name}</h2>
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
-                  {service.show_price ? <span>{formatPrice(service.price_cents)}</span> : null}
-                  {service.show_price && service.show_duration ? <span>·</span> : null}
-                  {service.show_duration ? <span>{service.duration_minutes}min</span> : null}
+              <div>
+                <div
+                  className="overflow-hidden rounded-xl border"
+                  style={{
+                    borderColor: appearance.modal_border,
+                    backgroundColor: appearance.modal_background,
+                  }}
+                >
+                  {service.image_url && (
+                    <img
+                      src={service.image_url}
+                      alt={service.name}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-44 w-full object-cover"
+                    />
+                  )}
+                  <div className="p-4 text-center">
+                    <h3 className="text-xl font-bold tracking-tight">{service.name}</h3>
+                    {(service.show_price || service.show_duration) && (
+                      <p className="mt-1 text-sm font-medium opacity-80">
+                        {service.show_price ? formatPrice(service.price_cents) : null}
+                        {service.show_price && service.show_duration ? " • " : null}
+                        {service.show_duration ? `${service.duration_minutes}min` : null}
+                      </p>
+                    )}
+                  </div>
                 </div>
                 {service.description && (
                   <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed">
@@ -584,61 +794,68 @@ function PublicBooking() {
 
               {!!professionals?.length && (
                 <div>
-                  <p className="mb-3 text-sm font-semibold">Escolha o profissional</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {professionals.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        onClick={() => {
-                          setProfessional(p);
-                          setDate(null);
-                          setTime(null);
-                          setPageStart(0);
-                        }}
-                        className={`rounded-lg border p-3 text-left transition-colors ${
-                          isLiquidGlass ? "liquid-glass-control" : ""
-                        } ${
-                          professional?.id === p.id
-                            ? ""
-                            : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
-                        }`}
-                        style={
-                          {
-                            borderColor:
-                              professional?.id === p.id
+                  <p className="mb-3 block text-xs font-semibold uppercase tracking-wider opacity-60">
+                    Escolha o profissional
+                  </p>
+                  <div className="space-y-2">
+                    {professionals.map((p) => {
+                      const selected = professional?.id === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => {
+                            setProfessional(p);
+                            setDate(null);
+                            setTime(null);
+                            setPageStart(0);
+                          }}
+                          className="flex w-full items-center justify-between rounded-xl border p-3.5 text-left transition-all active:scale-[0.99]"
+                          style={
+                            {
+                              borderColor: selected
                                 ? appearance.modal_border
                                 : appearance.modal_border,
-                            ...(isLiquidGlass
-                              ? {}
-                              : {
-                                  backgroundColor:
-                                    professional?.id === p.id
-                                      ? appearance.modal_active_background
-                                      : appearance.modal_background,
-                                }),
-                            color: isLiquidGlass
-                              ? liquidText
-                              : professional?.id === p.id
-                                ? modalActiveText
-                                : modalText,
-                            "--modal-hover-background": appearance.modal_hover_background,
-                            "--modal-hover-text": modalHoverText,
-                          } as React.CSSProperties
-                        }
-                        data-selected={professional?.id === p.id}
-                      >
-                        <span className="block font-semibold">{p.name}</span>
-                        {p.role && <span className="mt-0.5 block text-xs">{p.role}</span>}
-                      </button>
-                    ))}
+                              backgroundColor: selected
+                                ? appearance.modal_active_background
+                                : appearance.modal_background,
+                              color: selected ? modalActiveText : modalText,
+                              "--modal-hover-background": appearance.modal_hover_background,
+                              "--modal-hover-text": modalHoverText,
+                            } as React.CSSProperties
+                          }
+                          data-selected={selected}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold capitalize">{p.name}</p>
+                            {p.role && (
+                              <p className="truncate text-xs capitalize opacity-70">{p.role}</p>
+                            )}
+                          </div>
+                          <span
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+                            style={{
+                              borderColor: selected
+                                ? "currentColor"
+                                : appearance.modal_border,
+                            }}
+                          >
+                            {selected ? (
+                              <span className="h-2 w-2 rounded-full bg-current" />
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
               {((professionals?.length ?? 0) === 0 || professional) && (
                 <div>
-                  <p className="mb-3 text-sm font-semibold">Escolha a data</p>
+                  <p className="mb-3 block text-xs font-semibold uppercase tracking-wider opacity-60">
+                    Escolha a data
+                  </p>
                   {!days.length ? (
                     <p className="rounded-lg border border-border p-4 text-sm">
                       Nenhum dia de atendimento está disponível no momento.
@@ -651,7 +868,7 @@ function PublicBooking() {
                         disabled={pageStart === 0}
                         onClick={() => setPageStart(Math.max(0, pageStart - 7))}
                         className="rounded-md p-1 transition-colors disabled:opacity-30"
-                        style={{ color: isLiquidGlass ? liquidText : modalText }}
+                        style={{ color: modalText }}
                       >
                         <ChevronLeft className="size-6" />
                       </button>
@@ -664,37 +881,23 @@ function PublicBooking() {
                               setDate(d.date);
                               setTime(null);
                             }}
-                            className={`min-w-[4.75rem] rounded-lg border px-3 py-2 text-sm transition-colors ${
-                              isLiquidGlass ? "liquid-glass-control" : ""
-                            } ${
-                              date === d.date
-                                ? ""
-                                : "hover:bg-[var(--modal-hover-background)] hover:text-[var(--modal-hover-text)]"
-                            }`}
+                            className="flex min-w-[4.75rem] flex-col items-center justify-center rounded-xl border px-3 py-2 transition-all active:scale-95"
                             style={
                               {
                                 borderColor: appearance.modal_border,
-                                ...(isLiquidGlass
-                                  ? {}
-                                  : {
-                                      backgroundColor:
-                                        date === d.date
-                                          ? appearance.modal_active_background
-                                          : appearance.modal_background,
-                                    }),
-                                color: isLiquidGlass
-                                  ? liquidText
-                                  : date === d.date
-                                    ? modalActiveText
-                                    : modalText,
+                                backgroundColor:
+                                  date === d.date
+                                    ? appearance.modal_active_background
+                                    : appearance.modal_background,
+                                color: date === d.date ? modalActiveText : modalText,
                                 "--modal-hover-background": appearance.modal_hover_background,
                                 "--modal-hover-text": modalHoverText,
                               } as React.CSSProperties
                             }
                             data-selected={date === d.date}
                           >
-                            <span className="block font-semibold">{ddmm(d.date)}</span>
-                            <span className="mt-0.5 block text-[11px] opacity-80">
+                            <span className="block text-sm font-bold">{ddmm(d.date)}</span>
+                            <span className="mt-0.5 block text-[11px] capitalize opacity-70">
                               {DAY_LABEL[d.weekday]}
                             </span>
                           </button>
@@ -706,7 +909,7 @@ function PublicBooking() {
                         disabled={pageStart + 7 >= days.length}
                         onClick={() => setPageStart(pageStart + 7)}
                         className="rounded-md p-1 transition-colors disabled:opacity-30"
-                        style={{ color: isLiquidGlass ? liquidText : modalText }}
+                        style={{ color: modalText }}
                       >
                         <ChevronRight className="size-6" />
                       </button>
@@ -717,7 +920,9 @@ function PublicBooking() {
 
               {date && (
                 <div>
-                  <p className="mb-3 text-sm font-semibold">Escolha um horário disponível</p>
+                  <p className="mb-3 block text-xs font-semibold uppercase tracking-wider opacity-60">
+                    Escolha um horário disponível
+                  </p>
                   {loadingSlots ? (
                     <p className="flex items-center justify-center gap-2 text-sm">
                       <Loader2 className="size-4 animate-spin" /> Carregando horários...
@@ -741,7 +946,7 @@ function PublicBooking() {
                           type="button"
                           onClick={() => setTime(s)}
                           className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${
-                            isLiquidGlass ? "liquid-glass-control" : ""
+                            ""
                           } ${
                             time === s
                               ? ""
@@ -750,19 +955,11 @@ function PublicBooking() {
                           style={
                             {
                               borderColor: appearance.modal_border,
-                              ...(isLiquidGlass
-                                ? {}
-                                : {
-                                    backgroundColor:
-                                      time === s
-                                        ? appearance.modal_active_background
-                                        : appearance.modal_background,
-                                  }),
-                              color: isLiquidGlass
-                                ? liquidText
-                                : time === s
-                                  ? modalActiveText
-                                  : modalText,
+                              backgroundColor:
+                                time === s
+                                  ? appearance.modal_active_background
+                                  : appearance.modal_background,
+                              color: time === s ? modalActiveText : modalText,
                               "--modal-hover-background": appearance.modal_hover_background,
                               "--modal-hover-text": modalHoverText,
                             } as React.CSSProperties
@@ -785,11 +982,11 @@ function PublicBooking() {
                     </h3>
                     <div
                       className={`mx-auto mt-3 max-w-sm space-y-2 rounded-lg border border-border p-4 text-left text-sm ${
-                        isLiquidGlass ? "liquid-glass-control" : ""
+                        ""
                       }`}
                       style={{
-                        ...(isLiquidGlass ? {} : { backgroundColor: appearance.modal_background }),
-                        color: isLiquidGlass ? liquidText : modalText,
+                        backgroundColor: appearance.modal_background,
+                        color: modalText,
                       }}
                     >
                       <p className="flex items-center gap-2">
@@ -885,18 +1082,18 @@ function PublicBooking() {
             </div>
           )}
         </DialogContent>
+        )}
       </Dialog>
 
       {activeCharge && (
         <Suspense fallback={<p className="py-4 text-center text-sm">Carregando pagamento...</p>}>
           <PaymentDialog
-            liquidStyle={isLiquidGlass ? liquidDialogStyle : {}}
             chargeId={activeCharge}
             booking={bookings.data?.bookings.find((b) => b.chargeId === activeCharge) ?? null}
             reservedAmountCents={
               reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
             }
-            liquidGlass={isLiquidGlass}
+            appearance={appearance}
             onClose={() => {
               setActiveCharge(null);
               void bookings.refetch();
@@ -910,23 +1107,75 @@ function PublicBooking() {
           booking={confirmed}
           appearance={appearance}
           timezone={catalog?.preferences?.timezone ?? "America/Sao_Paulo"}
-          liquidGlass={isLiquidGlass}
-          liquidStyle={isLiquidGlass ? liquidDialogStyle : {}}
           onClose={() => setConfirmed(null)}
         />
       )}
 
-      {isVitrine ? (
-        <VitrineNav
-          tab={tab}
-          onChange={setTab}
-          contactDisabled={!business?.phone}
-          onContact={() => {
-            if (business?.phone) window.location.href = `tel:${business.phone}`;
+      {/* Aviso de cookies — aparece uma única vez (primeira visita). */}
+      <CookieBanner appearance={appearance} />
+
+      {/* Aviso "Saída realizada com sucesso!" ao clicar no botão de saída. */}
+      {exitStage !== "hidden" && (
+        <div
+          className={`fixed inset-0 z-[90] grid place-items-center bg-black/40 backdrop-blur-sm ${
+            exitStage === "shown" ? "aa-exit-overlay-in" : "aa-exit-overlay-out"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-col items-center gap-4">
+            <div className="grid size-12 place-items-center rounded-full border border-white/30 bg-white/10">
+              <Loader2 className="size-6 animate-spin text-white" />
+            </div>
+            <p className="text-center text-sm font-semibold text-white drop-shadow">
+              Saída realizada com sucesso!
+            </p>
+          </div>
+        </div>
+      )}
+
+      {isElegance ? null : (
+        <nav
+          className="fixed inset-x-0 bottom-0 z-40 border-t"
+          style={{
+            backgroundColor: pageBackground,
+            borderColor: appearance.service_border,
+            paddingBottom: "env(safe-area-inset-bottom)",
           }}
-        />
-      ) : (
-        <RefNav tab={tab} compact={isLiquidGlass && navCompact} onChange={setTab} />
+        >
+          <div className="mx-auto flex w-full max-w-2xl items-start justify-around px-2 py-3">
+            {(
+              [
+                { key: "agendar", label: "Agendar", icon: CalendarDays },
+                { key: "historico", label: "Histórico", icon: Clock },
+                { key: "perfil", label: "Perfil", icon: User },
+              ] as const
+            ).map((item) => {
+              const active = tab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setTab(item.key)}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex min-w-20 flex-col items-center gap-1 text-[13px] transition-opacity ${
+                    active ? "font-medium opacity-100" : "opacity-55 hover:opacity-100"
+                  }`}
+                  style={{ color: pageText }}
+                >
+                  <item.icon className="size-5" strokeWidth={active ? 2.25 : 2} />
+                  <span>{item.label}</span>
+                  <span
+                    className={`h-1.5 w-10 rounded-full transition-opacity ${
+                      active ? "opacity-100" : "opacity-0"
+                    }`}
+                    style={{ backgroundColor: pageText }}
+                  />
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       )}
     </div>
   );
@@ -992,7 +1241,6 @@ function HistoryList({
   onRefresh,
   appearance,
   pageText,
-  liquidGlass,
   preferences,
   onCancel,
   onReschedule,
@@ -1005,7 +1253,6 @@ function HistoryList({
   onRefresh: () => void;
   appearance: Panel1Appearance;
   pageText: string;
-  liquidGlass: boolean;
   preferences?: Panel1Preferences;
   onCancel: (publicCode: string) => void;
   onReschedule: (input: { publicCode: string; date: string; time: string }) => Promise<void>;
@@ -1036,18 +1283,15 @@ function HistoryList({
         },
       }),
   });
-  const agendaTextColor = liquidGlass
-    ? pageText
-    : accessibleTextColor(appearance.agenda_background);
   if (!bookings.length)
     return (
       <div
         className={`rounded-xl border p-8 text-center ${
-          liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+          ""
         }`}
         style={{
-          ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-          color: agendaTextColor,
+          backgroundColor: appearance.agenda_background,
+          color: accessibleTextColor(appearance.agenda_background),
           borderColor: appearance.agenda_border,
         }}
       >
@@ -1069,11 +1313,11 @@ function HistoryList({
           <article
             key={b.publicCode ?? b.chargeId ?? b.createdAt}
             className={`rounded-xl border ${info.tone} p-4 ${
-              liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+              ""
             }`}
             style={{
-              ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-              color: agendaTextColor,
+              backgroundColor: appearance.agenda_background,
+              color: accessibleTextColor(appearance.agenda_background),
               borderColor: appearance.agenda_border,
             }}
           >
@@ -1085,11 +1329,11 @@ function HistoryList({
             </div>
             <div
               className={`mt-3 space-y-2 rounded-lg border p-3 text-sm ${
-                liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+                ""
               }`}
               style={{
-                ...(liquidGlass ? {} : { backgroundColor: appearance.agenda_background }),
-                color: agendaTextColor,
+                backgroundColor: appearance.agenda_background,
+                color: accessibleTextColor(appearance.agenda_background),
                 borderColor: appearance.agenda_border,
               }}
             >
@@ -1114,13 +1358,13 @@ function HistoryList({
               <Step
                 icon={<History className="size-4" />}
                 label="Agendamento cadastrado"
-                textColor={agendaTextColor}
+                textColor={accessibleTextColor(appearance.agenda_background)}
               />
               {shouldRenderDepositStep(b.chargeStatus) && (
                 <Step
                   icon={<DollarSign className="size-4" />}
                   label="Pagamento do sinal"
-                  textColor={agendaTextColor}
+                  textColor={accessibleTextColor(appearance.agenda_background)}
                 />
               )}
               {info.steps === 3 && (
@@ -1133,7 +1377,7 @@ function HistoryList({
                     )
                   }
                   label={info.label}
-                  textColor={agendaTextColor}
+                  textColor={accessibleTextColor(appearance.agenda_background)}
                 />
               )}
             </div>
@@ -1204,68 +1448,40 @@ function HistoryList({
                 >
                   <label className="grid gap-1 text-xs">
                     Nova data
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="justify-start font-normal"
-                        >
-                          <CalendarDays className="size-4" />
-                          {rescheduleDate
-                            ? new Date(`${rescheduleDate}T12:00:00`).toLocaleDateString("pt-BR")
-                            : "Escolha a data"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={
-                            rescheduleDate ? new Date(`${rescheduleDate}T12:00:00`) : undefined
-                          }
-                          onSelect={(nextDate) => {
-                            if (!nextDate) return;
-                            const localDate = [
-                              nextDate.getFullYear(),
-                              String(nextDate.getMonth() + 1).padStart(2, "0"),
-                              String(nextDate.getDate()).padStart(2, "0"),
-                            ].join("-");
-                            setRescheduleDate(localDate);
-                            setRescheduleTime("");
-                          }}
-                          disabled={{ before: new Date() }}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <Input
+                      type="date"
+                      required
+                      value={rescheduleDate}
+                      onChange={(event) => {
+                        setRescheduleDate(event.target.value);
+                        setRescheduleTime("");
+                      }}
+                    />
                   </label>
                   <label className="grid gap-1 text-xs">
                     Novo horário
-                    <Select
+                    <select
+                      required
+                      className="border-input h-9 rounded-md border bg-transparent px-3 text-sm"
                       value={rescheduleTime}
                       disabled={!rescheduleDate || rescheduleSlots.isFetching}
-                      onValueChange={setRescheduleTime}
+                      onChange={(event) => setRescheduleTime(event.target.value)}
                     >
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            !rescheduleDate
-                              ? "Escolha a data"
-                              : rescheduleSlots.isFetching
-                                ? "Carregando..."
-                                : rescheduleSlots.data?.slots.length
-                                  ? "Selecione"
-                                  : "Sem horários"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {rescheduleSlots.data?.slots.map((slot) => (
-                          <SelectItem key={slot} value={slot}>
-                            {slot}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <option value="" disabled>
+                        {!rescheduleDate
+                          ? "Escolha a data"
+                          : rescheduleSlots.isFetching
+                            ? "Carregando..."
+                            : rescheduleSlots.data?.slots.length
+                              ? "Selecione"
+                              : "Sem horários"}
+                      </option>
+                      {rescheduleSlots.data?.slots.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <Button
                     type="submit"
@@ -1310,30 +1526,22 @@ function ConfirmedDialog({
   booking,
   appearance,
   timezone,
-  liquidGlass,
-  liquidStyle,
   onClose,
 }: {
   booking: { serviceName: string; startsAt: string };
   appearance: Panel1Appearance;
   timezone: string;
-  liquidGlass: boolean;
-  liquidStyle: React.CSSProperties;
   onClose: () => void;
 }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         className={`max-w-sm text-center ${
-          liquidGlass ? "liquid-glass-surface liquid-glass-hero liquid-glass-dialog" : ""
+          ""
         }`}
         style={{
-          ...(liquidGlass
-            ? liquidStyle
-            : {
-                backgroundColor: appearance.modal_background,
-                color: accessibleTextColor(appearance.modal_background),
-              }),
+          backgroundColor: appearance.modal_background,
+          color: accessibleTextColor(appearance.modal_background),
           borderColor: appearance.modal_border,
         }}
       >
@@ -1355,10 +1563,10 @@ function ConfirmedDialog({
           </div>
           <div
             className={`space-y-2 rounded-lg border p-4 text-left text-sm ${
-              liquidGlass ? "liquid-glass-surface liquid-glass-regular" : ""
+              ""
             }`}
             style={{
-              ...(liquidGlass ? {} : { backgroundColor: appearance.modal_background }),
+              backgroundColor: appearance.modal_background,
               color: accessibleTextColor(appearance.modal_background),
               borderColor: appearance.modal_border,
             }}

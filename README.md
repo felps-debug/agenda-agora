@@ -1,5 +1,12 @@
 # Agenda Agora
 
+## Compatibilidade TanStack
+
+Mantenha as versões de `@tanstack/react-start`, `@tanstack/react-router` e o
+override/resolution de `@tanstack/router-core` fixados no `package.json`. Não
+rode `npm update` nem troque por `latest`: versões novas renomeiam
+`.inputValidator()` e podem quebrar as rotas do servidor.
+
 SaaS de agendamento para comercios e prestadores de servicos, com painel de
 agenda, profissionais, servicos, clientes, cobranca Pix e notificacoes.
 

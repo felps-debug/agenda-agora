@@ -61,17 +61,79 @@ describe("normalização de aparência do painel", () => {
     expect(normalizePanel1Config({}).visual).toEqual({
       layout_key: "classic",
       niche_id: "outro",
+      layout_media: {},
     });
+    // liquid_glass apontava para o mesmo layout sofisticado, hoje publicado como "elegance".
     expect(
       normalizePanel1Config({
         visual: { layout_key: "liquid_glass", niche_id: "barbearia" },
       }).visual,
-    ).toEqual({ layout_key: "liquid_glass", niche_id: "barbearia" });
+    ).toEqual({ layout_key: "elegance", niche_id: "barbearia", layout_media: {} });
+    expect(
+      normalizePanel1Config({ visual: { layout_key: "elegance", niche_id: "salao" } }).visual,
+    ).toEqual({ layout_key: "elegance", niche_id: "salao", layout_media: {} });
     expect(
       normalizePanel1Config({ visual: { layout_key: "other", niche_id: "x" } }).visual,
     ).toEqual({
       layout_key: "classic",
       niche_id: "outro",
+      layout_media: {},
     });
   });
 });
+
+describe("compatibilidade de layout antigo (US9, FR-031)", () => {
+  const legacyDocument = (layoutKey: string) => ({
+    version: 1,
+    appearance: {
+      header_background: "#112233",
+      service_background: "#334455",
+      wave_color: "#aa00bb",
+      selectedServiceBorderColor: "#00ccdd",
+      font_family: "inter",
+    },
+    visual: {
+      layout_key: layoutKey,
+      niche_id: "barbearia",
+      layout_media: {
+        classic: { logoPath: "logos/antiga.png", backgroundPath: "capas/antiga.jpg" },
+        elegance: { logoPath: "logos/elegance.png", backgroundPath: null },
+      },
+    },
+  });
+
+  it("Liquid Glass abre em Elegance preservando cores e imagens", () => {
+    const config = normalizePanel1Config(legacyDocument("liquid_glass"));
+    expect(config.visual.layout_key).toBe("elegance");
+    expect(config.appearance.header_background).toBe("#112233");
+    expect(config.appearance.service_background).toBe("#334455");
+    expect(config.appearance.wave_color).toBe("#aa00bb");
+    expect(config.appearance.selectedServiceBorderColor).toBe("#00ccdd");
+    expect(config.visual.layout_media).toEqual({
+      classic: { logoPath: "logos/antiga.png", backgroundPath: "capas/antiga.jpg" },
+      elegance: { logoPath: "logos/elegance.png", backgroundPath: null },
+    });
+  });
+
+  it("Elegance continua em Elegance, com as mesmas cores e imagens", () => {
+    const config = normalizePanel1Config(legacyDocument("elegance"));
+    expect(config.visual.layout_key).toBe("elegance");
+    expect(config.appearance.header_background).toBe("#112233");
+    expect(config.visual.layout_media.elegance?.logoPath).toBe("logos/elegance.png");
+  });
+
+  it("layouts removidos (Vitrine e Minimalista antigo) caem no padrão sem perder cores e imagens", () => {
+    for (const legacy of ["vitrine", "minimalista", "classic", undefined]) {
+      const config = normalizePanel1Config(legacyDocument(legacy as string));
+      expect(config.visual.layout_key).toBe("classic");
+      expect(config.appearance.header_background).toBe("#112233");
+      expect(config.visual.layout_media.classic?.backgroundPath).toBe("capas/antiga.jpg");
+    }
+  });
+
+  it("normalizar duas vezes dá o mesmo resultado (idempotente)", () => {
+    const once = normalizePanel1Config(legacyDocument("liquid_glass"));
+    expect(normalizePanel1Config(once)).toEqual(once);
+  });
+});
+

@@ -29,6 +29,8 @@ export function PageHeader({
 export function NoBusiness() {
   const { loading } = useBusiness();
 
+  // A tela de bloqueio "Painel aguardando configuração" foi desativada.
+  // Mantemos apenas o estado de carregamento enquanto o estabelecimento resolve.
   if (loading) {
     return (
       <div className="surface flex min-h-52 flex-col items-center justify-center gap-3 p-10 text-center">
@@ -38,16 +40,7 @@ export function NoBusiness() {
     );
   }
 
-  return (
-    <div className="surface flex flex-col items-center p-10 text-center">
-      <Store className="size-8 text-primary" />
-      <h2 className="mt-4 text-lg font-bold">Painel aguardando configuração</h2>
-      <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Este acesso do estabelecimento é fixo. O negócio e o link de agendamento são configurados
-        exclusivamente pelo painel Master.
-      </p>
-    </div>
-  );
+  return null;
 }
 
 export function EmptyList({ text }: { text: string }) {
