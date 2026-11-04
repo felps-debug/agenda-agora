@@ -417,7 +417,6 @@ export type Database = {
       }
       businesses: {
         Row: {
-          access_password: string | null
           access_until: string | null
           address: string | null
           agpay_access_blocked: boolean
@@ -470,12 +469,10 @@ export type Database = {
           whatsapp_instance_token: string | null
           whatsapp_status: string
           withdrawal_pin_hash: string | null
-          withdrawal_pin_plain: string | null
           withdrawal_pix_key: string | null
           withdrawal_pix_key_type: string | null
         }
         Insert: {
-          access_password?: string | null
           access_until?: string | null
           address?: string | null
           agpay_access_blocked?: boolean
@@ -528,12 +525,10 @@ export type Database = {
           whatsapp_instance_token?: string | null
           whatsapp_status?: string
           withdrawal_pin_hash?: string | null
-          withdrawal_pin_plain?: string | null
           withdrawal_pix_key?: string | null
           withdrawal_pix_key_type?: string | null
         }
         Update: {
-          access_password?: string | null
           access_until?: string | null
           address?: string | null
           agpay_access_blocked?: boolean
@@ -586,7 +581,6 @@ export type Database = {
           whatsapp_instance_token?: string | null
           whatsapp_status?: string
           withdrawal_pin_hash?: string | null
-          withdrawal_pin_plain?: string | null
           withdrawal_pix_key?: string | null
           withdrawal_pix_key_type?: string | null
         }
