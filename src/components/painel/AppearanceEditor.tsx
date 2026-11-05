@@ -82,6 +82,7 @@ const TARGET_CONTROLS: Record<AppearanceSelectionTarget, { section: string; cont
   "wave-color": { section: "backgrounds", control: "wave-color" },
   "page-text": { section: "text", control: "page-text" },
   buttons: { section: "buttons", control: "buttons" },
+  "button-background": { section: "buttons", control: "button-background" },
 };
 
 export function getLowContrastAppearanceLabels(appearance: Panel1Appearance): string[] {
@@ -235,7 +236,7 @@ export function AppearanceEditor(props: Props) {
         pageBackground={pageBackground}
         activeTab="agendar"
         fullHeight={false}
-        minimalist={layoutKey === "classic"}
+        minimalist={false}
         onAppearanceTargetSelect={selectAppearanceTarget}
       >
         <EleganceServiceList
@@ -250,7 +251,7 @@ export function AppearanceEditor(props: Props) {
   const informacoesPreview = (
     <EleganceBookingDialog
       asPreview
-      minimalist={layoutKey === "classic"}
+      minimalist={false}
       service={{ name: businessName || "Barber Richard", price_cents: 4500, duration_minutes: 40, show_price: true, show_duration: true, image_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='160' height='160' fill='%23f7d9e4'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='24' fill='%23a4556d'%3EServiço%3C/text%3E%3C/svg%3E" }}
       appearance={appearance}
       pageBackground={appearance.infoPageBackground}
@@ -455,29 +456,28 @@ export function AppearanceEditor(props: Props) {
               >
                 <ImageIcon className="size-4" /> {logoUploading ? "Enviando..." : "Trocar logo"}
               </Button>
-              {layoutKey !== "classic" ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => backgroundInputRef.current?.click()}
-                    disabled={backgroundImageUploading}
-                  >
-                    <ImageIcon className="size-4" />{" "}
-                    {backgroundImageUploading
-                      ? "Enviando..."
-                      : backgroundImageUrl
-                        ? "Trocar capa"
-                        : "Adicionar capa"}
-                  </Button>
-                  {backgroundImageUrl ? (
-                    <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
-                      <Trash2 className="size-4" /> Remover capa
-                    </Button>
-                  ) : null}
-                </>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => backgroundInputRef.current?.click()}
+                disabled={backgroundImageUploading}
+              >
+                <ImageIcon className="size-4" />{" "}
+                {backgroundImageUploading
+                  ? "Enviando..."
+                  : backgroundImageUrl
+                    ? "Trocar capa"
+                    : "Adicionar capa"}
+              </Button>
+              {backgroundImageUrl ? (
+                <Button type="button" variant="ghost" onClick={onClearBackgroundImage}>
+                  <Trash2 className="size-4" /> Remover capa
+                </Button>
               ) : null}
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Sem foto de capa, o topo usa a cor de "Fundo do cabeçalho" (seção Cores).
+            </p>
             <Label className="mt-3 flex items-center justify-between gap-3">
               Formato da logo
               <select
@@ -653,6 +653,8 @@ export function AppearanceEditor(props: Props) {
               className={`grid gap-2 rounded-xl sm:grid-cols-2 ${activeControl === "buttons" ? "ring-2 ring-primary ring-offset-2" : ""}`}
             >
               <ColorField
+                control="button-background"
+                active={activeControl === "button-background"}
                 label="Fundo do botão"
                 value={appearance.modal_active_background}
                 onChange={(value) => update("modal_active_background", value)}
@@ -820,18 +822,22 @@ function EditorSection({
 function ColorField({
   id,
   active,
+  control,
   label,
   value,
   onChange,
 }: {
   id?: string;
   active?: boolean;
+  /** Permite que a prévia leve direto até este campo (data-appearance-control). */
+  control?: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   return (
     <Label
+      {...(control ? { "data-appearance-control": control } : {})}
       className={`flex items-center justify-between gap-2 rounded-lg border bg-background px-2 py-1.5 text-xs ${active ? "ring-2 ring-primary ring-offset-2" : ""}`}
     >
       <span className="min-w-0 truncate">{label}</span>

@@ -9,6 +9,7 @@ import {
   Menu,
   Bell,
   BellRing,
+  TriangleAlert,
   Gem,
   PieChart,
   MessageSquareText,
@@ -83,7 +84,7 @@ import { SidebarProfileWidget } from "@/components/painel/SidebarProfileWidget";
 import { SupportFaq } from "@/components/painel/SupportFaq";
 import SecurityPinModal from "@/components/painel/SecurityPinModal";
 import { AvisoPop } from "@/components/painel/AvisoPop";
-import { TONE_BLUE } from "@/components/master/PlatformOverview";
+import { TONE_PINK } from "@/components/master/PlatformOverview";
 
 /**
  * Logo da sidebar por tema de cor. O CSS também substitui a imagem via
@@ -393,8 +394,8 @@ function NotificationBell() {
       {popup ? (
         <AvisoPop
           extraClass="aa-aviso-pop--broadcast"
-          tone={TONE_BLUE}
-          icon={<BellRing className="size-[1.05rem]" strokeWidth={1.8} aria-hidden="true" />}
+          tone={TONE_PINK}
+          icon={<TriangleAlert strokeWidth={1.8} aria-hidden="true" />}
           title={popup.title}
           onClose={() => setPopup(null)}
         >
@@ -1176,8 +1177,6 @@ function PagamentosView({ business }: { business: Business | null }) {
   } = useAnimatedModal();
   const [mounted, setMounted] = useState(false);
   const [payMethod, setPayMethod] = useState<"pix" | "cartao">("pix");
-  const [coupon, setCoupon] = useState("");
-  const [couponApplied, setCouponApplied] = useState<string | null>(null);
   const [cardForm, setCardForm] = useState({ number: "", expiry: "", cvv: "", holder: "", doc: "" });
 
   useEffect(() => {
@@ -1481,63 +1480,19 @@ function PagamentosView({ business }: { business: Business | null }) {
                   </button>
                 </div>
 
-                {/* Cupom — definido pelo master (auto-expira) ou manual só no PIX */}
-                {payMethod === "pix" ? (
+                {/* Cupom — só aparece se o master ativou um cupom para este estabelecimento (auto-expira) */}
+                {payMethod === "pix" && masterCoupon ? (
                   <div className="mt-3">
-                    {masterCoupon ? (
-                      <div className="rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
-                        <p className="truncate text-sm text-white">
-                          Cupom{" "}
-                          <span className="font-bold uppercase">{masterCoupon.code}</span>{" "}
-                          aplicado — {masterCoupon.percent}% de desconto
-                        </p>
-                        <p className="mt-0.5 text-xs text-[#8b8e96]">
-                          Válido até{" "}
-                          {new Date(masterCoupon.expiresAt).toLocaleDateString("pt-BR")} (expira
-                          sozinho)
-                        </p>
-                      </div>
-                    ) : couponApplied ? (
-                      <div className="flex items-center justify-between rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
-                        <p className="truncate text-sm text-white">
-                          Cupom <span className="font-bold uppercase">{couponApplied}</span>{" "}
-                          aplicado
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setCouponApplied(null);
-                            setCoupon("");
-                          }}
-                          className="text-[0.72rem] font-semibold text-[#8b8e96] transition-colors hover:text-white"
-                        >
-                          Remover
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={coupon}
-                          onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-                          placeholder="CUPOM VALE SÓ NO PIX"
-                          className="h-11 min-w-0 flex-1 rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm tracking-wide text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          disabled={!coupon.trim()}
-                          onClick={() => setCouponApplied(coupon.trim())}
-                          className="h-11 shrink-0 rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-4 text-sm font-semibold text-white transition-colors hover:border-white/25 disabled:opacity-50"
-                        >
-                          Aplicar
-                        </button>
-                      </div>
-                    )}
-                    {!masterCoupon ? (
-                      <p className="mt-1.5 text-center text-xs text-[#8b8e96]">
-                        Desconto disponível apenas no PIX.
+                    <div className="rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
+                      <p className="truncate text-sm text-white">
+                        Cupom <span className="font-bold uppercase">{masterCoupon.code}</span>{" "}
+                        aplicado — {masterCoupon.percent}% de desconto
                       </p>
-                    ) : null}
+                      <p className="mt-0.5 text-xs text-[#8b8e96]">
+                        Válido até {new Date(masterCoupon.expiresAt).toLocaleDateString("pt-BR")}{" "}
+                        (expira sozinho)
+                      </p>
+                    </div>
                   </div>
                 ) : null}
 
@@ -1659,7 +1614,6 @@ function PagamentosView({ business }: { business: Business | null }) {
                     </button>
                     <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
                       Pagamento via PIX (instantâneo) — liberação automática.
-                      {couponApplied ? " Cupom informado na hora do checkout." : ""}
                     </p>
                   </>
                 )}

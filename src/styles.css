@@ -7986,15 +7986,19 @@ body:has(.carteira-dim) .owner-panel > div:nth-child(4) {
   top: 4.4rem;
   z-index: 80;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   width: min(21.5rem, calc(100vw - 20px));
-  padding: 13px 40px 13px 13px;
-  border-radius: 1rem;
-  border: 1px solid var(--aviso-border, rgb(var(--c-rgb-51-125-255) / 0.35));
-  background: linear-gradient(180deg, #141a24 0%, #0a0d12 100%);
+  padding: 13px 40px 15px 17px;
+  border-radius: 1.1rem;
+  border: 1px solid var(--aviso-border, rgba(51, 125, 255, 0.35));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--aviso-accent, #69a2ff) 30%, #0a0d12) 0%,
+    #0a0d12 88%
+  );
   box-shadow:
-    0 0 22px var(--aviso-glow, rgb(var(--c-rgb-22-119-255) / 0.22)),
+    0 0 22px var(--aviso-glow, rgba(22, 119, 255, 0.22)),
     0 18px 50px rgba(0, 0, 0, 0.65);
   overflow: hidden;
   color: var(--c-e6e9ee, #e6e9ee);
@@ -8002,46 +8006,50 @@ body:has(.carteira-dim) .owner-panel > div:nth-child(4) {
   line-height: 1.35;
   animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-/* Neon no contorno superior (na cor do ícone) */
+/* Faixa vertical na borda esquerda (cor do aviso) */
 .aa-aviso-pop::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 6%;
-  width: 88%;
-  height: 2px;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--aviso-accent, #69a2ff);
+  box-shadow: 0 0 16px 2px var(--aviso-glow, rgba(22, 119, 255, 0.6));
+}
+/* Barrinha de destaque embaixo */
+.aa-aviso-pop::after {
+  content: "";
+  position: absolute;
+  left: 62px;
+  bottom: 4px;
+  width: 64px;
+  height: 3px;
   border-radius: 9999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    var(--aviso-border, rgb(var(--c-rgb-72-140-255) / 0.85)) 28%,
-    var(--aviso-accent, rgb(var(--c-rgb-122-176-255) / 1)) 50%,
-    var(--aviso-border, rgb(var(--c-rgb-72-140-255) / 0.85)) 72%,
-    transparent
-  );
-  box-shadow: 0 0 16px 2px var(--aviso-glow, rgb(var(--c-rgb-22-119-255) / 0.6));
+  background: var(--aviso-accent, #69a2ff);
+  box-shadow: 0 0 10px var(--aviso-glow, rgba(22, 119, 255, 0.6));
 }
 .aa-aviso-pop-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
-  border-radius: 0.6rem;
-  border: 1px solid var(--aviso-icon-border, rgba(51, 125, 255, 0.29));
-  background: var(--aviso-icon-bg, rgba(22, 119, 255, 0.09));
-  color: var(--aviso-icon-color, #69a2ff);
-  box-shadow: 0 0 14px var(--aviso-icon-glow, rgba(22, 119, 255, 0.22));
+  color: var(--aviso-accent, #69a2ff);
+}
+.aa-aviso-pop-icon > svg {
+  width: 28px;
+  height: 28px;
 }
 .aa-aviso-pop-body {
   min-width: 0;
   flex: 1;
 }
 .aa-aviso-pop-title {
-  font-weight: 700;
-  font-size: 0.84rem;
-  color: var(--c-f1f2f4, #f1f2f4);
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #fff;
 }
 .aa-aviso-pop-msg {
   font-weight: 500;
@@ -8062,7 +8070,7 @@ body:has(.carteira-dim) .owner-panel > div:nth-child(4) {
   width: 26px;
   height: 26px;
   border-radius: 9999px;
-  color: #8a919c;
+  color: var(--aviso-accent, #8a919c);
   transition: background 0.15s ease, color 0.15s ease;
 }
 .aa-aviso-pop-x:hover {

@@ -1,7 +1,11 @@
 // Envio automático de WhatsApp: confirmação (após pagar o sinal) e lembrete
 // (X horas antes do horário, disparado pelo agendador).
 import { loadWhatsappProvider } from "./whatsapp-provider.server";
-import { FIXED_REMINDER_TEMPLATE } from "./outreach-message-settings";
+import {
+  DEFAULT_REMINDER_TEMPLATE,
+  resolveReminderTemplate,
+  resolveSummaryTemplate,
+} from "./outreach-message-settings";
 
 async function sendTextMessage(instanceToken: string, phone: string, message: string) {
   const provider = await loadWhatsappProvider();
@@ -27,7 +31,7 @@ function formatTimePtBr(iso: string, timezone: string) {
 export const DEFAULT_CONFIRMATION_MESSAGE =
   "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}. Até lá! ✅";
 
-export const DEFAULT_REMINDER_MESSAGE = FIXED_REMINDER_TEMPLATE;
+export const DEFAULT_REMINDER_MESSAGE = DEFAULT_REMINDER_TEMPLATE;
 
 export function renderMessage(template: string, vars: Record<string, string>) {
   return template.replace(
@@ -154,7 +158,7 @@ export async function sendBookingConfirmation(appointmentId: string) {
   try {
     const ctx = await loadContext(appointmentId);
     if (!ctx) return;
-    const template = ctx.business.confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
+    const template = resolveSummaryTemplate(ctx.business.confirmation_template);
     await sendTextMessage(
       ctx.instanceToken,
       ctx.row.customer_phone!,
@@ -172,8 +176,7 @@ export async function sendBookingConfirmation(appointmentId: string) {
 export async function sendBookingReminder(appointmentId: string) {
   const ctx = await loadContext(appointmentId);
   if (!ctx) throw new Error("Agendamento sem telefone ou WhatsApp desconectado.");
-  const template = FIXED_REMINDER_TEMPLATE;
-  // A mensagem fixa já contém {Saudacao} — não prefixar a saudação de novo.
+  const template = resolveReminderTemplate(ctx.business.reminder_template);
   await sendTextMessage(
     ctx.instanceToken,
     ctx.row.customer_phone!,

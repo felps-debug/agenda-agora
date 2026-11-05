@@ -59,7 +59,7 @@ describe("normalização de aparência do painel", () => {
 
   it("normaliza modelo e nicho visuais sem quebrar documentos antigos", () => {
     expect(normalizePanel1Config({}).visual).toEqual({
-      layout_key: "classic",
+      layout_key: "elegance",
       niche_id: "outro",
       layout_media: {},
     });
@@ -75,7 +75,7 @@ describe("normalização de aparência do painel", () => {
     expect(
       normalizePanel1Config({ visual: { layout_key: "other", niche_id: "x" } }).visual,
     ).toEqual({
-      layout_key: "classic",
+      layout_key: "elegance",
       niche_id: "outro",
       layout_media: {},
     });
@@ -125,7 +125,7 @@ describe("compatibilidade de layout antigo (US9, FR-031)", () => {
   it("layouts removidos (Vitrine e Minimalista antigo) caem no padrão sem perder cores e imagens", () => {
     for (const legacy of ["vitrine", "minimalista", "classic", undefined]) {
       const config = normalizePanel1Config(legacyDocument(legacy as string));
-      expect(config.visual.layout_key).toBe("classic");
+      expect(config.visual.layout_key).toBe("elegance");
       expect(config.appearance.header_background).toBe("#112233");
       expect(config.visual.layout_media.classic?.backgroundPath).toBe("capas/antiga.jpg");
     }

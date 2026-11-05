@@ -361,7 +361,7 @@ export const DEFAULT_PANEL1_PREFERENCES: Panel1Preferences = {
 };
 
 export const DEFAULT_PANEL1_VISUAL_PREFERENCES: Panel1VisualPreferences = {
-  layout_key: "classic",
+  layout_key: "elegance",
   niche_id: "outro",
   layout_media: {},
 };

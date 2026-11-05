@@ -6,7 +6,11 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 import { applyOutreachPlaceholders } from "@/lib/outreach-templates.placeholders";
 import { parseOutreachDesign, type OutreachDesign } from "@/lib/outreach-design";
-import { outreachMessageSchema, FIXED_REMINDER_TEMPLATE } from "@/lib/outreach-message-settings";
+import {
+  outreachMessageSchema,
+  resolveReminderTemplate,
+  resolveSummaryTemplate,
+} from "@/lib/outreach-message-settings";
 import {
   businessOwnerCanEdit,
   resolveEffectiveOutreachDesign,
@@ -248,14 +252,11 @@ export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
         if (!retry.data) throw new Error("Não foi possível carregar as configurações do negócio.");
         return {
           selectedTemplateIds: retry.data.selected_outreach_template_ids ?? [],
-          confirmationTemplate:
-            retry.data.confirmation_template ??
-            "❕ Resumo de seu agendamento:\n\n📅 Data: {Data}\n🕗 Hora: {Horario}\n🛠 Serviço: {Serviço}\n👤 Profissional: {Funcionario}\n💰 Valor: R$ {Valor}",
+          confirmationTemplate: resolveSummaryTemplate(retry.data.confirmation_template),
           paymentConfirmationTemplate:
             retry.data.payment_confirmation_template ??
             "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}.",
-          reminderTemplate:
-            retry.data.reminder_template ?? FIXED_REMINDER_TEMPLATE,
+          reminderTemplate: resolveReminderTemplate(retry.data.reminder_template),
           reminderHoursBefore: retry.data.reminder_hours_before ?? 24,
           saudacaoTemplate: null as string | null,
         };
@@ -265,13 +266,11 @@ export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
     if (!row) throw new Error("Não foi possível carregar as configurações do negócio.");
     return {
       selectedTemplateIds: row.selected_outreach_template_ids ?? [],
-      confirmationTemplate:
-        row.confirmation_template ??
-        "❕ Resumo de seu agendamento:\n\n📅 Data: {Data}\n🕗 Hora: {Horario}\n🛠 Serviço: {Serviço}\n👤 Profissional: {Funcionario}\n💰 Valor: R$ {Valor}",
+      confirmationTemplate: resolveSummaryTemplate(row.confirmation_template),
       paymentConfirmationTemplate:
         row.payment_confirmation_template ??
         "Olá, {nome}! Seu sinal foi recebido e seu horário de {servico} está confirmado para {data} às {hora} em {negocio}.",
-      reminderTemplate: row.reminder_template ?? FIXED_REMINDER_TEMPLATE,
+      reminderTemplate: resolveReminderTemplate(row.reminder_template),
       reminderHoursBefore: row.reminder_hours_before ?? 24,
       saudacaoTemplate:
         row.saudacao_template ??

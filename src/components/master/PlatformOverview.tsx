@@ -186,6 +186,12 @@ export const TONE_VIOLET = {
   border: "rgba(139, 92, 246, 0.3)",
   glow: "rgba(139, 92, 246, 0.22)",
 };
+export const TONE_PINK = {
+  color: "#ff2d78",
+  background: "rgba(255, 45, 120, 0.1)",
+  border: "rgba(255, 45, 120, 0.4)",
+  glow: "rgba(255, 45, 120, 0.28)",
+};
 export const TONE_RED = {
   color: "#ff7b86",
   background: "rgba(239, 51, 80, 0.1)",

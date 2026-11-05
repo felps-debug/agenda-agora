@@ -293,8 +293,10 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       loadPanel1Config(supabase, business.id),
     ]);
 
-    const activeLayout = config.visual?.layout_key ?? "classic";
-    const activeMedia = config.visual?.layout_media?.[activeLayout];
+    // O layout público é sempre o Elegance (só cor e fonte mudam). Se o negócio
+    // ainda estava no modelo antigo, aproveita a mídia que ele já tinha enviado.
+    const activeMedia =
+      config.visual?.layout_media?.elegance ?? config.visual?.layout_media?.classic;
     const logoPath = activeMedia?.logoPath ?? business.logo_url;
     const backgroundPath = activeMedia?.backgroundPath ?? business.brand_background_image;
     const [logoUrl, backgroundImageUrl] = await Promise.all([

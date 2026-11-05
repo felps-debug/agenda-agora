@@ -328,11 +328,10 @@ function PublicBooking() {
     loadOutreachFont(appearance.font_family);
   }, [appearance.font_family]);
 
-  // Os dois modelos usam o mesmo painel público. O Minimalista mantém sua
-  // identificação/configuração, mas compartilha a renderização do Elegance
-  // para que editor e página de agendamento permaneçam idênticos.
-  const layoutKey = catalog?.visual?.layout_key ?? "classic";
-  const isMinimalist = layoutKey === "classic";
+  // Layout fixo: a página pública é sempre o Elegance. O cliente só personaliza
+  // cor e fonte (appearance); negócios que estavam no modelo antigo "classic"
+  // passam a ver o Elegance completo (capa, logo redondo, cartões com foto).
+  const isMinimalist = false;
   const isElegance = true;
   useEffect(() => {
     if (isElegance) loadOutreachFont("playfair-display");

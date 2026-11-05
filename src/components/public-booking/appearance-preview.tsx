@@ -16,7 +16,8 @@ export type AppearanceSelectionTarget =
   | "brand-tagline"
   | "wave-color"
   | "page-text"
-  | "buttons";
+  | "buttons"
+  | "button-background";
 
 export type PreviewService = {
   id: string;
