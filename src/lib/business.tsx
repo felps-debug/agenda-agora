@@ -2,7 +2,14 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { businessesQueryKey, syncUpdatedBusiness } from "@/lib/business-cache";
+import {
+  businessesQueryKey,
+  loadCachedBusinesses,
+  loadCachedIsPlatformAdmin,
+  saveCachedBusinesses,
+  saveCachedIsPlatformAdmin,
+  syncUpdatedBusiness,
+} from "@/lib/business-cache";
 
 export type Business = {
   id: string;
@@ -54,9 +61,14 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [businessIdOverride, setBusinessIdState] = useState<string | null>(null);
 
+  const cachedIsAdmin = user ? loadCachedIsPlatformAdmin(user.id) : undefined;
+
   const { data: isPlatformAdmin = false, isSuccess: roleLoaded } = useQuery({
     queryKey: ["current-super-admin", user?.id],
     enabled: !!user,
+    staleTime: 60_000,
+    initialData: cachedIsAdmin,
+    initialDataUpdatedAt: 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("user_roles")
@@ -69,9 +81,23 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  // Persiste o papel por usuário para acelerar o próximo boot (apenas UI).
+  useEffect(() => {
+    if (!user || !roleLoaded) return;
+    saveCachedIsPlatformAdmin(user.id, isPlatformAdmin);
+  }, [user, roleLoaded, isPlatformAdmin]);
+
+  // Cache-first (US2): seed síncrono do localStorage para o primeiro paint não
+  // piscar "Carregando estabelecimento..." em reload/sessão nova; revalida em
+  // background. `initialData` só vale quando houver cache do próprio usuário.
+  const cachedBusinesses = user ? loadCachedBusinesses(user.id) : undefined;
+
   const { data, isLoading } = useQuery({
     queryKey: businessesQueryKey(user?.id),
     enabled: !!user && roleLoaded && !isPlatformAdmin,
+    staleTime: 60_000,
+    initialData: cachedBusinesses,
+    initialDataUpdatedAt: 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("businesses")
@@ -83,6 +109,12 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
   });
 
   const businesses = useMemo(() => (isPlatformAdmin ? [] : (data ?? [])), [data, isPlatformAdmin]);
+
+  // Persiste a lista estável no localStorage (por usuário) para a próxima sessão.
+  useEffect(() => {
+    if (!user || isPlatformAdmin || !data || data.length === 0) return;
+    saveCachedBusinesses(user.id, data);
+  }, [user, isPlatformAdmin, data]);
 
   // Resolve o negócio de forma síncrona (sem useEffect) para não exibir
   // "aguardando configuração" por um render após a lista carregar.

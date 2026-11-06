@@ -48,6 +48,8 @@ import { getMasterStatus } from "@/lib/admin.functions";
 import { useBusiness, type Business } from "@/lib/business";
 import { publicBookingUrl } from "@/lib/public-booking-link";
 import { listBroadcasts } from "@/lib/broadcasts.functions";
+import { shouldShowPopup } from "@/lib/broadcast";
+import { addDismissed, readDismissedIds, readSeenAt, writeSeenAt } from "@/lib/notifications-store";
 import { trialInfo } from "@/lib/trial-store";
 import { getBillingCycle } from "@/lib/subscription.functions";
 import type { BillingStage } from "@/lib/billing-cycle";
@@ -338,8 +340,13 @@ const routePermission: Partial<Record<string, string | string[]>> = {
 
 function NotificationBell() {
   const [open, setOpen] = useState(false);
-  const [seenAt, setSeenAt] = useState(0);
+  // Carrega o estado "visto/dispensado" sincronamente (lazy initializer) para o
+  // popup não piscar como "não visto" no primeiro render após navegar/recarregar.
+  const [seenAt, setSeenAt] = useState(() => readSeenAt());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readDismissedIds());
   const [popup, setPopup] = useState<{ id: string; title: string; message: string } | null>(null);
+  // Evita reabrir o mesmo popup dentro de um mesmo ciclo de refetch (otimização);
+  // a fonte de verdade da não-repetição é dismissedIds/seenAt (persistidos).
   const shownRef = useRef<string | null>(null);
   const listBroadcastsFn = useServerFn(listBroadcasts);
   const { data: list = [] } = useQuery({
@@ -349,29 +356,25 @@ function NotificationBell() {
   });
   const unread = list.filter((b) => new Date(b.createdAt).getTime() > seenAt).length;
 
+  /** Marca o aviso como dispensado (X do popup): persiste por id e fecha. */
+  const dismissPopup = (id: string) => {
+    setDismissedIds(addDismissed(id));
+    setPopup(null);
+  };
+
   // Nova notificação enviada pelo Painel 3: aparece como pop-up padrão
-  // (mesma identidade do aviso de vencimento), uma única vez.
+  // (mesma identidade do aviso de vencimento), no máximo uma vez por aviso.
   useEffect(() => {
     const nova = list[0];
     if (!nova || shownRef.current === nova.id) return;
-    if (new Date(nova.createdAt).getTime() <= seenAt) {
-      shownRef.current = nova.id;
-      return;
-    }
     shownRef.current = nova.id;
+    if (!shouldShowPopup(nova, { seenAt, dismissedIds })) return;
     setPopup({ id: nova.id, title: nova.title, message: nova.message });
-    const t = setTimeout(() => setPopup(null), 8000);
+    // Auto-fecha após 8s e persiste a dispensa: visto uma vez não reaparece em reload.
+    const t = setTimeout(() => dismissPopup(nova.id), 8000);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list]);
-
-  useEffect(() => {
-    try {
-      setSeenAt(Number(window.localStorage.getItem("agenda-agora:broadcasts-seen") ?? "0"));
-    } catch {
-      setSeenAt(0);
-    }
-  }, []);
+  }, [list, seenAt, dismissedIds]);
 
   const toggle = () => {
     setOpen((v) => {
@@ -379,11 +382,7 @@ function NotificationBell() {
       if (next) {
         const now = Date.now();
         setSeenAt(now);
-        try {
-          window.localStorage.setItem("agenda-agora:broadcasts-seen", String(now));
-        } catch {
-          // Ignora.
-        }
+        writeSeenAt(now);
       }
       return next;
     });
@@ -397,7 +396,7 @@ function NotificationBell() {
           tone={TONE_PINK}
           icon={<TriangleAlert strokeWidth={1.8} aria-hidden="true" />}
           title={popup.title}
-          onClose={() => setPopup(null)}
+          onClose={() => dismissPopup(popup.id)}
         >
           <p>{popup.message}</p>
         </AvisoPop>

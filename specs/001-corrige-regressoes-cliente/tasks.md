@@ -61,14 +61,14 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US2
 
-- [ ] T012 [P] [US2] Teste unit do cache de contexto em `src/lib/business-cache.test.ts`: hidrata de localStorage, revalida, invalida ao trocar de negócio/usuário
-- [ ] T013 [P] [US2] E2E em `tests/sidebar-nav.spec.ts`: navegar entre 4+ telas e assertar que "Carregando estabelecimento..." não reaparece após o 1º load
+- [X] T012 [P] [US2] Teste unit do cache de contexto em `src/lib/business-cache.test.ts`: hidrata de localStorage, revalida, invalida ao trocar de negócio/usuário — 6/6 verde
+- [X] T013 [P] [US2] E2E em `tests/sidebar-nav.spec.ts`: navegar entre 4+ telas e assertar que "Carregando estabelecimento..." não reaparece após o 1º load — spec criado (gated por OWNER_STORAGE_STATE)
 
 ### Implementation US2
 
-- [ ] T014 [US2] Diagnosticar a remontagem: confirmar se `painel.tsx` remonta na navegação (React Query devtools) e corrigir a causa em `src/routes/_authenticated/painel.tsx`/`route.tsx`
-- [ ] T015 [US2] Hidratar o contexto do negócio de `localStorage` (cache-first com `initialData`+`staleTime`) em `src/lib/business.tsx`
-- [ ] T016 [US2] Persistir dados estáveis do negócio em `localStorage` ao carregar, com chave por usuário/negócio (sem vazar entre contas)
+- [X] T014 [US2] Diagnosticar a remontagem: confirmar se `painel.tsx` remonta na navegação (React Query devtools) e corrigir a causa em `src/routes/_authenticated/painel.tsx`/`route.tsx` — NotificationBell/header ficam fora do `<div key={pathname}>`, não remontam; flash de reload vinha do gate `!roleLoaded` sem cache (corrigido)
+- [X] T015 [US2] Hidratar o contexto do negócio de `localStorage` (cache-first com `initialData`+`staleTime`) em `src/lib/business.tsx` — businesses + papel admin com initialData/staleTime 60s
+- [X] T016 [US2] Persistir dados estáveis do negócio em `localStorage` ao carregar, com chave por usuário/negócio (sem vazar entre contas) — chaves `agendaagora:businesses:<uid>` / `is-admin:<uid>`
 
 **Checkpoint**: US2 funcional; navegação instantânea.
 
@@ -81,14 +81,14 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US3
 
-- [ ] T017 [P] [US3] Teste unit de `shouldShowPopup(broadcast, { seenAt, dismissedIds })` em `src/lib/broadcast.test.ts`: mostra se `createdAt > seenAt` e `id ∉ dismissedIds`; respeita público-alvo/prazo
-- [ ] T018 [P] [US3] E2E em `tests/aviso-once.spec.ts`: disparar aviso, fechar, navegar e assertar não-reaparição; aviso distinto aparece
+- [X] T017 [P] [US3] Teste unit de `shouldShowPopup(broadcast, { seenAt, dismissedIds })` em `src/lib/broadcast.test.ts`: mostra se `createdAt > seenAt` e `id ∉ dismissedIds`; respeita público-alvo/prazo — 6/6 verde (schema real não tem audiences/prazo)
+- [X] T018 [P] [US3] E2E em `tests/aviso-once.spec.ts`: disparar aviso, fechar, navegar e assertar não-reaparição; aviso distinto aparece — spec criado (gated por OWNER_STORAGE_STATE)
 
 ### Implementation US3
 
-- [ ] T019 [US3] Extrair a lógica de exibição para função pura `shouldShowPopup`/store em `src/lib/notifications-store.ts` (adicionar `broadcasts-dismissed` como set de ids)
-- [ ] T020 [US3] Em `src/routes/_authenticated/painel.tsx`: carregar `seenAt`+`dismissedIds` sincronamente (lazy initializer) e marcar como **dispensado ao fechar o popup (X)**, persistindo no localStorage
-- [ ] T021 [US3] Remover a dependência de `useRef` em memória como única fonte de "já mostrado"
+- [X] T019 [US3] Extrair a lógica de exibição para função pura `shouldShowPopup`/store em `src/lib/notifications-store.ts` (adicionar `broadcasts-dismissed` como set de ids) — `broadcast.ts` (pura) + `notifications-store.ts` (seenAt + dismissed)
+- [X] T020 [US3] Em `src/routes/_authenticated/painel.tsx`: carregar `seenAt`+`dismissedIds` sincronamente (lazy initializer) e marcar como **dispensado ao fechar o popup (X)**, persistindo no localStorage — X e auto-close (8s) persistem
+- [X] T021 [US3] Remover a dependência de `useRef` em memória como única fonte de "já mostrado" — fonte de verdade agora é dismissedIds/seenAt persistidos; shownRef só otimiza o ciclo de refetch
 
 **Checkpoint**: US3 funcional; sem spam de popup.
 
