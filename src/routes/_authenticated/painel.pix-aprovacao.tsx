@@ -533,7 +533,7 @@ function PixAprovacaoPage() {
                 <td className="px-4 py-3">
                   <span className="block font-bold">{p.businessName}</span>
                   <span className="block text-[10px] font-semibold uppercase tracking-wide text-emerald-400">
-                    Carteira liberada
+                    Ag Pay liberado
                   </span>
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">

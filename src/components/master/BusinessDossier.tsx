@@ -70,7 +70,7 @@ const TABS: Array<{ id: DossierTab; label: string; icon: typeof Building2 }> = [
   { id: "agendamentos", label: "Agendamentos", icon: CalendarDays },
   { id: "clientes", label: "Clientes", icon: Users },
   { id: "assinatura", label: "Assinatura e cobranças", icon: CreditCard },
-  { id: "agpay", label: "Saldo Carteira", icon: Wallet },
+  { id: "agpay", label: "Saldo Ag Pay", icon: Wallet },
   { id: "atividade", label: "Atividade", icon: Activity },
   { id: "comercial", label: "Comercial", icon: Banknote },
   { id: "suporte", label: "Suporte", icon: LifeBuoy },
@@ -268,7 +268,7 @@ export function BusinessDossier({
     mutationFn: (blocked: boolean) =>
       accessBlockFn({ data: { businessId: businessId!, blocked } }),
     onSuccess: async (_result, blocked) => {
-      toast.success(blocked ? "Carteira bloqueada: o dono volta à tela base." : "Carteira liberada.");
+      toast.success(blocked ? "Ag Pay bloqueado: o dono volta à tela base." : "Ag Pay liberado.");
       await queryClient.invalidateQueries({ queryKey: ["carteira-flags"] });
       await queryClient.invalidateQueries({ queryKey: ["master-business-dossier"] });
     },
@@ -756,7 +756,7 @@ export function BusinessDossier({
                         label="Lembretes ativados"
                         active={!!data.business.trial || data.lastReminderAt != null}
                       />
-                      <FeatureRow label="Sinais Pix (Carteira)" active={data.deposits.total > 0} />
+                      <FeatureRow label="Sinais Pix (Ag Pay)" active={data.deposits.total > 0} />
                       <FeatureRow label="Página pública" active={!!data.business.slug} />
                       <FeatureRow
                         label="Agendamentos recebidos"
@@ -1202,7 +1202,7 @@ export function BusinessDossier({
                     <section className={card}>
                       <p className={`${sectionTitle} mb-3`}>
                         <Wallet className="size-4 text-[var(--c-5da8ff)]" />
-                        Situação da conta Carteira
+                        Situação da conta Ag Pay
                       </p>
                       <ul className="space-y-2 text-[13px]">
                         <li className="flex justify-between">

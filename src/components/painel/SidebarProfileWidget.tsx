@@ -321,17 +321,17 @@ export function SidebarProfileWidget({
         <div
           className="sbp-social-row sbp-agpay-row"
           role="group"
-          aria-label="Carteira"
+          aria-label="Ag Pay"
           ref={payRowRef}
         >
           <div
             className={`sbp-social-button sbp-agpay-button${agpayOn ? " is-active" : ""}`}
-            aria-label={agpayOn ? "Carteira ativo" : "Carteira inativo"}
+            aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
           >
             <span className="sbp-agpay-brand-lockup">
               <img className="sbp-agpay-brand-icon" src="/sidebar-agpay-icon.png" alt="" />
               <span className="sbp-agpay-name">
-                <span className="sbp-agpay-title">Carteira</span>
+                <span className="sbp-agpay-title">Ag Pay</span>
               </span>
             </span>
           </div>
@@ -394,7 +394,7 @@ export function SidebarProfileWidget({
           </div>
           <span
             className={`sbp-status-pill${agpayOn ? " is-on" : ""}`}
-            aria-label={agpayOn ? "Carteira ativo" : "Carteira inativo"}
+            aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
           >
             {agpayOn ? "ON" : "OFF"}
           </span>

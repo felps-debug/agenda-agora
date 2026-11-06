@@ -148,7 +148,7 @@ function DesempenhoSection({ overview }: { overview: PlatformOverviewData }) {
           </li>
           <li>
             <strong className="text-[var(--c-e6e9ee)]">Comissão do SaaS</strong>: comissão da
-            plataforma nos sinais Pix efetivamente pagos (Carteira).
+            plataforma nos sinais Pix efetivamente pagos (Ag Pay).
           </li>
         </ul>
       </Panel>

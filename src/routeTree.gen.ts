@@ -19,6 +19,7 @@ import { Route as AuthenticatedPainelRouteImport } from './routes/_authenticated
 import { Route as AgendarSlugRouteImport } from './routes/agendar.$slug'
 import { Route as AuthenticatedEditorTemplateIdRouteImport } from './routes/_authenticated/editor-template.$id'
 import { Route as AuthenticatedPainelIndexRouteImport } from './routes/_authenticated/painel.index'
+import { Route as AuthenticatedPainelAgpayPerformanceRouteImport } from './routes/_authenticated/painel.agpay-performance'
 import { Route as AuthenticatedPainelAparenciaEditorRouteImport } from './routes/_authenticated/painel.aparencia-editor'
 import { Route as AuthenticatedPainelAsPayRouteImport } from './routes/_authenticated/painel.as-pay'
 import { Route as AuthenticatedPainelAssinantesRouteImport } from './routes/_authenticated/painel.assinantes'
@@ -99,6 +100,12 @@ const AuthenticatedPainelIndexRoute =
   AuthenticatedPainelIndexRouteImport.update({
     id: '/',
     path: '/',
+    getParentRoute: () => AuthenticatedPainelRoute,
+  } as any)
+const AuthenticatedPainelAgpayPerformanceRoute =
+  AuthenticatedPainelAgpayPerformanceRouteImport.update({
+    id: '/agpay-performance',
+    path: '/agpay-performance',
     getParentRoute: () => AuthenticatedPainelRoute,
   } as any)
 const AuthenticatedPainelAparenciaEditorRoute =
@@ -290,6 +297,7 @@ export interface FileRoutesByFullPath {
   '/painel': typeof AuthenticatedPainelRouteWithChildren
   '/agendar/$slug': typeof AgendarSlugRoute
   '/editor-template/$id': typeof AuthenticatedEditorTemplateIdRoute
+  '/painel/agpay-performance': typeof AuthenticatedPainelAgpayPerformanceRoute
   '/painel/aparencia-editor': typeof AuthenticatedPainelAparenciaEditorRoute
   '/painel/as-pay': typeof AuthenticatedPainelAsPayRoute
   '/painel/assinantes': typeof AuthenticatedPainelAssinantesRoute
@@ -330,6 +338,7 @@ export interface FileRoutesByTo {
   '/master': typeof AuthenticatedMasterRoute
   '/agendar/$slug': typeof AgendarSlugRoute
   '/editor-template/$id': typeof AuthenticatedEditorTemplateIdRoute
+  '/painel/agpay-performance': typeof AuthenticatedPainelAgpayPerformanceRoute
   '/painel/aparencia-editor': typeof AuthenticatedPainelAparenciaEditorRoute
   '/painel/as-pay': typeof AuthenticatedPainelAsPayRoute
   '/painel/assinantes': typeof AuthenticatedPainelAssinantesRoute
@@ -373,6 +382,7 @@ export interface FileRoutesById {
   '/_authenticated/painel': typeof AuthenticatedPainelRouteWithChildren
   '/agendar/$slug': typeof AgendarSlugRoute
   '/_authenticated/editor-template/$id': typeof AuthenticatedEditorTemplateIdRoute
+  '/_authenticated/painel/agpay-performance': typeof AuthenticatedPainelAgpayPerformanceRoute
   '/_authenticated/painel/aparencia-editor': typeof AuthenticatedPainelAparenciaEditorRoute
   '/_authenticated/painel/as-pay': typeof AuthenticatedPainelAsPayRoute
   '/_authenticated/painel/assinantes': typeof AuthenticatedPainelAssinantesRoute
@@ -416,6 +426,7 @@ export interface FileRouteTypes {
     | '/painel'
     | '/agendar/$slug'
     | '/editor-template/$id'
+    | '/painel/agpay-performance'
     | '/painel/aparencia-editor'
     | '/painel/as-pay'
     | '/painel/assinantes'
@@ -456,6 +467,7 @@ export interface FileRouteTypes {
     | '/master'
     | '/agendar/$slug'
     | '/editor-template/$id'
+    | '/painel/agpay-performance'
     | '/painel/aparencia-editor'
     | '/painel/as-pay'
     | '/painel/assinantes'
@@ -498,6 +510,7 @@ export interface FileRouteTypes {
     | '/_authenticated/painel'
     | '/agendar/$slug'
     | '/_authenticated/editor-template/$id'
+    | '/_authenticated/painel/agpay-performance'
     | '/_authenticated/painel/aparencia-editor'
     | '/_authenticated/painel/as-pay'
     | '/_authenticated/painel/assinantes'
@@ -615,6 +628,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/painel/'
       preLoaderRoute: typeof AuthenticatedPainelIndexRouteImport
+      parentRoute: typeof AuthenticatedPainelRoute
+    }
+    '/_authenticated/painel/agpay-performance': {
+      id: '/_authenticated/painel/agpay-performance'
+      path: '/agpay-performance'
+      fullPath: '/painel/agpay-performance'
+      preLoaderRoute: typeof AuthenticatedPainelAgpayPerformanceRouteImport
       parentRoute: typeof AuthenticatedPainelRoute
     }
     '/_authenticated/painel/aparencia-editor': {
@@ -831,6 +851,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedPainelRouteChildren {
+  AuthenticatedPainelAgpayPerformanceRoute: typeof AuthenticatedPainelAgpayPerformanceRoute
   AuthenticatedPainelAparenciaEditorRoute: typeof AuthenticatedPainelAparenciaEditorRoute
   AuthenticatedPainelAsPayRoute: typeof AuthenticatedPainelAsPayRoute
   AuthenticatedPainelAssinantesRoute: typeof AuthenticatedPainelAssinantesRoute
@@ -860,6 +881,8 @@ interface AuthenticatedPainelRouteChildren {
 }
 
 const AuthenticatedPainelRouteChildren: AuthenticatedPainelRouteChildren = {
+  AuthenticatedPainelAgpayPerformanceRoute:
+    AuthenticatedPainelAgpayPerformanceRoute,
   AuthenticatedPainelAparenciaEditorRoute:
     AuthenticatedPainelAparenciaEditorRoute,
   AuthenticatedPainelAsPayRoute: AuthenticatedPainelAsPayRoute,

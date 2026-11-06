@@ -162,7 +162,7 @@ function TransacoesPage() {
               Transações
             </h1>
             <p className="text-sm text-muted-foreground">
-              Depósitos e saques de todos os usuários da Carteira.
+              Depósitos e saques de todos os usuários do Ag Pay.
             </p>
           </div>
         </div>
@@ -226,7 +226,7 @@ function TransacoesPage() {
             tone={TONE_GREEN}
             label="Total processado"
             value={money(metrics.totalProcessedCents)}
-            hint="volume confirmado na Carteira"
+            hint="volume confirmado no Ag Pay"
           />
         </div>
       )}
@@ -340,7 +340,7 @@ function TransacoesPage() {
                 <th className="py-3 px-4">Cliente</th>
                 <th className="py-3 px-4">Tipo</th>
                 <th className="py-3 px-4">Valor bruto</th>
-                <th className="py-3 px-4">Lucro Carteira</th>
+                <th className="py-3 px-4">Lucro Ag Pay</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Data</th>
                 <th className="py-3 px-4 text-center">Ações</th>

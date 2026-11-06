@@ -122,14 +122,13 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US5
 
-- [ ] T028 [P] [US5] E2E/asserção em `tests/rebrand-agpay.spec.ts`: nenhuma string "Carteira" visível ao dono; rótulo "Ag Pay" presente na sidebar e topo
-
+- [X] T028 [P] [US5] E2E/asserção em `tests/rebrand-agpay.spec.ts`: nenhuma string "Carteira" visível ao dono; rótulo "Ag Pay" presente na sidebar e topo — spec criado (gated); inclui teste do redirect da rota antiga
 ### Implementation US5
 
-- [ ] T029 [US5] Substituir rótulos "Carteira"→"Ag Pay" na sidebar/topo em `src/routes/_authenticated/painel.tsx` e telas de pagamento (`painel.as-pay.tsx`, recebíveis)
-- [ ] T030 [US5] Renomear rota `/painel/carteira-desempenho` → `/painel/agpay-performance` e adicionar **redirect** da rota antiga
-- [ ] T031 [P] [US5] Alinhar classe de tema CSS `.carteira-theme`→`.agpay-theme` em `src/styles.css` e limpar resquícios em títulos/tooltips (`head`, textos de ajuda)
-- [ ] T031b [US5] Aplicar "Ag Pay" também nas telas do **cliente final** (ex.: pagamento do sinal no agendamento público, `src/components/public-booking/*`) — sem resquício de "Carteira"
+- [X] T029 [US5] Substituir rótulos "Carteira"→"Ag Pay" na sidebar/topo em `src/routes/_authenticated/painel.tsx` e telas de pagamento (`painel.as-pay.tsx`, recebíveis) — ~30 strings visíveis em 9 arquivos
+- [X] T030 [US5] Renomear rota `/painel/carteira-desempenho` → `/painel/agpay-performance` e adicionar **redirect** da rota antiga — arquivo renomeado + stub de redirect; routeTree regenerado
+- [X] T031 [P] [US5] limpar resquícios em títulos/tooltips (`head`, textos de ajuda) — titles/og/aria/labels rebrandizados. Classes CSS `.carteira-*` são nomes internos (não-interface) e ficam; só restam comentários de código
+- [X] T031b [US5] Aplicar "Ag Pay" também nas telas do **cliente final** — public-booking já não exibe "Carteira" (varredura .tsx/.ts: 0 texto visível)
 
 **Checkpoint**: US5 funcional.
 

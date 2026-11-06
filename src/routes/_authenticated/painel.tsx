@@ -194,7 +194,7 @@ const nav = [
   {
     title: "Financeiro",
     items: [
-      { to: "/painel/as-pay", label: "Carteira", hint: "Saldo dos sinais", icon: Gem },
+      { to: "/painel/as-pay", label: "Ag Pay", hint: "Saldo dos sinais", icon: Gem },
       {
         to: "/painel/relatorio",
         label: "Relatório",
@@ -294,9 +294,9 @@ const platformNav = [
         icon: KeyRound,
       },
       {
-        to: "/painel/carteira-desempenho",
-        label: "Carteira — Performance",
-        hint: "Performance financeira da Carteira",
+        to: "/painel/agpay-performance",
+        label: "Ag Pay — Performance",
+        hint: "Performance financeira do Ag Pay",
         icon: TrendingUp,
       },
     ],

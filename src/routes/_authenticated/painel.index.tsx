@@ -1108,7 +1108,7 @@ function AgendaPage() {
                     {selected.deposit_paid_at ? (
                       <div className="flex items-center justify-between gap-2 rounded-md border border-[#3f9142]/40 bg-[#12351d]/70 px-2.5 py-1.5">
                         <span className="text-xs font-semibold text-[#7ee08a]">
-                          Pagamento via pix Carteira
+                          Pagamento via Pix Ag Pay
                         </span>
                         <span className="text-xs font-bold text-[#7ee08a]">
                           {formatPrice(selected.deposit_cents ?? 0)}

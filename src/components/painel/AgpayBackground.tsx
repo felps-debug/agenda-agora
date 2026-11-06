@@ -65,7 +65,7 @@ const systemThemeColors = () => {
 export function AgpayBackground({
   accent = systemThemeColors().accent,
   light = systemThemeColors().light,
-  words = ["CARTEIRA", "PIX", "PAGAMENTOS", "SINAIS", "CARTEIRA", "SEGURO", "CARTEIRA"],
+  words = ["AG PAY", "PIX", "PAGAMENTOS", "SINAIS", "AG PAY", "SEGURO", "AG PAY"],
   morphAccentTo,
   morphLightTo,
   morphDelayMs = 500,

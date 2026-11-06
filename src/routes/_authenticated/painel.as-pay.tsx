@@ -207,9 +207,9 @@ function AgpayFeatures() {
 export const Route = createFileRoute("/_authenticated/painel/as-pay")({
   head: () => ({
     meta: [
-      { title: "Carteira — Agenda Agora" },
+      { title: "Ag Pay — Agenda Agora" },
       { name: "description", content: "Saldo dos sinais pagos pelos clientes para agendar." },
-      { property: "og:title", content: "Carteira — Agenda Agora" },
+      { property: "og:title", content: "Ag Pay — Agenda Agora" },
       { property: "og:description", content: "Saldo dos sinais pagos pelos clientes." },
     ],
   }),
@@ -1535,14 +1535,14 @@ function AsPayPage() {
             morphDurationMs={1200}
             goldEdges
             goldWash
-            words={["CARTEIRA", "PIX", "SALDO", "GATEWAY", "CARTEIRA", "PAGAMENTO", "CARTEIRA"]}
+            words={["AG PAY", "PIX", "SALDO", "GATEWAY", "AG PAY", "PAGAMENTO", "AG PAY"]}
           />
           <div className="relative z-10 mx-auto max-w-xl text-center">
             <p className="lembretes-hero-eyebrow lembretes-fade-slide-up lembretes-delay-1">
-              Carteira <span className="ew-white">Carteira</span>
+              Ag Pay <span className="ew-white">Ag Pay</span>
             </p>
             <h1 className="lembretes-hero-title lembretes-fade-slide-up lembretes-delay-2 mx-auto mt-4 max-w-md">
-              Seu saldo <span>Carteira</span>
+              Seu saldo <span>Ag Pay</span>
             </h1>
             <p className="lembretes-hero-sub lembretes-fade-slide-up lembretes-delay-3 mx-auto mt-6 max-w-md">
               Receba sinais via Pix, acompanhe o saldo e crie cobranças com velocidade e segurança.
@@ -1571,7 +1571,7 @@ function AsPayPage() {
                 pixApproval === undefined ? "cursor-wait opacity-70" : ""
               }`}
             >
-              Abrir Carteira
+              Abrir Ag Pay
               <ChevronRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
             </button>
             <button
@@ -2001,7 +2001,7 @@ function AsPayPage() {
                         Senha de transferência
                       </p>
                       <p className="mx-auto mt-1.5 max-w-[17rem] text-center text-xs leading-snug text-[#b8bec7]">
-                        É a senha cadastrada na sua carteira Carteira. Ela é solicitada a cada
+                        É a senha cadastrada no seu Ag Pay. Ela é solicitada a cada
                         transação.
                       </p>
                       <label
