@@ -263,3 +263,18 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 - Cartão (US7) permanece requisito, entrega adiada até o AgPay expor a API.
 - Testes antes da implementação em cada história (TDD): escrever, ver falhar, implementar.
 - Não atualizar pacotes TanStack fixados.
+
+---
+
+## Phase 13: Convergence
+
+> Gerada por `/speckit-converge` (2026-11-07). Lacunas entre o estado atual do código e
+> spec/plan/tasks. Ordenado por severidade (CRITICAL/HIGH primeiro). Cartão (T041–T046)
+> não é re-listado: continua bloqueado por credencial VeoPag.
+
+- [ ] T061 CRITICAL: rotacionar/invalidar no Supabase o token da sessão que estava em `public/__tmp_master_session.json` e expurgar o arquivo do histórico git (o arquivo foi removido do working tree em T057, mas permanece no histórico e o token segue válido) — per `plan: "segredos só em .env.local/ambiente"` (contradicts)
+- [ ] T062 HIGH: tornar a renovação de `access_until` re-executável em `confirmSubscriptionCharge` (`src/lib/agpay-events.server.ts`) — hoje a transição `pending→paid` consome a idempotência antes de renovar; se o update de `businesses` (ou o insert em `subscription_payments`) falhar depois, o retry vê `paid` e devolve `already_paid`, deixando o acesso sem estender apesar do pagamento. Garantir que o acesso reflita `period_end` mesmo quando a cobrança já está `paid` per FR-010 / US7-AC (partial)
+- [ ] T063 MEDIUM: em `src/components/painel/SubscriptionPixPayment.tsx`, tratar `qrCode` vazio retornado pelo AgPay com erro claro + ação de "tentar de novo" (hoje mostra um card "aguardando" sem QR e com `copy()` no-op) per FR-010 / US7 (partial)
+- [ ] T064 MEDIUM: adicionar teste de banco (ensaio, `npm run test:db`) cobrindo `createSubscriptionCharge` (Pix) + `confirmSubscriptionCharge` (webhook idempotente, renovação de `access_until`, histórico em `subscription_payments`) per FR-013 / data-model (T036 follow-up) (partial)
+- [ ] T065 LOW: verificar/aplicar o rótulo "Ag Pay" no pagamento do sinal no agendamento público (`src/components/public-booking/*`) — o rebrand confirmou ausência de "Carteira" lá, mas não a presença de "Ag Pay" exigida pela cláusula "cliente final"; respeitar o guard `brand-privacy.test.ts` per FR-008 (partial)
+- [ ] T066 LOW: unificar a fonte da taxa de depósito (constante hardcoded em `src/lib/ledger.server.ts` × `agpay_fees` em `platform-settings`), hoje coincidentes em R$0,75 — pende aval (decisão financeira) registrado em `split-review.md` per SC-010 / FR-014 (partial)
