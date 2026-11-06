@@ -28,6 +28,11 @@ class FakeQuery {
     this.patch = patch;
     return this;
   }
+  async insert(row: Row) {
+    const rows = (runtime.tables[this.table] ??= []);
+    rows.push({ id: `${this.table}-${rows.length + 1}`, ...row });
+    return { data: null, error: null };
+  }
   async upsert(row: Row, options: { onConflict?: string; ignoreDuplicates?: boolean }) {
     const rows = (runtime.tables[this.table] ??= []);
     const conflict = options.onConflict;
@@ -171,6 +176,7 @@ vi.mock("./whatsapp-notify.server", () => ({
 const {
   cancelPendingDeposit,
   confirmDepositPayment,
+  confirmSubscriptionCharge,
   expirePendingDeposits,
   persistAgpayWebhookEvent,
   processAgpayWebhookEvents,
@@ -561,6 +567,62 @@ describe("eventos de pagamento AgPay", () => {
         await processAgpayWebhookEvents();
         expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "failed", attempts: round });
       }
+    });
+  });
+});
+
+describe("confirmSubscriptionCharge (US7 — renovação idempotente/auto-curável)", () => {
+  const SUB = "tx-sub-1";
+  const BIZ = "0b000000-0000-4000-8000-000000000001";
+  const TARGET = "2026-12-20T03:00:00.000Z";
+
+  function seedSub(chargeStatus: string, accessUntil: string | null) {
+    runtime.tables = {
+      subscription_charges: [
+        {
+          id: "sc-1",
+          business_id: BIZ,
+          provider_payment_id: SUB,
+          status: chargeStatus,
+          amount_cents: 8990,
+          period_end: TARGET,
+        },
+      ],
+      businesses: [{ id: BIZ, access_until: accessUntil }],
+      subscription_payments: [],
+    };
+  }
+
+  it("renova o acesso ao pagar e não estende duas vezes no retry", async () => {
+    seedSub("pending", null);
+    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({ outcome: "renewed" });
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(TARGET);
+    expect(runtime.tables["subscription_payments"]!).toHaveLength(1);
+
+    // Retry (webhook reentregue): não estende de novo, não duplica histórico.
+    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({ outcome: "already_paid" });
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(TARGET);
+    expect(runtime.tables["subscription_payments"]!).toHaveLength(1);
+  });
+
+  it("auto-cura: cobrança já 'paid' mas acesso não aplicado é renovado no retry", async () => {
+    // Simula uma falha parcial anterior: marcou paid mas não renovou o acesso.
+    seedSub("paid", null);
+    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({ outcome: "already_paid" });
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(TARGET);
+  });
+
+  it("nunca encurta o acesso vigente quando já é maior que o alvo", async () => {
+    const future = "2027-03-01T03:00:00.000Z";
+    seedSub("pending", future);
+    await confirmSubscriptionCharge(SUB);
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(future);
+  });
+
+  it("devolve not_found para provider_payment_id desconhecido", async () => {
+    seedSub("pending", null);
+    await expect(confirmSubscriptionCharge("tx-inexistente")).resolves.toEqual({
+      outcome: "not_found",
     });
   });
 });

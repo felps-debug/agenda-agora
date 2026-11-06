@@ -39,8 +39,11 @@ export function SubscriptionPixPayment({
     mutationFn: async () => {
       const result = await createFn({ data: { businessId, method: "pix" } });
       const qr = result.qrCode?.trim();
-      const qrImageUrl = qr ? await QRCode.toDataURL(qr, { margin: 1, width: 300 }).catch(() => null) : null;
-      return { chargeId: result.chargeId, qrCode: qr ?? "", qrImageUrl };
+      if (!qr) {
+        throw new Error("O código Pix ainda não está disponível. Tente novamente em instantes.");
+      }
+      const qrImageUrl = await QRCode.toDataURL(qr, { margin: 1, width: 300 }).catch(() => null);
+      return { chargeId: result.chargeId, qrCode: qr, qrImageUrl };
     },
     onSuccess: (result) => {
       setNeedsCpf(false);
