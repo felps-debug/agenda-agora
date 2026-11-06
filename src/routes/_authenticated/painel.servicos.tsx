@@ -8,7 +8,13 @@ import { ImagePlus, Pencil, Plus, Scissors, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
-import { LOGO_BUCKET, decodeBusinessImageFile, validateLogoFile } from "@/lib/logo";
+import {
+  BUSINESS_IMAGE_ACCEPT,
+  LOGO_BUCKET,
+  decodeBusinessImageFile,
+  normalizeImageFile,
+  validateLogoFile,
+} from "@/lib/logo";
 import { effectiveDepositCents, percentToBps, type DepositMode } from "@/lib/deposit-amount";
 import { saveService } from "@/lib/services.functions";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
@@ -393,12 +399,20 @@ function ServicosPage() {
   const handleImageSelect = async (file?: File) => {
     if (!file || !businessId) return;
     setImageError(null);
-    const signature = await validateLogoFile(file, "service");
+    // US4: converte HEIC/HEIF (foto de iPhone) para JPEG antes de validar/recortar.
+    let normalized: File;
+    try {
+      normalized = await normalizeImageFile(file);
+    } catch {
+      setImageError("Não foi possível processar essa imagem. Tente converter para JPEG e reenviar.");
+      return;
+    }
+    const signature = await validateLogoFile(normalized, "service");
     if (!signature.valid) {
       setImageError(signature.message);
       return;
     }
-    setCropFile(file);
+    setCropFile(normalized);
     setCropOpen(true);
   };
 
@@ -685,12 +699,13 @@ function ServicosPage() {
                           : "Adicionar imagem do serviço"}
                     </span>
                     <span id="service-image-hint" className="mt-1 text-xs text-muted-foreground">
-                      PNG, JPEG ou WebP, até 5 MB. Ela aparece somente nos detalhes do serviço.
+                      PNG, JPEG, WebP ou HEIC (iPhone), até 5 MB. Ela aparece somente nos detalhes do
+                      serviço.
                     </span>
                     <input
                       className="sr-only"
                       type="file"
-                      accept="image/png,image/jpeg,image/webp"
+                      accept={BUSINESS_IMAGE_ACCEPT}
                       disabled={uploading}
                       aria-describedby={
                         imageError ? "service-image-hint service-image-error" : "service-image-hint"

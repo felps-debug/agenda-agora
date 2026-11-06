@@ -3,9 +3,10 @@ import { toast } from "sonner";
 import { Camera } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  LOGO_ACCEPT,
+  BUSINESS_IMAGE_ACCEPT,
   LOGO_BUCKET,
   decodeBusinessImageFile,
+  normalizeImageFile,
   validateLogoFile,
 } from "@/lib/logo";
 import { friendlyError } from "@/lib/error-page";
@@ -74,13 +75,22 @@ export function ProfessionalPhotoField({
   const handleImageSelect = async (file?: File) => {
     if (!file || !businessId) return;
     setImageError(null);
-    const signature = await validateLogoFile(file);
-    if (!signature.valid) {
-      setImageError(signature.message);
-      toast.error("Escolha uma foto PNG, JPEG ou WebP de até 5 MB.");
+    // US4: converte HEIC/HEIF (foto de iPhone) para JPEG antes de validar/recortar.
+    let normalized: File;
+    try {
+      normalized = await normalizeImageFile(file);
+    } catch {
+      setImageError("Não foi possível processar essa foto. Tente converter para JPEG e reenviar.");
+      toast.error("Não foi possível processar essa foto.");
       return;
     }
-    setCropFile(file);
+    const signature = await validateLogoFile(normalized);
+    if (!signature.valid) {
+      setImageError(signature.message);
+      toast.error("Escolha uma foto PNG, JPEG, WebP ou HEIC de até 5 MB.");
+      return;
+    }
+    setCropFile(normalized);
     setCropOpen(true);
   };
 
@@ -93,7 +103,7 @@ export function ProfessionalPhotoField({
         <input
           ref={inputRef}
           type="file"
-          accept={LOGO_ACCEPT}
+          accept={BUSINESS_IMAGE_ACCEPT}
           className="hidden"
           aria-label="Selecionar foto do profissional"
           onChange={(event) => {

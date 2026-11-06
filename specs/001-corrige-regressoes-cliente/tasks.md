@@ -101,15 +101,15 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US4
 
-- [ ] T022 [P] [US4] Teste unit em `src/lib/logo.test.ts`: aceita formatos comuns, aciona conversão p/ não-exibível, recusa não-imagem com mensagem clara, aplica limite de 5 MB pós-conversão
-- [ ] T023 [P] [US4] E2E em `tests/service-image-upload.spec.ts`: upload de HEIC convertido e PDF recusado em Editar serviço → Imagem
+- [X] T022 [P] [US4] Teste unit em `src/lib/logo.test.ts`: aceita formatos comuns, aciona conversão p/ não-exibível, recusa não-imagem com mensagem clara, aplica limite de 5 MB pós-conversão — 19/19 verde (6 novos US4)
+- [X] T023 [P] [US4] E2E em `tests/service-image-upload.spec.ts`: upload de HEIC convertido e PDF recusado em Editar serviço → Imagem — spec criado (gated por OWNER_STORAGE_STATE)
 
 ### Implementation US4
 
-- [ ] T024 [US4] Estender `validateLogoFile`/`decodeBusinessImageFile` em `src/lib/logo.ts` para aceitar mais tipos e normalizar via canvas
-- [ ] T025 [US4] Conversão HEIC/HEIF via **import dinâmico** de `heic2any` (só quando o tipo for HEIC) em `src/lib/logo.ts`
-- [ ] T026 [US4] Ajustar `accept` e textos do input em `src/routes/_authenticated/painel.servicos.tsx` (não travar seleção de formatos válidos)
-- [ ] T027 [P] [US4] Aplicar a mesma regra ao upload de logo/foto de profissional (`src/components/painel/ProfessionalPhotoField.tsx`) se compartilham o validador
+- [X] T024 [US4] Estender `validateLogoFile`/`decodeBusinessImageFile` em `src/lib/logo.ts` para aceitar mais tipos e normalizar — `normalizeImageFile` + `isHeicImage` + `BUSINESS_IMAGE_ACCEPT`
+- [X] T025 [US4] Conversão HEIC/HEIF via **import dinâmico** de `heic2any` (só quando o tipo for HEIC) em `src/lib/logo.ts` — `defaultHeicConverter` com `await import("heic2any")`
+- [X] T026 [US4] Ajustar `accept` e textos do input em `src/routes/_authenticated/painel.servicos.tsx` (não travar seleção de formatos válidos) — accept amplo + normaliza antes de validar
+- [X] T027 [P] [US4] Aplicar a mesma regra ao upload de logo/foto de profissional (`src/components/painel/ProfessionalPhotoField.tsx`) se compartilham o validador — aplicado (mesmo validador)
 
 **Checkpoint**: US4 funcional.
 

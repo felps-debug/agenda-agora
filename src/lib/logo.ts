@@ -13,6 +13,59 @@ import {
 export const LOGO_BUCKET = "business-logos";
 export const LOGO_MAX_SIZE_BYTES = 5 * 1024 * 1024;
 export const LOGO_ACCEPT = "image/png,image/jpeg,image/webp";
+/**
+ * Accept amplo para seletor de arquivos (US4): além de PNG/JPEG/WebP, aceita
+ * HEIC/HEIF (fotos de iPhone) — convertidos para JPEG antes do upload. Mantém
+ * `.heic`/`.heif` por extensão porque alguns celulares enviam type vazio.
+ */
+export const BUSINESS_IMAGE_ACCEPT =
+  "image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif";
+
+const HEIC_MIME_TYPES = new Set([
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
+]);
+
+/** Detecta HEIC/HEIF por MIME type ou, quando o type vem vazio (comum em celular), pela extensão. */
+export function isHeicImage(file: Pick<File, "type" | "name">): boolean {
+  if (HEIC_MIME_TYPES.has((file.type ?? "").toLowerCase())) return true;
+  if (!file.type || file.type === "application/octet-stream") {
+    return /\.(heic|heif)$/i.test(file.name ?? "");
+  }
+  return false;
+}
+
+export type HeicConverter = (blob: Blob) => Promise<Blob>;
+
+/** Converte HEIC→JPEG via heic2any, carregado por import dinâmico só quando necessário. */
+async function defaultHeicConverter(blob: Blob): Promise<Blob> {
+  const mod = await import("heic2any");
+  const heic2any = (mod as unknown as { default?: HeicConverter }).default ?? (mod as unknown as HeicConverter);
+  const out = await (heic2any as (opts: { blob: Blob; toType: string; quality?: number }) => Promise<Blob | Blob[]>)({
+    blob,
+    toType: "image/jpeg",
+    quality: 0.92,
+  });
+  return Array.isArray(out) ? out[0] : out;
+}
+
+/**
+ * Normaliza a imagem escolhida para um formato suportado antes do upload (US4).
+ * HEIC/HEIF é convertido para JPEG; os demais formatos passam direto (o cropper
+ * da UI re-encoda PNG/JPEG no fluxo seguinte). O limite de 5 MB é aplicado
+ * depois, em `validateLogoFile`, sobre o arquivo já convertido.
+ */
+export async function normalizeImageFile(
+  file: File,
+  convertHeic: HeicConverter = defaultHeicConverter,
+): Promise<File> {
+  if (!isHeicImage(file)) return file;
+  const converted = await convertHeic(file);
+  const base = (file.name ?? "imagem").replace(/\.[^.]+$/, "");
+  return new File([converted], `${base}.jpg`, { type: "image/jpeg" });
+}
 
 const logoExtensions = new Map([
   ["image/png", "png"],

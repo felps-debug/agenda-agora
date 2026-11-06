@@ -11,6 +11,9 @@ import {
   decodeBusinessImageFile,
   getBusinessImageUrl,
   getLogoUrl,
+  isHeicImage,
+  LOGO_MAX_SIZE_BYTES,
+  normalizeImageFile,
   validateLogoFile,
 } from "./logo";
 
@@ -127,5 +130,72 @@ describe("validação do arquivo de imagem", () => {
         "logo",
       ),
     ).rejects.toThrow(/imagem PNG, JPEG ou WebP válida/);
+  });
+});
+
+describe("upload de imagem aceita mais formatos + converte HEIC (US4)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const pngSignature = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const jpegSignature = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
+  const webpSignature = Uint8Array.from([
+    0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+  ]);
+
+  it("detecta HEIC/HEIF por MIME e por extensão (type vazio de celular)", () => {
+    expect(isHeicImage({ type: "image/heic", name: "foto.HEIC" })).toBe(true);
+    expect(isHeicImage({ type: "image/heif", name: "foto.heif" })).toBe(true);
+    expect(isHeicImage({ type: "", name: "IMG_0001.heic" })).toBe(true);
+    expect(isHeicImage({ type: "application/octet-stream", name: "IMG.HEIF" })).toBe(true);
+    expect(isHeicImage({ type: "image/jpeg", name: "foto.jpg" })).toBe(false);
+    expect(isHeicImage({ type: "", name: "foto.jpg" })).toBe(false);
+  });
+
+  it("converte HEIC para JPEG via conversor injetado (import dinâmico na prod)", async () => {
+    const convert = vi
+      .fn<(blob: Blob) => Promise<Blob>>()
+      .mockResolvedValue(new Blob([jpegSignature], { type: "image/jpeg" }));
+    const heic = new File([new Uint8Array([0, 0, 0, 0])], "IMG_0001.heic", { type: "image/heic" });
+    const out = await normalizeImageFile(heic, convert);
+    expect(convert).toHaveBeenCalledOnce();
+    expect(out.type).toBe("image/jpeg");
+    expect(out.name).toBe("IMG_0001.jpg");
+  });
+
+  it("não converte quem já é exibível (passa direto, sem baixar o conversor)", async () => {
+    const convert = vi.fn<(blob: Blob) => Promise<Blob>>();
+    const png = new File([pngSignature], "arte.png", { type: "image/png" });
+    const out = await normalizeImageFile(png, convert);
+    expect(convert).not.toHaveBeenCalled();
+    expect(out).toBe(png);
+  });
+
+  it("aceita JPEG e WebP válidos após normalização", async () => {
+    await expect(
+      validateLogoFile(new Blob([jpegSignature], { type: "image/jpeg" }) as File, "service"),
+    ).resolves.toEqual({ valid: true, extension: "jpg" });
+    await expect(
+      validateLogoFile(new Blob([webpSignature], { type: "image/webp" }) as File, "service"),
+    ).resolves.toEqual({ valid: true, extension: "webp" });
+  });
+
+  it("recusa não-imagem (PDF) com mensagem clara de serviço", async () => {
+    const pdf = new Blob([Uint8Array.from([0x25, 0x50, 0x44, 0x46])], {
+      type: "application/pdf",
+    }) as File;
+    const v = await validateLogoFile(pdf, "service");
+    expect(v.valid).toBe(false);
+    if (!v.valid) expect(v.message).toContain("imagem do serviço");
+  });
+
+  it("aplica o limite de 5 MB após a conversão", async () => {
+    const big = {
+      type: "image/jpeg",
+      size: LOGO_MAX_SIZE_BYTES + 1,
+      arrayBuffer: async () => jpegSignature.buffer,
+    };
+    const v = await validateLogoFile(big, "service");
+    expect(v.valid).toBe(false);
+    if (!v.valid) expect(v.message).toMatch(/5 MB/);
   });
 });
