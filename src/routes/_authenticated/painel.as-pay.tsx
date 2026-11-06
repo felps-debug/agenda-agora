@@ -380,9 +380,27 @@ function ServiceDepositPanel({ businessId }: { businessId: string }) {
         Configure o valor fixo ou percentual cobrado como sinal nos agendamentos.
       </p>
 
-      <div className="mt-4 inline-flex rounded-lg border border-[#2c2c31] bg-[#101013] p-1" role="group" aria-label="Unidade do sinal">
-        <button type="button" onClick={() => changeUnit("fixed")} aria-pressed={unit === "fixed"} className={`rounded-md px-3 py-2 text-sm ${unit === "fixed" ? "bg-[#e8b93e] text-black" : "text-[#b8bec7]"}`}>Valor em reais</button>
-        <button type="button" onClick={() => changeUnit("percent")} aria-pressed={unit === "percent"} className={`rounded-md px-3 py-2 text-sm ${unit === "percent" ? "bg-[#e8b93e] text-black" : "text-[#b8bec7]"}`}>Percentual</button>
+      <div
+        className="mt-4 inline-flex rounded-lg border border-[#2c2c31] bg-[#101013] p-1"
+        role="group"
+        aria-label="Unidade do sinal"
+      >
+        <button
+          type="button"
+          onClick={() => changeUnit("fixed")}
+          aria-pressed={unit === "fixed"}
+          className={`rounded-md px-3 py-2 text-sm ${unit === "fixed" ? "bg-[#e8b93e] text-black" : "text-[#b8bec7]"}`}
+        >
+          Valor em reais
+        </button>
+        <button
+          type="button"
+          onClick={() => changeUnit("percent")}
+          aria-pressed={unit === "percent"}
+          className={`rounded-md px-3 py-2 text-sm ${unit === "percent" ? "bg-[#e8b93e] text-black" : "text-[#b8bec7]"}`}
+        >
+          Percentual
+        </button>
       </div>
 
       <div className="mt-3 overflow-hidden rounded-xl border border-[#2c2c31] bg-[#101013]">
@@ -428,9 +446,7 @@ function ServiceDepositPanel({ businessId }: { businessId: string }) {
                     r.id === row.id
                       ? {
                           ...r,
-                          amount: e.target.value
-                            .replace(/[^0-9,]/g, "")
-                            .slice(0, 8),
+                          amount: e.target.value.replace(/[^0-9,]/g, "").slice(0, 8),
                         }
                       : r,
                   ),
@@ -1380,7 +1396,9 @@ function AsPayPage() {
           throw new Error(`Salvar chave: ${rawMessage(err)}`);
         }
         try {
-          pixSubmitResult = await submitPixApprovalFn({ data: { businessId, keyType: pixKeyType, key } });
+          pixSubmitResult = await submitPixApprovalFn({
+            data: { businessId, keyType: pixKeyType, key },
+          });
         } catch (err) {
           throw new Error(`Enviar para análise: ${rawMessage(err)}`);
         }
@@ -1392,9 +1410,7 @@ function AsPayPage() {
       }
       const autoAprovado = jaAprovado || pixSubmitResult?.autoAprovado === true;
       toast.success(
-        autoAprovado
-          ? "Chave Pix já aprovada pelo suporte."
-          : "Chave Pix enviada para aprovação.",
+        autoAprovado ? "Chave Pix já aprovada pelo suporte." : "Chave Pix enviada para aprovação.",
       );
       await queryClient.invalidateQueries({ queryKey: ["pix-key-approval", businessId] });
       await queryClient.invalidateQueries({
@@ -1491,7 +1507,7 @@ function AsPayPage() {
                   />
                   Em análise
                 </span>
-              <p className="overflow-x-auto whitespace-nowrap rounded-2xl bg-[#1d1a10] px-4 py-3.5 text-center text-sm text-[#f3d27a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <p className="overflow-x-auto whitespace-nowrap rounded-2xl bg-[#1d1a10] px-4 py-3.5 text-center text-sm text-[#f3d27a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                   {keyPendente || "—"}
                 </p>
               </div>
@@ -1636,192 +1652,192 @@ function AsPayPage() {
                   {sheetStep === "pix" ? (
                     <>
                       <p className="mt-6 text-[1.29rem] font-light leading-snug text-white">
-                      Configure sua <strong className="font-bold">Chave Pix</strong> para o
-                      recebimento dos valores que serão intermediados e processados pela empresa{" "}
-                      <strong className="font-bold">Agenda Agora</strong>.
-                    </p>
-                    <div className="carteira-pix-sheet-input mt-8 flex items-center gap-2 !px-3 !text-left">
-                      <div ref={typeWrapRef} className="relative shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setSheetTypeOpen((v) => !v)}
-                          aria-expanded={sheetTypeOpen}
-                          aria-label="Tipo de chave Pix"
-                          className="flex items-center gap-1 rounded-full bg-black/10 px-2.5 py-1 text-[1.2rem] font-light leading-none tracking-tight text-black"
-                        >
-                          {pixKeyTypeLabel[pixKeyType]}
-                          <ChevronUp
-                            className={`size-3.5 transition-transform ${sheetTypeOpen ? "" : "rotate-180"}`}
-                            aria-hidden="true"
-                          />
-                        </button>
-                        {sheetTypeOpen && (
-                          <div
-                            className={`carteira-type-drop absolute left-0 top-full z-10 mt-1 min-w-[9rem] overflow-hidden rounded-xl bg-white shadow-xl ${sheetTypeClosing ? "closing" : ""}`}
+                        Configure sua <strong className="font-bold">Chave Pix</strong> para o
+                        recebimento dos valores que serão intermediados e processados pela empresa{" "}
+                        <strong className="font-bold">Agenda Agora</strong>.
+                      </p>
+                      <div className="carteira-pix-sheet-input mt-8 flex items-center gap-2 !px-3 !text-left">
+                        <div ref={typeWrapRef} className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setSheetTypeOpen((v) => !v)}
+                            aria-expanded={sheetTypeOpen}
+                            aria-label="Tipo de chave Pix"
+                            className="flex items-center gap-1 rounded-full bg-black/10 px-2.5 py-1 text-[1.2rem] font-light leading-none tracking-tight text-black"
                           >
-                            {withdrawalPixKeyTypes.map((type) => (
-                              <button
-                                key={type}
-                                type="button"
-                                onClick={() => {
-                                  setPixKeyType(type);
-                                  // Reaplica a pontuação do padrão brasileiro Pix ao trocar o tipo.
-                                  setSheetPixKey(maskPixKey(type, sheetPixKey));
-                                  setSheetTypeOpen(false);
-                                  setSheetTypeClosing(false);
-                                }}
-                                className={`block w-full px-3 py-2 text-left text-[1.2rem] font-light leading-none tracking-tight transition-colors hover:bg-black/5 ${
-                                  pixKeyType === type ? "text-black" : "text-[var(--c-9ca3af)]"
-                                }`}
-                              >
-                                {pixKeyTypeLabel[type]}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <input
-                        value={sheetPixKey}
-                        onChange={(event) =>
-                          setSheetPixKey(maskPixKey(pixKeyType, event.target.value))
-                        }
-                        onFocus={closeTypeDrop}
-                        placeholder={pixKeyMaskHint[pixKeyType]}
-                        aria-label="Sua chave Pix"
-                        className="min-w-0 flex-1 bg-transparent text-[1.35rem] font-light leading-none tracking-tight text-[var(--c-4b5563)] outline-none placeholder:text-[var(--c-9ca3af)]"
-                      />
-                    </div>
-                    <p className="mt-8 text-[1.2rem] font-light leading-snug text-white">
-                      Para a sua segurança, a chave será encaminhada para aprovação e nossa equipe
-                      irá validar e verificar sua chave Pix para garantir a titularidade.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={!sheetPixKey.trim()}
-                      onClick={() => setSheetStep("pin")}
-                      className="carteira-pix-sheet-advance mt-8 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Avançar
-                      <ChevronRight
-                        className="size-5 shrink-0"
-                        strokeWidth={2.5}
-                        aria-hidden="true"
-                      />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={openWallet}
-                      className="mt-4 text-[1.15rem] font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
-                    >
-                      Configurar mais tarde
-                    </button>
-                  </>
-                ) : sheetStep === "pin" ? (
-                  <>
-                    <p className="carteira-pix-sheet-title mt-6">Senha de transferência</p>
-                    <p className="mt-2 text-[1.1rem] font-light leading-snug text-white/80">
-                      É uma senha que será solicitada sempre que você for executar uma transação da
-                      sua carteira
-                    </p>
-                    <label
-                      htmlFor="carteira-pin"
-                      className="mt-8 block text-[1.1rem] font-light text-white/80"
-                    >
-                      Digite uma senha de 4 dígitos
-                    </label>
-                    <input
-                      id="carteira-pin"
-                      value={sheetPin}
-                      onChange={(event) =>
-                        setSheetPin(event.target.value.replace(/\D/g, "").slice(0, 4))
-                      }
-                      placeholder="••••"
-                      aria-label="Digite uma senha de 4 dígitos"
-                      inputMode="numeric"
-                      type="password"
-                      maxLength={4}
-                      autoComplete="new-password"
-                      className="carteira-pix-sheet-input mt-3"
-                    />
-                    <label
-                      htmlFor="carteira-pin-confirm"
-                      className="mt-6 block text-[1.1rem] font-light text-white/80"
-                    >
-                      Confirme sua senha
-                    </label>
-                    <input
-                      id="carteira-pin-confirm"
-                      value={sheetPinConfirm}
-                      onChange={(event) =>
-                        setSheetPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))
-                      }
-                      placeholder="••••"
-                      aria-label="Confirme sua senha"
-                      inputMode="numeric"
-                      type="password"
-                      maxLength={4}
-                      autoComplete="new-password"
-                      className="carteira-pix-sheet-input carteira-pix-sheet-input-secondary mt-3"
-                    />
-                    {sheetPinConfirm.length === 4 && sheetPin !== sheetPinConfirm && (
-                      <p role="alert" className="mt-3 text-sm text-red-400">
-                        As senhas não conferem.
-                      </p>
-                    )}
-                    <button
-                      type="button"
-                      disabled={
-                        sheetSaving || sheetPin.length !== 4 || sheetPin !== sheetPinConfirm
-                      }
-                      onClick={() => void finishOnboarding()}
-                      className="carteira-pix-sheet-advance mt-8 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {sheetSaving ? "Salvando…" : "Avançar"}
-                      <ChevronRight
-                        className="size-5 shrink-0"
-                        strokeWidth={2.5}
-                        aria-hidden="true"
-                      />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="mt-6 font-[Chakra_Petch] text-[1.35rem] font-bold text-[#e8b93e] [text-shadow:0_0_22px_rgba(232,185,62,0.55)]">
-                      Estamos quase lá…
-                    </p>
-                    <p className="mx-auto mt-4 max-w-xs font-[Chakra_Petch] text-[1.2rem] font-semibold leading-snug text-[#f3d27a] [text-shadow:0_0_16px_rgba(232,185,62,0.4)]">
-                      Falta muito pouco para automatizar seus recebimentos, estamos apenas validando
-                      suas informações!
-                    </p>
-                    <p className="mt-6 font-[Chakra_Petch] text-[1.25rem] font-bold text-[#e8b93e] [text-shadow:0_0_22px_rgba(232,185,62,0.55)]">
-                      Chave pix aguardando aprovação
-                    </p>
-                    <div className="relative mx-auto mt-4 w-full max-w-[16rem]">
-                      <span className="absolute -top-3 left-4 rounded-md bg-[#e8b93e] px-2.5 py-1 text-xs font-bold text-[#231a03]">
-                        <span
-                          aria-hidden="true"
-                          className="absolute -left-1 -top-1 size-2.5 rounded-full bg-white shadow"
+                            {pixKeyTypeLabel[pixKeyType]}
+                            <ChevronUp
+                              className={`size-3.5 transition-transform ${sheetTypeOpen ? "" : "rotate-180"}`}
+                              aria-hidden="true"
+                            />
+                          </button>
+                          {sheetTypeOpen && (
+                            <div
+                              className={`carteira-type-drop absolute left-0 top-full z-10 mt-1 min-w-[9rem] overflow-hidden rounded-xl bg-white shadow-xl ${sheetTypeClosing ? "closing" : ""}`}
+                            >
+                              {withdrawalPixKeyTypes.map((type) => (
+                                <button
+                                  key={type}
+                                  type="button"
+                                  onClick={() => {
+                                    setPixKeyType(type);
+                                    // Reaplica a pontuação do padrão brasileiro Pix ao trocar o tipo.
+                                    setSheetPixKey(maskPixKey(type, sheetPixKey));
+                                    setSheetTypeOpen(false);
+                                    setSheetTypeClosing(false);
+                                  }}
+                                  className={`block w-full px-3 py-2 text-left text-[1.2rem] font-light leading-none tracking-tight transition-colors hover:bg-black/5 ${
+                                    pixKeyType === type ? "text-black" : "text-[var(--c-9ca3af)]"
+                                  }`}
+                                >
+                                  {pixKeyTypeLabel[type]}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <input
+                          value={sheetPixKey}
+                          onChange={(event) =>
+                            setSheetPixKey(maskPixKey(pixKeyType, event.target.value))
+                          }
+                          onFocus={closeTypeDrop}
+                          placeholder={pixKeyMaskHint[pixKeyType]}
+                          aria-label="Sua chave Pix"
+                          className="min-w-0 flex-1 bg-transparent text-[1.35rem] font-light leading-none tracking-tight text-[var(--c-4b5563)] outline-none placeholder:text-[var(--c-9ca3af)]"
                         />
-                        Em análise
-                      </span>
-                      <p className="overflow-x-auto whitespace-nowrap rounded-2xl bg-[#232327] px-4 py-3.5 text-center text-sm text-[var(--c-b8bec7)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        {sheetPixKey.trim() || "—"}
+                      </div>
+                      <p className="mt-8 text-[1.2rem] font-light leading-snug text-white">
+                        Para a sua segurança, a chave será encaminhada para aprovação e nossa equipe
+                        irá validar e verificar sua chave Pix para garantir a titularidade.
                       </p>
-                    </div>
-                    <p className="mx-auto mt-6 max-w-xs text-[1.1rem] font-light leading-snug text-white">
-                      Sua chave pix está em processo de aprovação e após isso sua carteira já está
-                      liberada, junto com as configurações de sinal. Em até 3 horas úteis sua
-                      carteira estará disponível aqui nesta tela. Fique de olho 👀
-                    </p>
-                    <button
-                      type="button"
-                      onClick={openWallet}
-                      className="mt-4 text-[1.15rem] font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
-                    >
-                      Fechar
-                    </button>
-                  </>
-                )}
+                      <button
+                        type="button"
+                        disabled={!sheetPixKey.trim()}
+                        onClick={() => setSheetStep("pin")}
+                        className="carteira-pix-sheet-advance mt-8 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Avançar
+                        <ChevronRight
+                          className="size-5 shrink-0"
+                          strokeWidth={2.5}
+                          aria-hidden="true"
+                        />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openWallet}
+                        className="mt-4 text-[1.15rem] font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
+                      >
+                        Configurar mais tarde
+                      </button>
+                    </>
+                  ) : sheetStep === "pin" ? (
+                    <>
+                      <p className="carteira-pix-sheet-title mt-6">Senha de transferência</p>
+                      <p className="mt-2 text-[1.1rem] font-light leading-snug text-white/80">
+                        É uma senha que será solicitada sempre que você for executar uma transação
+                        da sua carteira
+                      </p>
+                      <label
+                        htmlFor="carteira-pin"
+                        className="mt-8 block text-[1.1rem] font-light text-white/80"
+                      >
+                        Digite uma senha de 4 dígitos
+                      </label>
+                      <input
+                        id="carteira-pin"
+                        value={sheetPin}
+                        onChange={(event) =>
+                          setSheetPin(event.target.value.replace(/\D/g, "").slice(0, 4))
+                        }
+                        placeholder="••••"
+                        aria-label="Digite uma senha de 4 dígitos"
+                        inputMode="numeric"
+                        type="password"
+                        maxLength={4}
+                        autoComplete="new-password"
+                        className="carteira-pix-sheet-input mt-3"
+                      />
+                      <label
+                        htmlFor="carteira-pin-confirm"
+                        className="mt-6 block text-[1.1rem] font-light text-white/80"
+                      >
+                        Confirme sua senha
+                      </label>
+                      <input
+                        id="carteira-pin-confirm"
+                        value={sheetPinConfirm}
+                        onChange={(event) =>
+                          setSheetPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))
+                        }
+                        placeholder="••••"
+                        aria-label="Confirme sua senha"
+                        inputMode="numeric"
+                        type="password"
+                        maxLength={4}
+                        autoComplete="new-password"
+                        className="carteira-pix-sheet-input carteira-pix-sheet-input-secondary mt-3"
+                      />
+                      {sheetPinConfirm.length === 4 && sheetPin !== sheetPinConfirm && (
+                        <p role="alert" className="mt-3 text-sm text-red-400">
+                          As senhas não conferem.
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          sheetSaving || sheetPin.length !== 4 || sheetPin !== sheetPinConfirm
+                        }
+                        onClick={() => void finishOnboarding()}
+                        className="carteira-pix-sheet-advance mt-8 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {sheetSaving ? "Salvando…" : "Avançar"}
+                        <ChevronRight
+                          className="size-5 shrink-0"
+                          strokeWidth={2.5}
+                          aria-hidden="true"
+                        />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-6 font-[Chakra_Petch] text-[1.35rem] font-bold text-[#e8b93e] [text-shadow:0_0_22px_rgba(232,185,62,0.55)]">
+                        Estamos quase lá…
+                      </p>
+                      <p className="mx-auto mt-4 max-w-xs font-[Chakra_Petch] text-[1.2rem] font-semibold leading-snug text-[#f3d27a] [text-shadow:0_0_16px_rgba(232,185,62,0.4)]">
+                        Falta muito pouco para automatizar seus recebimentos, estamos apenas
+                        validando suas informações!
+                      </p>
+                      <p className="mt-6 font-[Chakra_Petch] text-[1.25rem] font-bold text-[#e8b93e] [text-shadow:0_0_22px_rgba(232,185,62,0.55)]">
+                        Chave pix aguardando aprovação
+                      </p>
+                      <div className="relative mx-auto mt-4 w-full max-w-[16rem]">
+                        <span className="absolute -top-3 left-4 rounded-md bg-[#e8b93e] px-2.5 py-1 text-xs font-bold text-[#231a03]">
+                          <span
+                            aria-hidden="true"
+                            className="absolute -left-1 -top-1 size-2.5 rounded-full bg-white shadow"
+                          />
+                          Em análise
+                        </span>
+                        <p className="overflow-x-auto whitespace-nowrap rounded-2xl bg-[#232327] px-4 py-3.5 text-center text-sm text-[var(--c-b8bec7)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {sheetPixKey.trim() || "—"}
+                        </p>
+                      </div>
+                      <p className="mx-auto mt-6 max-w-xs text-[1.1rem] font-light leading-snug text-white">
+                        Sua chave pix está em processo de aprovação e após isso sua carteira já está
+                        liberada, junto com as configurações de sinal. Em até 3 horas úteis sua
+                        carteira estará disponível aqui nesta tela. Fique de olho 👀
+                      </p>
+                      <button
+                        type="button"
+                        onClick={openWallet}
+                        className="mt-4 text-[1.15rem] font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
+                      >
+                        Fechar
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>,
@@ -1884,193 +1900,209 @@ function AsPayPage() {
                     className="pointer-events-none absolute inset-x-0 top-[-1px] z-10 h-[2px] bg-[linear-gradient(90deg,transparent,rgba(232,185,62,0.7)_15%,rgba(246,217,122,1)_50%,rgba(232,185,62,0.7)_85%,transparent)] shadow-[0_0_22px_3px_rgba(217,168,63,0.45)]"
                   />
                   <div className="relative z-10 p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <h2 className="text-lg font-extrabold tracking-tight text-white">
-                        Solicitar Saque
-                      </h2>
-                      <p className="mt-0.5 text-xs text-[#b8bec7]">
-                        Saldo:{" "}
-                        {((statement?.availableCents ?? 0) / 100).toLocaleString("pt-BR", {
-                          style: "currency",
-                          currency: "BRL",
-                        })}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => closeSaque()}
-                      aria-label="Fechar"
-                      className="rounded-lg p-1 text-[#c9b57a] transition-colors hover:text-[#f6d97a]"
-                    >
-                      <X className="size-5" aria-hidden="true" />
-                    </button>
-                  </div>
-
-                  {saqueStep === "valor" ? (
-                    <>
-                      {/* Pix é o único meio de saque — identidade dourada fixa da Carteira. */}
-                      <div className="mt-4 grid grid-cols-1 rounded-xl border border-[#f6d97a]/25 bg-[#161310] p-1">
-                        <span className="flex items-center justify-center gap-2 rounded-lg bg-[linear-gradient(90deg,#9a7118,#f6d97a,#9a7118)] py-2 text-sm font-extrabold tracking-widest text-[#231a03]">
-                          PIX
-                        </span>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <h2 className="text-lg font-extrabold tracking-tight text-white">
+                          Solicitar Saque
+                        </h2>
+                        <p className="mt-0.5 text-xs text-[#b8bec7]">
+                          Saldo:{" "}
+                          {((statement?.availableCents ?? 0) / 100).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })}
+                        </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => closeSaque()}
+                        aria-label="Fechar"
+                        className="rounded-lg p-1 text-[#c9b57a] transition-colors hover:text-[#f6d97a]"
+                      >
+                        <X className="size-5" aria-hidden="true" />
+                      </button>
+                    </div>
 
-                      <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#c9b57a]">
-                        Valor do saque
-                      </p>
-                      <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-[#f6d97a]/35 bg-[#121014] px-3.5 py-3">
-                        <span className="text-sm font-bold text-[#e8ca77]">R$</span>
-                        <input
-                          id="saque-valor"
-                          className="w-full min-w-0 bg-transparent text-base text-white outline-none placeholder:text-[#6b6f78]"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={withdrawalAmount}
-                          onChange={(event) => setWithdrawalAmount(event.target.value)}
-                        />
+                    {saqueStep === "valor" ? (
+                      <>
+                        {/* Pix é o único meio de saque — identidade dourada fixa da Carteira. */}
+                        <div className="mt-4 grid grid-cols-1 rounded-xl border border-[#f6d97a]/25 bg-[#161310] p-1">
+                          <span className="flex items-center justify-center gap-2 rounded-lg bg-[linear-gradient(90deg,#9a7118,#f6d97a,#9a7118)] py-2 text-sm font-extrabold tracking-widest text-[#231a03]">
+                            PIX
+                          </span>
+                        </div>
+
+                        <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#c9b57a]">
+                          Valor do saque
+                        </p>
+                        <div className="mt-1.5 flex items-center gap-2 rounded-xl border border-[#f6d97a]/35 bg-[#121014] px-3.5 py-3">
+                          <span className="text-sm font-bold text-[#e8ca77]">R$</span>
+                          <input
+                            id="saque-valor"
+                            className="w-full min-w-0 bg-transparent text-base text-white outline-none placeholder:text-[#6b6f78]"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={withdrawalAmount}
+                            onChange={(event) => setWithdrawalAmount(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setWithdrawalAmount(
+                                ((statement?.availableCents ?? 0) / 100).toFixed(2),
+                              )
+                            }
+                            className="shrink-0 rounded-md bg-[#2a2410] px-2.5 py-1 text-[11px] font-extrabold tracking-widest text-[#f6d97a] transition-colors hover:bg-[#3a2f14]"
+                          >
+                            MÁX
+                          </button>
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-[#8b8e96]">
+                          Min R$ 10,00 • Taxa R$ 3,00
+                        </p>
+
+                        <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.14em] text-[#c9b57a]">
+                          Chave Pix
+                        </p>
+                        <div className="mt-1.5 flex items-center justify-between rounded-xl border border-[#f6d97a]/25 bg-[#14120e] px-3.5 py-3">
+                          <span className="text-sm font-semibold text-white">
+                            {pixKeyTypeLabel[
+                              (withdrawalPixKey?.withdrawal_pix_key_type as WithdrawalPixKeyType) ??
+                                "cpf"
+                            ] ?? "Chave Pix"}
+                          </span>
+                          <ChevronDown
+                            className="size-4 shrink-0 text-[#c9b57a]"
+                            aria-hidden="true"
+                          />
+                        </div>
+                        <div className="mt-2 rounded-xl border border-[#f6d97a]/25 bg-[#14120e] px-3.5 py-3">
+                          <p className="break-all text-sm font-semibold text-[#e8ca77]">
+                            {displayPixKey(
+                              withdrawalPixKey?.withdrawal_pix_key_type as WithdrawalPixKeyType,
+                              withdrawalPixKey?.withdrawal_pix_key ?? null,
+                            )}
+                          </p>
+                          <p className="mt-1 text-[10px] leading-snug text-[#8b8e96]">
+                            Chave fixa verificada — o saque vai direto para ela.
+                          </p>
+                        </div>
+
                         <button
                           type="button"
-                          onClick={() =>
-                            setWithdrawalAmount(((statement?.availableCents ?? 0) / 100).toFixed(2))
+                          onClick={() => {
+                            setSaquePin("");
+                            setSaquePinConfirm("");
+                            setSaqueStep("senha");
+                          }}
+                          disabled={
+                            agpayWithdrawalBlocked ||
+                            !withdrawalPixKey?.withdrawal_pix_key ||
+                            Math.round(Number(withdrawalAmount.replace(",", ".")) * 100) <
+                              MIN_WITHDRAWAL_CENTS ||
+                            withdraw.isPending
                           }
-                          className="shrink-0 rounded-md bg-[#2a2410] px-2.5 py-1 text-[11px] font-extrabold tracking-widest text-[#f6d97a] transition-colors hover:bg-[#3a2f14]"
+                          className="carteira-saque-gold-btn mt-5"
                         >
-                          MÁX
+                          Confirmar Saque
+                          <ArrowUpRight
+                            className="size-4 shrink-0"
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
                         </button>
-                      </div>
-                      <p className="mt-1.5 text-[11px] text-[#8b8e96]">
-                        Min R$ 10,00 • Taxa R$ 3,00
-                      </p>
-
-                      <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.14em] text-[#c9b57a]">
-                        Chave Pix
-                      </p>
-                      <div className="mt-1.5 flex items-center justify-between rounded-xl border border-[#f6d97a]/25 bg-[#14120e] px-3.5 py-3">
-                        <span className="text-sm font-semibold text-white">
-                          {pixKeyTypeLabel[
-                            (withdrawalPixKey?.withdrawal_pix_key_type as WithdrawalPixKeyType) ??
-                              "cpf"
-                          ] ?? "Chave Pix"}
-                        </span>
-                        <ChevronDown className="size-4 shrink-0 text-[#c9b57a]" aria-hidden="true" />
-                      </div>
-                      <div className="mt-2 rounded-xl border border-[#f6d97a]/25 bg-[#14120e] px-3.5 py-3">
-                        <p className="break-all text-sm font-semibold text-[#e8ca77]">
-                          {displayPixKey(
-                            withdrawalPixKey?.withdrawal_pix_key_type as WithdrawalPixKeyType,
-                            withdrawalPixKey?.withdrawal_pix_key ?? null,
-                          )}
+                        {agpayWithdrawalBlocked && (
+                          <p className="mt-2 text-center text-[11px] font-semibold text-[#e8b93e]">
+                            Saques bloqueados temporariamente pelo suporte.
+                          </p>
+                        )}
+                        <p className="mt-2 text-center text-[11px] text-[#8b8e96]">
+                          Processado em até 24h úteis
                         </p>
-                        <p className="mt-1 text-[10px] leading-snug text-[#8b8e96]">
-                          Chave fixa verificada — o saque vai direto para ela.
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-center text-lg font-extrabold text-white">
+                          Senha de transferência
                         </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSaquePin("");
-                          setSaquePinConfirm("");
-                          setSaqueStep("senha");
-                        }}
-                        disabled={
-                          agpayWithdrawalBlocked ||
-                          !withdrawalPixKey?.withdrawal_pix_key ||
-                          Math.round(Number(withdrawalAmount.replace(",", ".")) * 100) <
-                            MIN_WITHDRAWAL_CENTS ||
-                          withdraw.isPending
-                        }
-                        className="carteira-saque-gold-btn mt-5"
-                      >
-                        Confirmar Saque
-                        <ArrowUpRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
-                      </button>
-                      {agpayWithdrawalBlocked && (
-                        <p className="mt-2 text-center text-[11px] font-semibold text-[#e8b93e]">
-                          Saques bloqueados temporariamente pelo suporte.
+                        <p className="mx-auto mt-1.5 max-w-[17rem] text-center text-xs leading-snug text-[#b8bec7]">
+                          É a senha cadastrada no seu Ag Pay. Ela é solicitada a cada transação.
                         </p>
-                      )}
-                      <p className="mt-2 text-center text-[11px] text-[#8b8e96]">
-                        Processado em até 24h úteis
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="mt-1 text-center text-lg font-extrabold text-white">
-                        Senha de transferência
-                      </p>
-                      <p className="mx-auto mt-1.5 max-w-[17rem] text-center text-xs leading-snug text-[#b8bec7]">
-                        É a senha cadastrada no seu Ag Pay. Ela é solicitada a cada
-                        transação.
-                      </p>
-                      <label
-                        htmlFor="saque-pin"
-                        className="mt-5 block text-center text-sm text-[#b8bec7]"
-                      >
-                        Digite sua senha de 4 dígitos
-                      </label>
-                      <input
-                        id="saque-pin"
-                        value={saquePin}
-                        onChange={(event) => setSaquePin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                        placeholder="••••"
-                        aria-label="Senha de transferência"
-                        inputMode="numeric"
-                        type="password"
-                        maxLength={4}
-                        autoComplete="off"
-                        className="carteira-pix-sheet-input mt-2 !text-center"
-                      />
-                      <label
-                        htmlFor="saque-pin-confirm"
-                        className="mt-4 block text-center text-sm text-[#b8bec7]"
-                      >
-                        Confirme sua senha
-                      </label>
-                      <input
-                        id="saque-pin-confirm"
-                        value={saquePinConfirm}
-                        onChange={(event) =>
-                          setSaquePinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))
-                        }
-                        placeholder="••••"
-                        aria-label="Confirme a senha de transferência"
-                        inputMode="numeric"
-                        type="password"
-                        maxLength={4}
-                        autoComplete="off"
-                        className="carteira-pix-sheet-input mt-2 !text-center"
-                      />
-                      {saquePinConfirm.length === 4 && saquePin !== saquePinConfirm && (
-                        <p role="alert" className="mt-2 text-center text-xs text-red-400">
-                          As senhas não conferem.
-                        </p>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => confirmSaque.mutate()}
-                        disabled={
-                          saqueVerifying ||
-                          withdraw.isPending ||
-                          saquePin.length !== 4 ||
-                          saquePin !== saquePinConfirm
-                        }
-                        className="carteira-saque-gold-btn mt-5"
-                      >
-                        {saqueVerifying || withdraw.isPending ? "Processando…" : "Confirmar Saque"}
-                        <ArrowUpRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSaqueStep("valor")}
-                        className="mt-3 w-full text-center text-sm font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
-                      >
-                        Voltar
-                      </button>
-                    </>
-                  )}
-                </div>
+                        <label
+                          htmlFor="saque-pin"
+                          className="mt-5 block text-center text-sm text-[#b8bec7]"
+                        >
+                          Digite sua senha de 4 dígitos
+                        </label>
+                        <input
+                          id="saque-pin"
+                          value={saquePin}
+                          onChange={(event) =>
+                            setSaquePin(event.target.value.replace(/\D/g, "").slice(0, 4))
+                          }
+                          placeholder="••••"
+                          aria-label="Senha de transferência"
+                          inputMode="numeric"
+                          type="password"
+                          maxLength={4}
+                          autoComplete="off"
+                          className="carteira-pix-sheet-input mt-2 !text-center"
+                        />
+                        <label
+                          htmlFor="saque-pin-confirm"
+                          className="mt-4 block text-center text-sm text-[#b8bec7]"
+                        >
+                          Confirme sua senha
+                        </label>
+                        <input
+                          id="saque-pin-confirm"
+                          value={saquePinConfirm}
+                          onChange={(event) =>
+                            setSaquePinConfirm(event.target.value.replace(/\D/g, "").slice(0, 4))
+                          }
+                          placeholder="••••"
+                          aria-label="Confirme a senha de transferência"
+                          inputMode="numeric"
+                          type="password"
+                          maxLength={4}
+                          autoComplete="off"
+                          className="carteira-pix-sheet-input mt-2 !text-center"
+                        />
+                        {saquePinConfirm.length === 4 && saquePin !== saquePinConfirm && (
+                          <p role="alert" className="mt-2 text-center text-xs text-red-400">
+                            As senhas não conferem.
+                          </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => confirmSaque.mutate()}
+                          disabled={
+                            saqueVerifying ||
+                            withdraw.isPending ||
+                            saquePin.length !== 4 ||
+                            saquePin !== saquePinConfirm
+                          }
+                          className="carteira-saque-gold-btn mt-5"
+                        >
+                          {saqueVerifying || withdraw.isPending
+                            ? "Processando…"
+                            : "Confirmar Saque"}
+                          <ArrowUpRight
+                            className="size-4 shrink-0"
+                            strokeWidth={2.5}
+                            aria-hidden="true"
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSaqueStep("valor")}
+                          className="mt-3 w-full text-center text-sm font-medium text-[#e8b93e] transition-colors hover:text-[#f3d27a]"
+                        >
+                          Voltar
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>,

@@ -115,7 +115,6 @@ function parseCents(value: string) {
   return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed * 100) : null;
 }
 
-
 // Mesmos tipos/limite do bucket business-logos; a extensão vem do tipo para casar com a política.
 function ServicosPage() {
   const { businessId } = useBusiness();
@@ -192,7 +191,10 @@ function ServicosPage() {
   const links = linksQuery.data;
 
   const serviceImagePaths = useMemo(
-    () => (services ?? []).map((s) => (s as { image_path?: string | null }).image_path).filter(Boolean) as string[],
+    () =>
+      (services ?? [])
+        .map((s) => (s as { image_path?: string | null }).image_path)
+        .filter(Boolean) as string[],
     [services],
   );
 
@@ -319,7 +321,9 @@ function ServicosPage() {
       professionalIds: (links ?? [])
         .filter((l) => l.service_id === s.id)
         .map((l) => l.professional_id),
-      availableDays: [...((s as { available_days?: number[] | null }).available_days ?? [1, 2, 3, 4, 5, 6])],
+      availableDays: [
+        ...((s as { available_days?: number[] | null }).available_days ?? [1, 2, 3, 4, 5, 6]),
+      ],
     };
     setForm(next);
     setFormSnapshot(next);
@@ -404,7 +408,9 @@ function ServicosPage() {
     try {
       normalized = await normalizeImageFile(file);
     } catch {
-      setImageError("Não foi possível processar essa imagem. Tente converter para JPEG e reenviar.");
+      setImageError(
+        "Não foi possível processar essa imagem. Tente converter para JPEG e reenviar.",
+      );
       return;
     }
     const signature = await validateLogoFile(normalized, "service");
@@ -470,271 +476,275 @@ function ServicosPage() {
           {panelTab === "servicos" ? (
             <>
               <div className="relative z-10 border-b border-[#25272c] px-4 py-4 sm:px-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="professional-icon-box !size-9">
-                  <Scissors className="size-4" strokeWidth={2} aria-hidden="true" />
-                </div>
-                <div>
-                  <h2 className="text-[0.98rem] font-semibold text-[var(--c-eef0f4)]">
-                    Serviços cadastrados
-                  </h2>
-                  <p className="mt-0.5 text-xs text-[#62656e]">
-                    Gerencie preços, duração, sinal e profissionais vinculados.
-                  </p>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="professional-icon-box !size-9">
+                      <Scissors className="size-4" strokeWidth={2} aria-hidden="true" />
+                    </div>
+                    <div>
+                      <h2 className="text-[0.98rem] font-semibold text-[var(--c-eef0f4)]">
+                        Serviços cadastrados
+                      </h2>
+                      <p className="mt-0.5 text-xs text-[#62656e]">
+                        Gerencie preços, duração, sinal e profissionais vinculados.
+                      </p>
+                    </div>
+                  </div>
+                  <DialogTrigger asChild>
+                    <Button className="rounded-xl border border-[var(--c-rgba-51-125-255-a0d29)] bg-[var(--c-rgba-22-119-255-a0d09)] text-[var(--c-69a2ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_0_18px_var(--c-rgba-22-119-255-a0d08)] hover:border-[var(--c-rgba-51-125-255-a0d5)] hover:bg-[var(--c-rgba-22-119-255-a0d14)] hover:text-[var(--c-8fb5ff)]">
+                      <Plus className="size-4" strokeWidth={2.2} /> Cadastrar serviço
+                    </Button>
+                  </DialogTrigger>
                 </div>
               </div>
-              <DialogTrigger asChild>
-                <Button className="rounded-xl border border-[var(--c-rgba-51-125-255-a0d29)] bg-[var(--c-rgba-22-119-255-a0d09)] text-[var(--c-69a2ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_0_18px_var(--c-rgba-22-119-255-a0d08)] hover:border-[var(--c-rgba-51-125-255-a0d5)] hover:bg-[var(--c-rgba-22-119-255-a0d14)] hover:text-[var(--c-8fb5ff)]">
-                  <Plus className="size-4" strokeWidth={2.2} /> Cadastrar serviço
-                </Button>
-              </DialogTrigger>
-            </div>
-          </div>
-          {servicesQuery.isError ? (
-            <p
-              role="alert"
-              className="m-4 rounded-xl border border-destructive/40 p-6 text-center text-sm"
-            >
-              Não foi possível carregar os serviços. Atualize a página e tente novamente.
-            </p>
-          ) : !services?.length ? (
-            <div className="p-4">
-              <EmptyList text="Nenhum serviço cadastrado." />
-            </div>
-          ) : (
-            <div className="relative z-10 divide-y divide-[var(--c-22252b)]">
-              {services.map((s) => (
-                <div key={s.id} className="professional-person-row">
-                  <div className="professional-avatar service-avatar-box overflow-hidden border-none">
-                    {(() => {
-                      const imgPath = (s as { image_path?: string | null }).image_path;
-                      const imgUrl = imgPath ? serviceImageMap.get(imgPath) : null;
-                      if (imgPath && imgUrl) {
-                        return (
-                          <img
-                            src={imgUrl}
-                            alt={`Miniatura de ${s.name}`}
-                            className="h-full w-full object-cover"
-                          />
-                        );
-                      }
-                      return <Scissors className="size-4" strokeWidth={1.8} aria-hidden="true" />;
-                    })()}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">{s.name}</p>
-                      {s.is_combo && <span className="professional-badge">Combo</span>}
-                    </div>
-                    <p className="mt-1 text-xs text-[#686b74]">
-                      {s.duration_minutes} min · {formatPrice(s.price_cents)} ·{" "}
-                      {(links ?? []).filter((l) => l.service_id === s.id).length} vínculo(s)
-                    </p>
-                  </div>
-                  <label className="flex items-center gap-2 text-xs font-medium text-[#70737b]">
-                    Ativo{" "}
-                    <Switch
-                      checked={s.active}
-                      onCheckedChange={(active) => toggle.mutate({ id: s.id, active })}
-                    />
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="professional-icon-action"
-                    onClick={() => edit(s)}
-                    aria-label={`Editar ${s.name}`}
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="professional-icon-action hover:!text-red-400"
-                    onClick={() => setServiceToRemove(s.id)}
-                    aria-label={`Remover ${s.name}`}
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      ) : (
-        <ServiceCategories
-          businessId={businessId}
-          services={(services ?? []).map((s) => ({
-            id: s.id,
-            name: s.name,
-            category_id: s.category_id ?? null,
-          }))}
-        />
-      )}
-            <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
-              <DialogHeader className="professional-dialog-header">
-                <div className="flex items-start gap-3 text-left">
-                  <div className="professional-dialog-icon">
-                    <Scissors className="size-[1.05rem]" strokeWidth={1.8} />
-                  </div>
-                  <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
-                    {form.id ? "Editar serviço" : "Cadastrar serviço"}
-                  </DialogTitle>
-                </div>
-              </DialogHeader>
-              <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
-                <TabsList className="professional-tabs grid w-full grid-cols-3">
-                  <TabsTrigger value="dados">Dados</TabsTrigger>
-                  <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
-                  <TabsTrigger value="imagem">Imagem</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
-                  <div className="space-y-2">
-                    <Label className="professional-section-label">Nome do serviço</Label>
-                    <Input
-                      className="professional-input"
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      placeholder="Corte masculino"
-                    />
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                      label="Valor (R$)"
-                      value={form.price}
-                      onChange={(price) => setForm({ ...form, price })}
-                    />
-                    <Field
-                      label="Tempo (min)"
-                      value={form.duration}
-                      type="number"
-                      onChange={(duration) => setForm({ ...form, duration })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="professional-section-label">Descrição</Label>
-                    <Textarea
-                      className="professional-input service-description-input min-h-28"
-                      value={form.description}
-                      onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    />
-                  </div>
-                  <Toggle
-                    label="Este serviço é um combo"
-                    checked={form.isCombo}
-                    onChange={(isCombo) => setForm({ ...form, isCombo })}
-                  />
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <Toggle
-                      label="Mostrar serviço"
-                      checked={form.showService}
-                      onChange={(showService) => setForm({ ...form, showService })}
-                    />
-                    <Toggle
-                      label="Mostrar valor"
-                      checked={form.showPrice}
-                      onChange={(showPrice) => setForm({ ...form, showPrice })}
-                    />
-                    <Toggle
-                      label="Mostrar duração"
-                      checked={form.showDuration}
-                      onChange={(showDuration) => setForm({ ...form, showDuration })}
-                    />
-                  </div>
-                  {!form.showService && (
-                    <p className="text-sm text-amber-400">
-                      Serviço oculto não aparece no link de agendamento.
-                    </p>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="vinculos" className="professional-form-section space-y-3 pt-5">
-                  <div className="pt-2">
-                    <div className="flex items-center justify-between gap-3 py-2">
-                      <span className="text-sm font-semibold">Todos</span>
-                      <Switch checked={allWeekDaysOn} onCheckedChange={toggleAllWeekDays} />
-                    </div>
-                    <div className="overflow-hidden rounded-lg border border-border">
-                      <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        <span>Dias da semana</span>
-                        <span>Vínculo</span>
-                      </div>
-                      {ALL_WEEK_DAYS.map((d) => (
-                        <label
-                          key={d}
-                          className="grid cursor-pointer grid-cols-[1fr_auto] items-center gap-3 border-b border-border/50 px-3 py-2.5 text-sm last:border-0 hover:bg-white/[0.02]"
-                        >
-                          <span>{WEEK_DAY_LABELS[d] ?? `Dia ${d}`}</span>
-                          <Switch
-                            checked={form.availableDays.includes(d)}
-                            onCheckedChange={() => toggleWeekDay(d)}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Dias desligados não oferecem horários para este serviço.
-                    </p>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="imagem" className="professional-form-section space-y-3 pt-5">
-                  <label className="service-image-dropzone text-center focus-within:ring-2 focus-within:ring-ring">
-                    {previewUrl ? (
-                      <img
-                        src={previewUrl}
-                        alt="Prévia da imagem do serviço"
-                        className="mb-3 max-h-40 rounded-md object-contain"
-                      />
-                    ) : (
-                      <ImagePlus className="mb-3 size-8 text-primary" />
-                    )}
-                    <span className="font-semibold">
-                      {uploading
-                        ? "Enviando imagem..."
-                        : form.imagePath
-                          ? "Trocar imagem do serviço"
-                          : "Adicionar imagem do serviço"}
-                    </span>
-                    <span id="service-image-hint" className="mt-1 text-xs text-muted-foreground">
-                      PNG, JPEG, WebP ou HEIC (iPhone), até 5 MB. Ela aparece somente nos detalhes do
-                      serviço.
-                    </span>
-                    <input
-                      className="sr-only"
-                      type="file"
-                      accept={BUSINESS_IMAGE_ACCEPT}
-                      disabled={uploading}
-                      aria-describedby={
-                        imageError ? "service-image-hint service-image-error" : "service-image-hint"
-                      }
-                      aria-invalid={!!imageError}
-                      onChange={(e) => {
-                        void handleImageSelect(e.target.files?.[0]);
-                        e.target.value = "";
-                      }}
-                    />
-                  </label>
-                  {imageError && (
-                    <p id="service-image-error" role="alert" className="text-sm text-destructive">
-                      {imageError}
-                    </p>
-                  )}
-                </TabsContent>
-              </Tabs>
-              <DialogFooter className="professional-dialog-footer">
-                <Button
-                  className="professional-primary-button"
-                  onClick={() => save.mutate()}
-                  disabled={!form.name.trim() || save.isPending || uploading}
+              {servicesQuery.isError ? (
+                <p
+                  role="alert"
+                  className="m-4 rounded-xl border border-destructive/40 p-6 text-center text-sm"
                 >
-                  {uploading ? "Enviando..." : "Salvar serviço"}
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                  Não foi possível carregar os serviços. Atualize a página e tente novamente.
+                </p>
+              ) : !services?.length ? (
+                <div className="p-4">
+                  <EmptyList text="Nenhum serviço cadastrado." />
+                </div>
+              ) : (
+                <div className="relative z-10 divide-y divide-[var(--c-22252b)]">
+                  {services.map((s) => (
+                    <div key={s.id} className="professional-person-row">
+                      <div className="professional-avatar service-avatar-box overflow-hidden border-none">
+                        {(() => {
+                          const imgPath = (s as { image_path?: string | null }).image_path;
+                          const imgUrl = imgPath ? serviceImageMap.get(imgPath) : null;
+                          if (imgPath && imgUrl) {
+                            return (
+                              <img
+                                src={imgUrl}
+                                alt={`Miniatura de ${s.name}`}
+                                className="h-full w-full object-cover"
+                              />
+                            );
+                          }
+                          return (
+                            <Scissors className="size-4" strokeWidth={1.8} aria-hidden="true" />
+                          );
+                        })()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">
+                            {s.name}
+                          </p>
+                          {s.is_combo && <span className="professional-badge">Combo</span>}
+                        </div>
+                        <p className="mt-1 text-xs text-[#686b74]">
+                          {s.duration_minutes} min · {formatPrice(s.price_cents)} ·{" "}
+                          {(links ?? []).filter((l) => l.service_id === s.id).length} vínculo(s)
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-medium text-[#70737b]">
+                        Ativo{" "}
+                        <Switch
+                          checked={s.active}
+                          onCheckedChange={(active) => toggle.mutate({ id: s.id, active })}
+                        />
+                      </label>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="professional-icon-action"
+                        onClick={() => edit(s)}
+                        aria-label={`Editar ${s.name}`}
+                      >
+                        <Pencil className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="professional-icon-action hover:!text-red-400"
+                        onClick={() => setServiceToRemove(s.id)}
+                        aria-label={`Remover ${s.name}`}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <ServiceCategories
+              businessId={businessId}
+              services={(services ?? []).map((s) => ({
+                id: s.id,
+                name: s.name,
+                category_id: s.category_id ?? null,
+              }))}
+            />
+          )}
+          <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+            <DialogHeader className="professional-dialog-header">
+              <div className="flex items-start gap-3 text-left">
+                <div className="professional-dialog-icon">
+                  <Scissors className="size-[1.05rem]" strokeWidth={1.8} />
+                </div>
+                <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
+                  {form.id ? "Editar serviço" : "Cadastrar serviço"}
+                </DialogTitle>
+              </div>
+            </DialogHeader>
+            <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
+              <TabsList className="professional-tabs grid w-full grid-cols-3">
+                <TabsTrigger value="dados">Dados</TabsTrigger>
+                <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
+                <TabsTrigger value="imagem">Imagem</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
+                <div className="space-y-2">
+                  <Label className="professional-section-label">Nome do serviço</Label>
+                  <Input
+                    className="professional-input"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    placeholder="Corte masculino"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Valor (R$)"
+                    value={form.price}
+                    onChange={(price) => setForm({ ...form, price })}
+                  />
+                  <Field
+                    label="Tempo (min)"
+                    value={form.duration}
+                    type="number"
+                    onChange={(duration) => setForm({ ...form, duration })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="professional-section-label">Descrição</Label>
+                  <Textarea
+                    className="professional-input service-description-input min-h-28"
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  />
+                </div>
+                <Toggle
+                  label="Este serviço é um combo"
+                  checked={form.isCombo}
+                  onChange={(isCombo) => setForm({ ...form, isCombo })}
+                />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Toggle
+                    label="Mostrar serviço"
+                    checked={form.showService}
+                    onChange={(showService) => setForm({ ...form, showService })}
+                  />
+                  <Toggle
+                    label="Mostrar valor"
+                    checked={form.showPrice}
+                    onChange={(showPrice) => setForm({ ...form, showPrice })}
+                  />
+                  <Toggle
+                    label="Mostrar duração"
+                    checked={form.showDuration}
+                    onChange={(showDuration) => setForm({ ...form, showDuration })}
+                  />
+                </div>
+                {!form.showService && (
+                  <p className="text-sm text-amber-400">
+                    Serviço oculto não aparece no link de agendamento.
+                  </p>
+                )}
+              </TabsContent>
+
+              <TabsContent value="vinculos" className="professional-form-section space-y-3 pt-5">
+                <div className="pt-2">
+                  <div className="flex items-center justify-between gap-3 py-2">
+                    <span className="text-sm font-semibold">Todos</span>
+                    <Switch checked={allWeekDaysOn} onCheckedChange={toggleAllWeekDays} />
+                  </div>
+                  <div className="overflow-hidden rounded-lg border border-border">
+                    <div className="grid grid-cols-[1fr_auto] gap-3 border-b border-border bg-muted/40 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <span>Dias da semana</span>
+                      <span>Vínculo</span>
+                    </div>
+                    {ALL_WEEK_DAYS.map((d) => (
+                      <label
+                        key={d}
+                        className="grid cursor-pointer grid-cols-[1fr_auto] items-center gap-3 border-b border-border/50 px-3 py-2.5 text-sm last:border-0 hover:bg-white/[0.02]"
+                      >
+                        <span>{WEEK_DAY_LABELS[d] ?? `Dia ${d}`}</span>
+                        <Switch
+                          checked={form.availableDays.includes(d)}
+                          onCheckedChange={() => toggleWeekDay(d)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Dias desligados não oferecem horários para este serviço.
+                  </p>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="imagem" className="professional-form-section space-y-3 pt-5">
+                <label className="service-image-dropzone text-center focus-within:ring-2 focus-within:ring-ring">
+                  {previewUrl ? (
+                    <img
+                      src={previewUrl}
+                      alt="Prévia da imagem do serviço"
+                      className="mb-3 max-h-40 rounded-md object-contain"
+                    />
+                  ) : (
+                    <ImagePlus className="mb-3 size-8 text-primary" />
+                  )}
+                  <span className="font-semibold">
+                    {uploading
+                      ? "Enviando imagem..."
+                      : form.imagePath
+                        ? "Trocar imagem do serviço"
+                        : "Adicionar imagem do serviço"}
+                  </span>
+                  <span id="service-image-hint" className="mt-1 text-xs text-muted-foreground">
+                    PNG, JPEG, WebP ou HEIC (iPhone), até 5 MB. Ela aparece somente nos detalhes do
+                    serviço.
+                  </span>
+                  <input
+                    className="sr-only"
+                    type="file"
+                    accept={BUSINESS_IMAGE_ACCEPT}
+                    disabled={uploading}
+                    aria-describedby={
+                      imageError ? "service-image-hint service-image-error" : "service-image-hint"
+                    }
+                    aria-invalid={!!imageError}
+                    onChange={(e) => {
+                      void handleImageSelect(e.target.files?.[0]);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {imageError && (
+                  <p id="service-image-error" role="alert" className="text-sm text-destructive">
+                    {imageError}
+                  </p>
+                )}
+              </TabsContent>
+            </Tabs>
+            <DialogFooter className="professional-dialog-footer">
+              <Button
+                className="professional-primary-button"
+                onClick={() => save.mutate()}
+                disabled={!form.name.trim() || save.isPending || uploading}
+              >
+                {uploading ? "Enviando..." : "Salvar serviço"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </section>
       <AlertDialog
         open={serviceToRemove !== null}

@@ -14,7 +14,9 @@ test.describe("US3 — aviso exibido uma vez (requer sessão de dono)", () => {
   );
   test.use({ storageState: process.env["OWNER_STORAGE_STATE"] });
 
-  test("popup aparece, é fechado e não reaparece ao navegar nem ao recarregar", async ({ page }) => {
+  test("popup aparece, é fechado e não reaparece ao navegar nem ao recarregar", async ({
+    page,
+  }) => {
     await page.goto("/painel");
 
     const popup = page.locator(".aa-aviso-pop--broadcast");
@@ -25,12 +27,22 @@ test.describe("US3 — aviso exibido uma vez (requer sessão de dono)", () => {
 
     await expect(popup.first()).toBeVisible();
     // Fecha no X.
-    await popup.first().getByRole("button", { name: /fechar|close|×/i }).first().click();
+    await popup
+      .first()
+      .getByRole("button", { name: /fechar|close|×/i })
+      .first()
+      .click();
     await expect(popup).toHaveCount(0);
 
     // Navega e volta: não reaparece.
-    await page.getByRole("link", { name: /clientes/i }).first().click();
-    await page.getByRole("link", { name: /in[íi]cio|agenda|painel/i }).first().click();
+    await page
+      .getByRole("link", { name: /clientes/i })
+      .first()
+      .click();
+    await page
+      .getByRole("link", { name: /in[íi]cio|agenda|painel/i })
+      .first()
+      .click();
     await expect(page.locator(".aa-aviso-pop--broadcast")).toHaveCount(0);
 
     // Recarrega a mesma sessão: continua não repetido (persistido em localStorage).

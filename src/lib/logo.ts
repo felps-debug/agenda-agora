@@ -42,8 +42,11 @@ export type HeicConverter = (blob: Blob) => Promise<Blob>;
 /** Converte HEIC→JPEG via heic2any, carregado por import dinâmico só quando necessário. */
 async function defaultHeicConverter(blob: Blob): Promise<Blob> {
   const mod = await import("heic2any");
-  const heic2any = (mod as unknown as { default?: HeicConverter }).default ?? (mod as unknown as HeicConverter);
-  const out = await (heic2any as (opts: { blob: Blob; toType: string; quality?: number }) => Promise<Blob | Blob[]>)({
+  const heic2any =
+    (mod as unknown as { default?: HeicConverter }).default ?? (mod as unknown as HeicConverter);
+  const out = await (
+    heic2any as (opts: { blob: Blob; toType: string; quality?: number }) => Promise<Blob | Blob[]>
+  )({
     blob,
     toType: "image/jpeg",
     quality: 0.92,

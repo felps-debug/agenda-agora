@@ -29,10 +29,13 @@ test.describe("US5 — rebrand Ag Pay (requer sessão de dono)", () => {
     }
   });
 
-  test("rota antiga /painel/carteira-desempenho redireciona para /painel/agpay-performance", async ({
+  test("a tela de performance exibe 'Ag Pay — Performance' (slug mantido por brand-privacy)", async ({
     page,
   }) => {
+    // O slug da rota continua `carteira-desempenho` (o guard brand-privacy proíbe
+    // "agpay" compacto em rotas); o rótulo visível é "Ag Pay — Performance".
     await page.goto("/painel/carteira-desempenho");
-    await expect(page).toHaveURL(/\/painel\/agpay-performance/);
+    await expect(page.getByText(/Ag Pay — Performance/i).first()).toBeVisible();
+    await expect(page.getByText(/\bCarteira\b/)).toHaveCount(0);
   });
 });

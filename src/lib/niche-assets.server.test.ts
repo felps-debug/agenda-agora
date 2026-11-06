@@ -38,7 +38,12 @@ function normalize(p: string) {
 }
 
 /** Monta a árvore relativa a <cwd>/public/templates. */
-function setTree(spec: Record<string, { "templates-prontos"?: string[]; "fotos-de-servicos"?: string[] } | "leaf-dir">) {
+function setTree(
+  spec: Record<
+    string,
+    { "templates-prontos"?: string[]; "fotos-de-servicos"?: string[] } | "leaf-dir"
+  >,
+) {
   const root = normalize(`${process.cwd()}/public/templates`);
   runtime.tree.clear();
   runtime.tree.set(root, { dir: true, entries: Object.keys(spec) });

@@ -1,16 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import SecurityPinModal from "@/components/painel/SecurityPinModal";
-import {
-  ShieldCheck,
-  FileText,
-  Eye,
-  ArrowLeft,
-  Phone,
-  KeyRound,
-  Pencil,
-  X,
-} from "lucide-react";
+import { ShieldCheck, FileText, Eye, ArrowLeft, Phone, KeyRound, Pencil, X } from "lucide-react";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -72,7 +63,9 @@ function PixAprovacaoPage() {
   const [authorized, setAuthorized] = useState(() => {
     try {
       if (typeof window === "undefined") return false;
-      const validUntil = Number(window.sessionStorage.getItem("agenda-agora:security-pin-valid-until") ?? 0);
+      const validUntil = Number(
+        window.sessionStorage.getItem("agenda-agora:security-pin-valid-until") ?? 0,
+      );
       return validUntil > Date.now();
     } catch {
       return false;
@@ -382,7 +375,9 @@ function PixAprovacaoPage() {
     return (
       <>
         <div className="mx-auto w-full p-4 sm:p-8">
-          <p className="text-sm text-muted-foreground">Acesso protegido. Digite o PIN para continuar.</p>
+          <p className="text-sm text-muted-foreground">
+            Acesso protegido. Digite o PIN para continuar.
+          </p>
         </div>
         <SecurityPinModal
           isOpen={true}
@@ -504,7 +499,6 @@ function PixAprovacaoPage() {
                 </td>
               </tr>
             ))}
-
           </tbody>
         </table>
       </section>
@@ -550,7 +544,9 @@ function PixAprovacaoPage() {
                     )}
                   </span>
                 </td>
-                <td className="px-4 py-3">{p.hasTransferPin ? "Configurado" : "Não configurado"}</td>
+                <td className="px-4 py-3">
+                  {p.hasTransferPin ? "Configurado" : "Não configurado"}
+                </td>
                 <td className="px-4 py-3">
                   <button
                     type="button"

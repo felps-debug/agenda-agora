@@ -229,7 +229,17 @@ export function AgpayBackground({
       observer.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [host, accent, light, wordsKey, morphAccentTo, morphLightTo, morphDelayMs, morphDurationMs, morphFromTheme]);
+  }, [
+    host,
+    accent,
+    light,
+    wordsKey,
+    morphAccentTo,
+    morphLightTo,
+    morphDelayMs,
+    morphDurationMs,
+    morphFromTheme,
+  ]);
 
   if (!host) return null;
   return createPortal(
@@ -239,7 +249,11 @@ export function AgpayBackground({
         <div
           aria-hidden="true"
           className={`pointer-events-none fixed inset-0 ${
-            blueWash ? "z-0 lembretes-blue-wash" : creamWash ? "z-0 tpl-cream-wash" : "z-20 carteira-gold-wash"
+            blueWash
+              ? "z-0 lembretes-blue-wash"
+              : creamWash
+                ? "z-0 tpl-cream-wash"
+                : "z-20 carteira-gold-wash"
           }`}
         />
       )}

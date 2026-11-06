@@ -103,7 +103,11 @@ function TransacoesPage() {
       return (
         <span
           className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold"
-          style={{ color: "#f0b429", background: "rgba(250,204,21,0.09)", border: "1px solid rgba(250,204,21,0.28)" }}
+          style={{
+            color: "#f0b429",
+            background: "rgba(250,204,21,0.09)",
+            border: "1px solid rgba(250,204,21,0.28)",
+          }}
         >
           <span className="size-1.5 rounded-full bg-current" /> {s}
         </span>
@@ -113,7 +117,11 @@ function TransacoesPage() {
       return (
         <span
           className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold"
-          style={{ color: "#4ade80", background: "rgba(34,197,94,0.09)", border: "1px solid rgba(34,197,94,0.28)" }}
+          style={{
+            color: "#4ade80",
+            background: "rgba(34,197,94,0.09)",
+            border: "1px solid rgba(34,197,94,0.28)",
+          }}
         >
           <span className="size-1.5 rounded-full bg-current" /> {s}
         </span>
@@ -123,7 +131,11 @@ function TransacoesPage() {
       return (
         <span
           className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold"
-          style={{ color: "#ff7b86", background: "rgba(239,51,80,0.1)", border: "1px solid rgba(239,51,80,0.32)" }}
+          style={{
+            color: "#ff7b86",
+            background: "rgba(239,51,80,0.1)",
+            border: "1px solid rgba(239,51,80,0.32)",
+          }}
         >
           <span className="size-1.5 rounded-full bg-current" /> {s}
         </span>
@@ -132,7 +144,11 @@ function TransacoesPage() {
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold"
-        style={{ color: "#69a2ff", background: "rgba(22,119,255,0.09)", border: "1px solid rgba(51,125,255,0.29)" }}
+        style={{
+          color: "#69a2ff",
+          background: "rgba(22,119,255,0.09)",
+          border: "1px solid rgba(51,125,255,0.29)",
+        }}
       >
         <span className="size-1.5 rounded-full bg-current" /> {s}
       </span>
@@ -364,7 +380,8 @@ function TransacoesPage() {
                       className="rounded px-2 py-1 text-[10px] font-bold"
                       style={{
                         color: item.type === "PIX" ? TONE_BLUE.color : TONE_VIOLET.color,
-                        background: item.type === "PIX" ? TONE_BLUE.background : TONE_VIOLET.background,
+                        background:
+                          item.type === "PIX" ? TONE_BLUE.background : TONE_VIOLET.background,
                         border: `1px solid ${item.type === "PIX" ? TONE_BLUE.border : TONE_VIOLET.border}`,
                       }}
                     >
@@ -428,9 +445,7 @@ function TransacoesPage() {
         </div>
       </section>
 
-      {detailsId && (
-        <BusinessDossier businessId={detailsId} onClose={() => setDetailsId(null)} />
-      )}
+      {detailsId && <BusinessDossier businessId={detailsId} onClose={() => setDetailsId(null)} />}
     </div>
   );
 }

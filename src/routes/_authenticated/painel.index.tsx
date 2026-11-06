@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { friendlyError, } from "@/lib/error-page";
+import { friendlyError } from "@/lib/error-page";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -310,7 +310,7 @@ function AgendaPage() {
           block_date: string | null;
         }
       | undefined;
-    appointment?: (typeof appointments extends (infer T)[] | undefined ? T : never);
+    appointment?: typeof appointments extends (infer T)[] | undefined ? T : never;
   }) => {
     if (source.type === "time_block" && source.block) {
       const block = source.block;
@@ -380,9 +380,7 @@ function AgendaPage() {
     },
     onSuccess: () => {
       toast.success("Descrição salva!");
-      setBlockedPopup((current) =>
-        current ? { ...current, reason: blockDesc.trim() } : current,
-      );
+      setBlockedPopup((current) => (current ? { ...current, reason: blockDesc.trim() } : current));
       void queryClient.invalidateQueries({ queryKey: ["time_blocks", businessId] });
       void invalidate();
     },
@@ -532,7 +530,7 @@ function AgendaPage() {
   };
   const blocksBySlot = new Map<
     string,
-    { label: string; block: (typeof timeBlocks extends (infer T)[] | undefined ? T : never) }
+    { label: string; block: typeof timeBlocks extends (infer T)[] | undefined ? T : never }
   >();
   for (const block of gridBlocks) {
     const start = slotMinutes(block.starts_at.slice(0, 5));
@@ -552,8 +550,7 @@ function AgendaPage() {
 
   // Profissional e dia de fato renderizados na grade. Podem ficar 1 passo atrás
   // da seleção durante o fade-out, garantindo que nada "pisque" na troca.
-  const viewProfessional =
-    professionals?.find((p) => p.id === agendaView?.professionalId) ?? null;
+  const viewProfessional = professionals?.find((p) => p.id === agendaView?.professionalId) ?? null;
   const viewWeekdayLabel = capitalizeWeekday(
     new Date(`${agendaView?.day ?? day}T12:00:00`).toLocaleDateString("pt-BR", {
       weekday: "long",
@@ -622,7 +619,10 @@ function AgendaPage() {
           <div className="relative flex h-12 items-center gap-3 bg-secondary px-3 text-sm">
             {viewProfessional ? (
               <span className="min-w-0 max-w-[44%] truncate pl-[54px] text-[110%] font-medium capitalize">
-                {(viewProfessional.agenda_name || viewProfessional.name.split(" ")[0] || "").slice(0, 11)}
+                {(viewProfessional.agenda_name || viewProfessional.name.split(" ")[0] || "").slice(
+                  0,
+                  11,
+                )}
               </span>
             ) : null}
             <span className="absolute left-[60%] top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[110%] capitalize text-white">
@@ -654,7 +654,9 @@ function AgendaPage() {
                     <li key={slot} className="agenda-row agenda-row--blocked">
                       <button
                         type="button"
-                        onClick={() => openBlockedPopup({ type: "time_block", block: blocked.block })}
+                        onClick={() =>
+                          openBlockedPopup({ type: "time_block", block: blocked.block })
+                        }
                         className="agenda-row-btn"
                       >
                         <span className="agenda-cell agenda-cell--time">{slot}</span>
@@ -781,10 +783,7 @@ function AgendaPage() {
         </div>
       ) : (
         <div className="agenda-loading" aria-busy="true" aria-live="polite">
-          <LoaderCircle
-            className="size-8 animate-spin-custom text-primary"
-            aria-hidden="true"
-          />
+          <LoaderCircle className="size-8 animate-spin-custom text-primary" aria-hidden="true" />
           <span className="sr-only">Carregando agenda…</span>
         </div>
       )}
@@ -853,7 +852,8 @@ function AgendaPage() {
                         <p className="text-[0.95rem] font-bold text-white">Funcionário:</p>
                         <p className="mt-1 text-[var(--c-c3c8d0)]">
                           {blockedPopup.professionalId
-                            ? (professionals?.find((p) => p.id === blockedPopup.professionalId)?.name ?? "—")
+                            ? (professionals?.find((p) => p.id === blockedPopup.professionalId)
+                                ?.name ?? "—")
                             : "Agenda"}
                         </p>
                       </div>
@@ -877,28 +877,28 @@ function AgendaPage() {
                       />
                     </div>
                   </div>
-                <button
-                  type="button"
-                  disabled={!descDirty || saveBlockDesc.isPending}
-                  onClick={() =>
-                    saveBlockDesc.mutate({
-                      type: blockedPopup.type,
-                      id: blockedPopup.id,
-                      reason: blockDesc,
-                    })
-                  }
-                  className="mt-3 h-11 w-full rounded-xl border border-[var(--c-1677ff)]/30 bg-[var(--c-1677ff)]/10 text-sm font-bold text-[var(--c-5da8ff)] transition-colors hover:bg-[var(--c-1677ff)]/15 disabled:opacity-50"
-                >
-                  {saveBlockDesc.isPending ? "Salvando…" : "Salvar descrição"}
-                </button>
+                  <button
+                    type="button"
+                    disabled={!descDirty || saveBlockDesc.isPending}
+                    onClick={() =>
+                      saveBlockDesc.mutate({
+                        type: blockedPopup.type,
+                        id: blockedPopup.id,
+                        reason: blockDesc,
+                      })
+                    }
+                    className="mt-3 h-11 w-full rounded-xl border border-[var(--c-1677ff)]/30 bg-[var(--c-1677ff)]/10 text-sm font-bold text-[var(--c-5da8ff)] transition-colors hover:bg-[var(--c-1677ff)]/15 disabled:opacity-50"
+                  >
+                    {saveBlockDesc.isPending ? "Salvando…" : "Salvar descrição"}
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={closeBlockedPopup}
-                  className="mt-2.5 h-11 w-full rounded-xl bg-[var(--c-131519)] text-sm font-semibold text-[var(--c-c3c8d0)] transition-colors hover:text-white"
-                >
-                  Fechar
-                </button>
+                  <button
+                    type="button"
+                    onClick={closeBlockedPopup}
+                    className="mt-2.5 h-11 w-full rounded-xl bg-[var(--c-131519)] text-sm font-semibold text-[var(--c-c3c8d0)] transition-colors hover:text-white"
+                  >
+                    Fechar
+                  </button>
                 </div>
               </div>
             </div>,
@@ -1121,8 +1121,7 @@ function AgendaPage() {
                         {formatPrice(
                           Math.max(
                             ((selected.services as { price_cents: number } | null)?.price_cents ??
-                              0) -
-                              (selected.deposit_paid_at ? selected.deposit_cents ?? 0 : 0),
+                              0) - (selected.deposit_paid_at ? (selected.deposit_cents ?? 0) : 0),
                             0,
                           ),
                         )}
@@ -1130,10 +1129,7 @@ function AgendaPage() {
                     </div>
                     <div className="space-y-1.5">
                       <Label className="agenda-booking-label">Forma de pagamento</Label>
-                      <Select
-                        value={formaPagamento}
-                        onValueChange={(v) => setFormaPagamento(v)}
-                      >
+                      <Select value={formaPagamento} onValueChange={(v) => setFormaPagamento(v)}>
                         <SelectTrigger className="agenda-booking-input w-full">
                           <SelectValue placeholder="Selecione a forma de pagamento" />
                         </SelectTrigger>
@@ -1151,8 +1147,7 @@ function AgendaPage() {
                         {formatPrice(
                           Math.max(
                             ((selected.services as { price_cents: number } | null)?.price_cents ??
-                              0) -
-                              (selected.deposit_paid_at ? selected.deposit_cents ?? 0 : 0),
+                              0) - (selected.deposit_paid_at ? (selected.deposit_cents ?? 0) : 0),
                             0,
                           ),
                         )}

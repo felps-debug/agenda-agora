@@ -67,7 +67,8 @@ export function clearCachedBusinesses(storage?: StorageLike): void {
     const keys: string[] = [];
     for (let i = 0; i < s.length; i++) {
       const k = s.key(i);
-      if (k && (k.startsWith(BUSINESSES_CACHE_PREFIX) || k.startsWith(ROLE_CACHE_PREFIX))) keys.push(k);
+      if (k && (k.startsWith(BUSINESSES_CACHE_PREFIX) || k.startsWith(ROLE_CACHE_PREFIX)))
+        keys.push(k);
     }
     for (const k of keys) s.removeItem(k);
   } catch {
@@ -81,7 +82,8 @@ export function clearCachedBusinesses(storage?: StorageLike): void {
 
 const ROLE_CACHE_PREFIX = "agendaagora:is-admin:";
 
-export const roleCacheKey = (userId: string | undefined) => `${ROLE_CACHE_PREFIX}${userId ?? "anon"}`;
+export const roleCacheKey = (userId: string | undefined) =>
+  `${ROLE_CACHE_PREFIX}${userId ?? "anon"}`;
 
 export function loadCachedIsPlatformAdmin(
   userId: string | undefined,

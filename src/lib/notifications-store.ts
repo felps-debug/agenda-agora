@@ -56,7 +56,8 @@ export function readDismissedIds(storage?: StorageLike): Set<string> {
     const raw = s.getItem(DISMISSED_KEY);
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return new Set(parsed.filter((x): x is string => typeof x === "string"));
+    if (Array.isArray(parsed))
+      return new Set(parsed.filter((x): x is string => typeof x === "string"));
     return new Set();
   } catch {
     return new Set();

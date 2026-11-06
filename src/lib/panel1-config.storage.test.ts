@@ -165,12 +165,15 @@ describe("panel1-config storage", () => {
   it("persists layout and niche with the same explicit save", async () => {
     const storage = fakeStorage(JSON.stringify(defaultPanel1Config()));
 
+    // O layout hoje é fixo em 'elegance' (decisão "Elegance fixo", Spec 010): qualquer
+    // valor legado (ex.: 'classic') é normalizado para 'elegance' na leitura. O que o
+    // save precisa preservar junto é o nicho.
     await savePanel1Config(storage.client, businessId, {
-      visual: { layout_key: "classic", niche_id: "barbearia" },
+      visual: { layout_key: "elegance", niche_id: "barbearia" },
     });
 
     await expect(loadPanel1Config(storage.client, businessId)).resolves.toMatchObject({
-      visual: { layout_key: "classic", niche_id: "barbearia" },
+      visual: { layout_key: "elegance", niche_id: "barbearia" },
     });
   });
 });

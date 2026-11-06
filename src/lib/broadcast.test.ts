@@ -17,7 +17,9 @@ describe("shouldShowPopup (US3)", () => {
   });
 
   it("não mostra quando o id já foi dispensado (X do popup)", () => {
-    expect(shouldShowPopup(base, { seenAt: seenBefore, dismissedIds: new Set(["b1"]) })).toBe(false);
+    expect(shouldShowPopup(base, { seenAt: seenBefore, dismissedIds: new Set(["b1"]) })).toBe(
+      false,
+    );
   });
 
   it("não mostra quando createdAt <= seenAt (já visto pelo sino)", () => {
@@ -38,7 +40,10 @@ describe("shouldShowPopup (US3)", () => {
     expect(shouldShowPopup(null, { seenAt: 0, dismissedIds: new Set() })).toBe(false);
     expect(shouldShowPopup(undefined, { seenAt: 0, dismissedIds: new Set() })).toBe(false);
     expect(
-      shouldShowPopup({ ...base, createdAt: "data-invalida" }, { seenAt: 0, dismissedIds: new Set() }),
+      shouldShowPopup(
+        { ...base, createdAt: "data-invalida" },
+        { seenAt: 0, dismissedIds: new Set() },
+      ),
     ).toBe(false);
   });
 });

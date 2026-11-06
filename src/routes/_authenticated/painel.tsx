@@ -38,7 +38,14 @@ import {
   Palette,
   UsersRound,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+} from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { User } from "@supabase/supabase-js";
@@ -75,12 +82,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FloatingSupportButton } from "@/components/ui/floating-support-button";
 import { SidebarProfileWidget } from "@/components/painel/SidebarProfileWidget";
 import { SupportFaq } from "@/components/painel/SupportFaq";
@@ -294,7 +296,7 @@ const platformNav = [
         icon: KeyRound,
       },
       {
-        to: "/painel/agpay-performance",
+        to: "/painel/carteira-desempenho",
         label: "Ag Pay — Performance",
         hint: "Performance financeira do Ag Pay",
         icon: TrendingUp,
@@ -562,9 +564,7 @@ function AssinaturaContaPanel({
   const { data: avatarUrl } = usePanelAvatarUrl(avatarPath);
   // O Painel master gerencia a plataforma inteira (não é um estabelecimento):
   // a foto do perfil dele fica num espaço próprio da plataforma.
-  const avatarSpaceId = platformMode
-    ? PLATFORM_AVATAR_SPACE
-    : (business?.id ?? null);
+  const avatarSpaceId = platformMode ? PLATFORM_AVATAR_SPACE : (business?.id ?? null);
   const {
     isOpen: gerenciarOpen,
     closing: gerenciarClosing,
@@ -780,18 +780,14 @@ function AssinaturaContaPanel({
             </div>
           </div>
 
-          <div
-            className={`mt-5 rounded-[17px] border p-5 sm:p-6 ${planoCardTone}`}
-          >
+          <div className={`mt-5 rounded-[17px] border p-5 sm:p-6 ${planoCardTone}`}>
             <p className="text-[11px] font-medium uppercase tracking-[0.10em] text-[#69717f]">
               Seu plano
             </p>
             <p className="mt-1.5 text-[22px] font-semibold tracking-[-0.03em] text-[var(--c-f4f5f7)]">
               {planLabel}
             </p>
-            <p className={`mt-0.5 text-xs font-semibold ${planoDetalheTone}`}>
-              {plan.detail}
-            </p>
+            <p className={`mt-0.5 text-xs font-semibold ${planoDetalheTone}`}>{plan.detail}</p>
             <button
               type="button"
               onClick={openGerenciar}
@@ -870,9 +866,7 @@ function AssinaturaContaPanel({
                   >
                     {plan.label}
                   </span>
-                  <span className={`text-sm font-medium ${planoDetalheTone}`}>
-                    {plan.detail}
-                  </span>
+                  <span className={`text-sm font-medium ${planoDetalheTone}`}>{plan.detail}</span>
                 </div>
                 <div className="mt-5 flex items-center gap-2 border-t border-[var(--c-202329)] pt-4 text-sm">
                   <CreditCard className="size-4 text-[#6d7480]" aria-hidden="true" />
@@ -1072,86 +1066,82 @@ function AssinaturaContaPanel({
                 aria-modal="true"
                 aria-label="Gerenciar assinatura"
               >
-              <button
-                type="button"
-                aria-label="Fechar"
-                onClick={closeGerenciar}
-                className={`fixed inset-0 h-full w-full cursor-default bg-black/65 ${gerenciarClosing ? "animate-backdrop-out" : "animate-backdrop"}`}
-              />
-              <div className="flex min-h-full items-center justify-center p-4">
-                <div
-                  className={`relative w-full max-w-sm rounded-2xl border border-[var(--c-272a30)] bg-[var(--c-0b0b0e)] p-6 ${gerenciarClosing ? "animate-modal-out" : "animate-modal-in"}`}
-                >
-                  <button
-                    type="button"
-                    onClick={closeGerenciar}
-                    aria-label="Fechar"
-                    className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[#30333a] text-[var(--c-9aa4b2)] transition-colors hover:text-white"
+                <button
+                  type="button"
+                  aria-label="Fechar"
+                  onClick={closeGerenciar}
+                  className={`fixed inset-0 h-full w-full cursor-default bg-black/65 ${gerenciarClosing ? "animate-backdrop-out" : "animate-backdrop"}`}
+                />
+                <div className="flex min-h-full items-center justify-center p-4">
+                  <div
+                    className={`relative w-full max-w-sm rounded-2xl border border-[var(--c-272a30)] bg-[var(--c-0b0b0e)] p-6 ${gerenciarClosing ? "animate-modal-out" : "animate-modal-in"}`}
                   >
-                    <X className="size-4" aria-hidden="true" />
-                  </button>
-                  <h3 className="text-center text-[1.15rem] font-bold text-white">
-                    Sua assinatura
-                  </h3>
-                  <div className="mt-4 flex justify-center">
-                    <span
-                      className={`inline-flex items-center rounded-full border px-3.5 py-1.5 text-[12px] font-bold ${planBadgeClass}`}
+                    <button
+                      type="button"
+                      onClick={closeGerenciar}
+                      aria-label="Fechar"
+                      className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[#30333a] text-[var(--c-9aa4b2)] transition-colors hover:text-white"
                     >
-                      {plan.label}
-                    </span>
-                  </div>
-                  <p
-                    className={`mt-2 text-center text-sm font-semibold ${planoDetalheTone}`}
-                  >
-                    {plan.detail}
-                  </p>
-                  <div className="mt-5 space-y-3 border-t border-white/10 pt-4 text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[#8b8e96]">Plano atual</span>
-                      <span className="font-semibold text-white">
-                        {plan.tone === "ativo"
-                          ? "Assinante Premium"
-                          : "Premium (aguardando pagamento)"}
+                      <X className="size-4" aria-hidden="true" />
+                    </button>
+                    <h3 className="text-center text-[1.15rem] font-bold text-white">
+                      Sua assinatura
+                    </h3>
+                    <div className="mt-4 flex justify-center">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3.5 py-1.5 text-[12px] font-bold ${planBadgeClass}`}
+                      >
+                        {plan.label}
                       </span>
                     </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[#8b8e96]">Dias restantes</span>
-                      <span className="font-semibold text-white">
-                        {plan.daysLeft != null &&
-                        plan.tone !== "renovar" &&
-                        plan.daysLeft >= 0
-                          ? plan.daysLeft === 0
-                            ? "Último dia"
-                            : `${plan.daysLeft} dia${plan.daysLeft === 1 ? "" : "s"}`
-                          : "—"}
-                      </span>
-                    </div>
-                    {business?.access_until ? (
+                    <p className={`mt-2 text-center text-sm font-semibold ${planoDetalheTone}`}>
+                      {plan.detail}
+                    </p>
+                    <div className="mt-5 space-y-3 border-t border-white/10 pt-4 text-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="text-[#8b8e96]">Vencimento</span>
+                        <span className="text-[#8b8e96]">Plano atual</span>
                         <span className="font-semibold text-white">
-                          {new Date(business.access_until).toLocaleDateString("pt-BR", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                          })}
+                          {plan.tone === "ativo"
+                            ? "Assinante Premium"
+                            : "Premium (aguardando pagamento)"}
                         </span>
                       </div>
-                    ) : null}
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-[#8b8e96]">Valor mensal</span>
-                      <span className="font-semibold text-white">{monthlyValue}</span>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[#8b8e96]">Dias restantes</span>
+                        <span className="font-semibold text-white">
+                          {plan.daysLeft != null && plan.tone !== "renovar" && plan.daysLeft >= 0
+                            ? plan.daysLeft === 0
+                              ? "Último dia"
+                              : `${plan.daysLeft} dia${plan.daysLeft === 1 ? "" : "s"}`
+                            : "—"}
+                        </span>
+                      </div>
+                      {business?.access_until ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-[#8b8e96]">Vencimento</span>
+                          <span className="font-semibold text-white">
+                            {new Date(business.access_until).toLocaleDateString("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              year: "numeric",
+                            })}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[#8b8e96]">Valor mensal</span>
+                        <span className="font-semibold text-white">{monthlyValue}</span>
+                      </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={closeGerenciar}
+                      className="mt-4 h-10 w-full rounded-xl border border-[var(--c-272a30)] bg-[var(--c-111317)] text-sm font-semibold text-[var(--c-cfd3d9)] transition-colors hover:border-[var(--c-1677ff)]/30 hover:bg-[var(--c-1677ff)]/[0.06] hover:text-white"
+                    >
+                      Voltar ao painel
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={closeGerenciar}
-                    className="mt-4 h-10 w-full rounded-xl border border-[var(--c-272a30)] bg-[var(--c-111317)] text-sm font-semibold text-[var(--c-cfd3d9)] transition-colors hover:border-[var(--c-1677ff)]/30 hover:bg-[var(--c-1677ff)]/[0.06] hover:text-white"
-                  >
-                    Voltar ao painel
-                  </button>
                 </div>
-              </div>
               </div>,
               document.body,
             )}
@@ -1176,7 +1166,13 @@ function PagamentosView({ business }: { business: Business | null }) {
   } = useAnimatedModal();
   const [mounted, setMounted] = useState(false);
   const [payMethod, setPayMethod] = useState<"pix" | "cartao">("pix");
-  const [cardForm, setCardForm] = useState({ number: "", expiry: "", cvv: "", holder: "", doc: "" });
+  const [cardForm, setCardForm] = useState({
+    number: "",
+    expiry: "",
+    cvv: "",
+    holder: "",
+    doc: "",
+  });
 
   useEffect(() => {
     setMounted(true);
@@ -1261,8 +1257,8 @@ function PagamentosView({ business }: { business: Business | null }) {
                 <p className="mt-2 text-xs leading-relaxed text-[#8a8f98]">
                   Inclui 1 profissional (a agenda principal) +{" "}
                   {Math.max((cycle.data?.professionalsCount ?? 0) - 1, 0)} adicional(is) de{" "}
-                  <span className="font-semibold text-[var(--c-8fb5ff)]">+R$ 10,00/mês</span> cada
-                  — agendas próprias e separadas.
+                  <span className="font-semibold text-[var(--c-8fb5ff)]">+R$ 10,00/mês</span> cada —
+                  agendas próprias e separadas.
                 </p>
               ) : null}
               <button
@@ -1406,216 +1402,240 @@ function PagamentosView({ business }: { business: Business | null }) {
                   className={`relative w-full max-w-md rounded-2xl border border-[var(--c-272a30)] bg-[var(--c-0b0b0e)] p-6 ${checkoutClosing ? "animate-modal-out" : "animate-modal-in"}`}
                 >
                   <button
-                  type="button"
-                  onClick={closeCheckout}
-                  aria-label="Fechar"
-                  className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[#30333a] text-[var(--c-9aa4b2)] transition-colors hover:text-white"
-                >
-                  <X className="size-4" aria-hidden="true" />
-                </button>
-                <h3 className="text-center text-[1.18rem] font-bold text-white">
-                  Confirmar assinatura
-                </h3>
-                <p className="mt-1.5 text-center text-sm text-[var(--c-9aa4b2)]">
-                  Revise seu pedido antes do pagamento
-                </p>
+                    type="button"
+                    onClick={closeCheckout}
+                    aria-label="Fechar"
+                    className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full border border-[#30333a] text-[var(--c-9aa4b2)] transition-colors hover:text-white"
+                  >
+                    <X className="size-4" aria-hidden="true" />
+                  </button>
+                  <h3 className="text-center text-[1.18rem] font-bold text-white">
+                    Confirmar assinatura
+                  </h3>
+                  <p className="mt-1.5 text-center text-sm text-[var(--c-9aa4b2)]">
+                    Revise seu pedido antes do pagamento
+                  </p>
 
-                <div className="mt-5 rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">Premium</p>
-                      <p className="mt-0.5 text-xs text-[#8b8e96]">Cobrança mensal</p>
+                  <div className="mt-5 rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-white">Premium</p>
+                        <p className="mt-0.5 text-xs text-[#8b8e96]">Cobrança mensal</p>
+                      </div>
+                      <p className="font-bold text-white">
+                        {brlAssinatura(cycle.data?.baseCents ?? 8990)}
+                      </p>
                     </div>
-                    <p className="font-bold text-white">{brlAssinatura(cycle.data?.baseCents ?? 8990)}</p>
+                    {(cycle.data?.professionalsCount ?? 0) > 1 ? (
+                      <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 pt-2">
+                        <p className="text-xs text-[#8b8e96]">
+                          {Math.max((cycle.data?.professionalsCount ?? 0) - 1, 0)} profissional(is)
+                          adicional(is) × R$ 10,00
+                        </p>
+                        <p className="text-xs font-semibold text-white">
+                          +{brlAssinatura(((cycle.data?.professionalsCount ?? 0) - 1) * 1000)}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                  {(cycle.data?.professionalsCount ?? 0) > 1 ? (
-                    <div className="mt-2 flex items-center justify-between gap-3 border-t border-white/10 pt-2">
-                      <p className="text-xs text-[#8b8e96]">
-                        {Math.max((cycle.data?.professionalsCount ?? 0) - 1, 0)} profissional(is)
-                        adicional(is) × R$ 10,00
-                      </p>
-                      <p className="text-xs font-semibold text-white">
-                        +{brlAssinatura(((cycle.data?.professionalsCount ?? 0) - 1) * 1000)}
-                      </p>
+
+                  <p className="mb-2 mt-4 text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-[#8b8e96]">
+                    Forma de pagamento
+                  </p>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("pix")}
+                      className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
+                        payMethod === "pix"
+                          ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
+                          : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
+                      }`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="21"
+                        height="21"
+                        fill="#32BCAD"
+                        aria-hidden="true"
+                      >
+                        <path d="M5.283 18.36c.85 0 1.647-.331 2.246-.932l3.243-3.242c.228-.228.625-.228.853 0l3.255 3.254a3.152 3.152 0 0 0 2.245.93h.638l-4.106 4.107c-1.282 1.283-3.363 1.283-4.646 0l-4.118-4.117h.39zm12.472-12.72c-.85 0-1.647.33-2.246.93l-3.254 3.255a.604.604 0 0 1-.854 0L8.16 6.573a3.153 3.153 0 0 0-2.246-.932h-.39l4.118-4.117a3.286 3.286 0 0 1 4.646 0l4.106 4.106h-.638zM1.817 9.633l2.492-2.492h.974c.587 0 1.161.238 1.575.652l3.254 3.254a1.55 1.55 0 0 0 1.096.451c.398 0 .796-.15 1.097-.45l3.254-3.255a2.24 2.24 0 0 1 1.575-.652h1.113l2.505 2.505c1.282 1.283 1.282 3.364 0 4.646l-2.505 2.505h-1.113a2.24 2.24 0 0 1-1.575-.651l-3.254-3.254a1.594 1.594 0 0 0-2.193 0l-3.254 3.254a2.24 2.24 0 0 1-1.575.651h-.974l-2.492-2.492c-1.283-1.282-1.283-3.363 0-4.646" />
+                      </svg>
+                      <span className="min-w-0">
+                        <span className="block text-[0.86rem] font-semibold text-white">PIX</span>
+                        <span className="block text-xs text-[#8b8e96]">Liberação imediata</span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPayMethod("cartao")}
+                      className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
+                        payMethod === "cartao"
+                          ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
+                          : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
+                      }`}
+                    >
+                      <CreditCard
+                        className="size-[21px] shrink-0 text-[var(--c-69a2ff)]"
+                        aria-hidden="true"
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-[0.86rem] font-semibold text-white">
+                          Cartão
+                        </span>
+                        <span className="block text-xs text-[#8b8e96]">Crédito à vista</span>
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Cupom — só aparece se o master ativou um cupom para este estabelecimento (auto-expira) */}
+                  {payMethod === "pix" && masterCoupon ? (
+                    <div className="mt-3">
+                      <div className="rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
+                        <p className="truncate text-sm text-white">
+                          Cupom <span className="font-bold uppercase">{masterCoupon.code}</span>{" "}
+                          aplicado — {masterCoupon.percent}% de desconto
+                        </p>
+                        <p className="mt-0.5 text-xs text-[#8b8e96]">
+                          Válido até {new Date(masterCoupon.expiresAt).toLocaleDateString("pt-BR")}{" "}
+                          (expira sozinho)
+                        </p>
+                      </div>
                     </div>
                   ) : null}
-                </div>
 
-                <p className="mb-2 mt-4 text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-[#8b8e96]">
-                  Forma de pagamento
-                </p>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("pix")}
-                    className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
-                      payMethod === "pix"
-                        ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
-                        : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
-                    }`}
-                  >
-                    <svg viewBox="0 0 24 24" width="21" height="21" fill="#32BCAD" aria-hidden="true">
-                      <path d="M5.283 18.36c.85 0 1.647-.331 2.246-.932l3.243-3.242c.228-.228.625-.228.853 0l3.255 3.254a3.152 3.152 0 0 0 2.245.93h.638l-4.106 4.107c-1.282 1.283-3.363 1.283-4.646 0l-4.118-4.117h.39zm12.472-12.72c-.85 0-1.647.33-2.246.93l-3.254 3.255a.604.604 0 0 1-.854 0L8.16 6.573a3.153 3.153 0 0 0-2.246-.932h-.39l4.118-4.117a3.286 3.286 0 0 1 4.646 0l4.106 4.106h-.638zM1.817 9.633l2.492-2.492h.974c.587 0 1.161.238 1.575.652l3.254 3.254a1.55 1.55 0 0 0 1.096.451c.398 0 .796-.15 1.097-.45l3.254-3.255a2.24 2.24 0 0 1 1.575-.652h1.113l2.505 2.505c1.282 1.283 1.282 3.364 0 4.646l-2.505 2.505h-1.113a2.24 2.24 0 0 1-1.575-.651l-3.254-3.254a1.594 1.594 0 0 0-2.193 0l-3.254 3.254a2.24 2.24 0 0 1-1.575.651h-.974l-2.492-2.492c-1.283-1.282-1.283-3.363 0-4.646" />
-                    </svg>
-                    <span className="min-w-0">
-                      <span className="block text-[0.86rem] font-semibold text-white">PIX</span>
-                      <span className="block text-xs text-[#8b8e96]">Liberação imediata</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPayMethod("cartao")}
-                    className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
-                      payMethod === "cartao"
-                        ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
-                        : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
-                    }`}
-                  >
-                    <CreditCard className="size-[21px] shrink-0 text-[var(--c-69a2ff)]" aria-hidden="true" />
-                    <span className="min-w-0">
-                      <span className="block text-[0.86rem] font-semibold text-white">Cartão</span>
-                      <span className="block text-xs text-[#8b8e96]">Crédito à vista</span>
-                    </span>
-                  </button>
-                </div>
-
-                {/* Cupom — só aparece se o master ativou um cupom para este estabelecimento (auto-expira) */}
-                {payMethod === "pix" && masterCoupon ? (
-                  <div className="mt-3">
-                    <div className="rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
-                      <p className="truncate text-sm text-white">
-                        Cupom <span className="font-bold uppercase">{masterCoupon.code}</span>{" "}
-                        aplicado — {masterCoupon.percent}% de desconto
-                      </p>
-                      <p className="mt-0.5 text-xs text-[#8b8e96]">
-                        Válido até {new Date(masterCoupon.expiresAt).toLocaleDateString("pt-BR")}{" "}
-                        (expira sozinho)
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-
-                {/* Dados do cartão */}
-                {payMethod === "cartao" ? (
-                  <div className="mt-2.5 space-y-2.5">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={cardForm.number}
-                      onChange={(e) =>
-                        setCardForm({
-                          ...cardForm,
-                          number: e.target.value.replace(/\D/g, "").slice(0, 16),
-                        })
-                      }
-                      placeholder="Número do cartão"
-                      className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                    />
-                    <div className="grid grid-cols-2 gap-2.5">
+                  {/* Dados do cartão */}
+                  {payMethod === "cartao" ? (
+                    <div className="mt-2.5 space-y-2.5">
                       <input
                         type="text"
                         inputMode="numeric"
-                        value={cardForm.expiry}
-                        onChange={(e) => {
-                          const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                        value={cardForm.number}
+                        onChange={(e) =>
                           setCardForm({
                             ...cardForm,
-                            expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits,
-                          });
-                        }}
-                        placeholder="MM/AA"
+                            number: e.target.value.replace(/\D/g, "").slice(0, 16),
+                          })
+                        }
+                        placeholder="Número do cartão"
+                        className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
+                      />
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cardForm.expiry}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
+                            setCardForm({
+                              ...cardForm,
+                              expiry:
+                                digits.length > 2
+                                  ? `${digits.slice(0, 2)}/${digits.slice(2)}`
+                                  : digits,
+                            });
+                          }}
+                          placeholder="MM/AA"
+                          className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={cardForm.cvv}
+                          onChange={(e) =>
+                            setCardForm({
+                              ...cardForm,
+                              cvv: e.target.value.replace(/\D/g, "").slice(0, 4),
+                            })
+                          }
+                          placeholder="CVV"
+                          className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        value={cardForm.holder}
+                        onChange={(e) => setCardForm({ ...cardForm, holder: e.target.value })}
+                        placeholder="Nome impresso no cartão"
                         className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
                       />
                       <input
                         type="text"
                         inputMode="numeric"
-                        value={cardForm.cvv}
+                        value={cardForm.doc}
                         onChange={(e) =>
-                          setCardForm({ ...cardForm, cvv: e.target.value.replace(/\D/g, "").slice(0, 4) })
+                          setCardForm({
+                            ...cardForm,
+                            doc: e.target.value.replace(/\D/g, "").slice(0, 14),
+                          })
                         }
-                        placeholder="CVV"
+                        placeholder="CPF do titular"
                         className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
                       />
                     </div>
-                    <input
-                      type="text"
-                      value={cardForm.holder}
-                      onChange={(e) => setCardForm({ ...cardForm, holder: e.target.value })}
-                      placeholder="Nome impresso no cartão"
-                      className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={cardForm.doc}
-                      onChange={(e) =>
-                        setCardForm({ ...cardForm, doc: e.target.value.replace(/\D/g, "").slice(0, 14) })
-                      }
-                      placeholder="CPF do titular"
-                      className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                    />
-                  </div>
-                ) : null}
+                  ) : null}
 
-                <div className="mt-3.5 flex items-center justify-between border-t border-white/10 py-3.5">
-                  <p className="font-semibold text-white">Total</p>
-                  <div className="text-right">
-                    {masterCoupon && payMethod === "pix" ? (
-                      <>
-                        <p className="text-xs text-[#8b8e96]">
-                          <span className="line-through">{brlAssinatura(baseTotalCents)}</span>{" "}
-                          (−{brlAssinatura(couponDiscountCents)})
+                  <div className="mt-3.5 flex items-center justify-between border-t border-white/10 py-3.5">
+                    <p className="font-semibold text-white">Total</p>
+                    <div className="text-right">
+                      {masterCoupon && payMethod === "pix" ? (
+                        <>
+                          <p className="text-xs text-[#8b8e96]">
+                            <span className="line-through">{brlAssinatura(baseTotalCents)}</span> (−
+                            {brlAssinatura(couponDiscountCents)})
+                          </p>
+                          <p className="text-[1.4rem] font-bold leading-tight text-emerald-400">
+                            {brlAssinatura(pixDiscountedCents)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-[1.4rem] font-bold text-white">
+                          {brlAssinatura(baseTotalCents)}
                         </p>
-                        <p className="text-[1.4rem] font-bold leading-tight text-emerald-400">
-                          {brlAssinatura(pixDiscountedCents)}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="text-[1.4rem] font-bold text-white">
-                        {brlAssinatura(baseTotalCents)}
+                      )}
+                    </div>
+                  </div>
+
+                  {payMethod === "cartao" ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={
+                          cardForm.number.length < 13 ||
+                          cardForm.expiry.length < 5 ||
+                          cardForm.cvv.length < 3 ||
+                          !cardForm.holder.trim() ||
+                          cardForm.doc.length < 11
+                        }
+                        onClick={() =>
+                          toast.info(
+                            "Checkout com cartão em breve. Fale com o suporte para assinar.",
+                          )
+                        }
+                        className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
+                      >
+                        Pagar com cartão
+                      </button>
+                      <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
+                        Cobrança mensal no cartão de crédito — liberação após a confirmação.
                       </p>
-                    )}
-                  </div>
-                </div>
-
-                {payMethod === "cartao" ? (
-                  <>
-                    <button
-                      type="button"
-                      disabled={
-                        cardForm.number.length < 13 ||
-                        cardForm.expiry.length < 5 ||
-                        cardForm.cvv.length < 3 ||
-                        !cardForm.holder.trim() ||
-                        cardForm.doc.length < 11
-                      }
-                      onClick={() =>
-                        toast.info("Checkout com cartão em breve. Fale com o suporte para assinar.")
-                      }
-                      className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
-                    >
-                      Pagar com cartão
-                    </button>
-                    <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
-                      Cobrança mensal no cartão de crédito — liberação após a confirmação.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        toast.info("Checkout Pix em breve. Fale com o suporte para assinar.")
-                      }
-                      className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5]"
-                    >
-                      Continuar para PIX
-                    </button>
-                    <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
-                      Pagamento via PIX (instantâneo) — liberação automática.
-                    </p>
-                  </>
-                )}
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          toast.info("Checkout Pix em breve. Fale com o suporte para assinar.")
+                        }
+                        className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5]"
+                      >
+                        Continuar para PIX
+                      </button>
+                      <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
+                        Pagamento via PIX (instantâneo) — liberação automática.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>,
@@ -1654,7 +1674,10 @@ function ConfettiBurst() {
   );
 
   return (
-    <div className="aa-confetti pointer-events-none fixed inset-0 z-[85] overflow-hidden" aria-hidden="true">
+    <div
+      className="aa-confetti pointer-events-none fixed inset-0 z-[85] overflow-hidden"
+      aria-hidden="true"
+    >
       {pieces.map((piece) => (
         <span
           key={piece.id}
@@ -2165,10 +2188,11 @@ function PainelLayout() {
           <SidebarProfileWidget
             businessId={businessId ?? null}
             name={
-              business?.name ??
-              (platformMode ? "Administração da plataforma" : "Estabelecimento")
+              business?.name ?? (platformMode ? "Administração da plataforma" : "Estabelecimento")
             }
-            initial={(business?.name ?? (platformMode ? "Administração" : "Estabelecimento")).charAt(0).toUpperCase()}
+            initial={(business?.name ?? (platformMode ? "Administração" : "Estabelecimento"))
+              .charAt(0)
+              .toUpperCase()}
             role={platformMode ? "Plataforma" : "Usuário"}
             statusLabel={platformMode ? "Plataforma" : planInfo.label}
             statusTone={platformMode ? undefined : (planInfo.tone as string)}
@@ -2205,7 +2229,9 @@ function PainelLayout() {
                   </div>
                 ) : (
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-[11px] bg-[var(--c-f2f3f5)] text-xs font-semibold text-[var(--c-111318)]">
-                    {(business?.name ?? (platformMode ? "Administração" : "Estabelecimento")).charAt(0).toUpperCase()}
+                    {(business?.name ?? (platformMode ? "Administração" : "Estabelecimento"))
+                      .charAt(0)
+                      .toUpperCase()}
                   </span>
                 )}
                 <div>
@@ -2230,11 +2256,11 @@ function PainelLayout() {
                 <div className="flex justify-between">
                   <span className="text-[#626872]">Plano</span>
                   <span>
-                  <span
-                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold ${planInfo.badgeClass}`}
-                  >
-                    {planInfo.label}
-                  </span>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-semibold ${planInfo.badgeClass}`}
+                    >
+                      {planInfo.label}
+                    </span>
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -2516,7 +2542,10 @@ function PainelLayout() {
             </span>
           </Link>
           <NotificationBell />
-          <FloatingSupportButton businessId={businessId ?? null} ownerName={business?.name ?? null} />
+          <FloatingSupportButton
+            businessId={businessId ?? null}
+            ownerName={business?.name ?? null}
+          />
         </header>
         <main
           className={`relative mx-auto w-full ${
@@ -2606,14 +2635,12 @@ function PainelLayout() {
       <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
         <DialogContent className="max-w-sm rounded-2xl border-[#2a2f37] bg-[#0d1015]">
           <DialogHeader>
-            <DialogTitle className="text-[var(--c-eef1f6)]">
-              Voltar ao Painel Master
-            </DialogTitle>
+            <DialogTitle className="text-[var(--c-eef1f6)]">Voltar ao Painel Master</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-xs leading-relaxed text-[#9aa1ab]">
-              Acesso restrito à equipe. Digite o PIN de retorno da equipe Agenda Agora para
-              encerrar a sessão do cliente e restaurar o Painel 3.
+              Acesso restrito à equipe. Digite o PIN de retorno da equipe Agenda Agora para encerrar
+              a sessão do cliente e restaurar o Painel 3.
             </p>
             <Input
               type="password"

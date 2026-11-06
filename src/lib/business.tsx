@@ -101,7 +101,9 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("businesses")
-        .select("id, name, slug, category, phone, address, status, monthly_fee_cents, created_at, trial_days, trial_created_at, trial_registration_name, access_until")
+        .select(
+          "id, name, slug, category, phone, address, status, monthly_fee_cents, created_at, trial_days, trial_created_at, trial_registration_name, access_until",
+        )
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as Business[];
@@ -118,8 +120,7 @@ export function BusinessProvider({ children }: { children: ReactNode }) {
 
   // Resolve o negócio de forma síncrona (sem useEffect) para não exibir
   // "aguardando configuração" por um render após a lista carregar.
-  const stored =
-    typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+  const stored = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
   const businessId = isPlatformAdmin
     ? null
     : businessIdOverride && businesses.some((b) => b.id === businessIdOverride)

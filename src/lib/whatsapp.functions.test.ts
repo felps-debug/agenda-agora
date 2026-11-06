@@ -74,7 +74,11 @@ describe("sendTestMessage (US6)", () => {
         context,
       }),
     ).resolves.toEqual({ ok: true });
-    expect(runtime.sendTextMessage).toHaveBeenCalledWith("tok-1", "5511999999999", expect.any(String));
+    expect(runtime.sendTextMessage).toHaveBeenCalledWith(
+      "tok-1",
+      "5511999999999",
+      expect.any(String),
+    );
   });
 
   it("erro claro quando o WhatsApp não está conectado", async () => {

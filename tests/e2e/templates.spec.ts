@@ -34,12 +34,17 @@ test.describe("US1 — UI de templates por nicho (requer sessão de dono)", () =
   );
   test.use({ storageState: process.env["OWNER_STORAGE_STATE"] });
 
-  test("nicho com artes mostra a grade; nicho sem conteúdo mostra estado vazio", async ({ page }) => {
+  test("nicho com artes mostra a grade; nicho sem conteúdo mostra estado vazio", async ({
+    page,
+  }) => {
     await page.goto("/painel/templates");
 
     // Marca o nicho "Barbearia" (tem artes) e abre a tela de artes.
     await page.getByText("Barbearia", { exact: false }).first().click();
-    await page.getByRole("button", { name: /ver|abrir|arte/i }).first().click();
+    await page
+      .getByRole("button", { name: /ver|abrir|arte/i })
+      .first()
+      .click();
 
     // A grade deve conter ao menos uma arte (imagem com src de /templates/).
     const artes = page.locator('img[src^="/templates/"]');

@@ -126,7 +126,7 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 ### Implementation US5
 
 - [X] T029 [US5] Substituir rótulos "Carteira"→"Ag Pay" na sidebar/topo em `src/routes/_authenticated/painel.tsx` e telas de pagamento (`painel.as-pay.tsx`, recebíveis) — ~30 strings visíveis em 9 arquivos
-- [X] T030 [US5] Renomear rota `/painel/carteira-desempenho` → `/painel/agpay-performance` e adicionar **redirect** da rota antiga — arquivo renomeado + stub de redirect; routeTree regenerado
+- [X] T030 [US5] Rota de performance — **rename revertido**: o guard existente `brand-privacy.test.ts` proíbe "agpay" (compacto) em strings de rotas (a marca permitida é "Ag Pay" com espaço). Slug mantido em `/painel/carteira-desempenho` (URL interna, não é texto de interface); **rótulo visível = "Ag Pay — Performance"**. Se o cliente exigir a URL `agpay-performance`, requer decisão de produto p/ afrouxar o guard de privacidade.
 - [X] T031 [P] [US5] limpar resquícios em títulos/tooltips (`head`, textos de ajuda) — titles/og/aria/labels rebrandizados. Classes CSS `.carteira-*` são nomes internos (não-interface) e ficam; só restam comentários de código
 - [X] T031b [US5] Aplicar "Ag Pay" também nas telas do **cliente final** — public-booking já não exibe "Carteira" (varredura .tsx/.ts: 0 texto visível)
 
@@ -159,15 +159,24 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US7
 
-- [ ] T035 [P] [US7] Teste unit de cálculo de cobrança/renovação em `src/lib/subscription.functions.test.ts` (período 30 dias, não renovar sem `paid`)
-- [ ] T036 [P] [US7] Teste de banco em `src/lib/subscription-charge.server.test.ts` (`npm run test:db`): criar cobrança Pix, webhook idempotente, renovar `access_until`
+- [X] T035 [P] [US7] Teste unit de cálculo de renovação (período 30 dias a partir de max(acesso, hoje)) — **já coberto**: `nextAccessAfterPayment` em `billing-cycle.ts` + `billing-cycle.test.ts` (não come dias; atraso desloca p/ hoje+30). Não renovar sem `paid` = o webhook só renova no evento de pago.
+- [ ] T036 [P] [US7] ⛔ BLOQUEADO — Teste de banco (criar cobrança Pix, webhook idempotente, renovar `access_until`): depende de T037/T038 e do DB de ensaio.
 
-### Implementation US7 (Pix)
+### Implementation US7 (Pix) — ⛔ BLOQUEADO (decisão de produto + dado faltante)
 
-- [ ] T037 [US7] Criar migration `supabase/migrations/*_subscription_charges.sql` (campos conforme data-model.md: method, provider_payment_id, status, period_start/end)
-- [ ] T038 [US7] Implementar `createSubscriptionCharge({ businessId, method: "pix" })` em `src/lib/subscription-charge.server.ts` reusando `createPixCharge` (`agpay.server.ts`) e o **valor/plano de assinatura já configurado no sistema** (localizar e reusar, não hard-codar)
-- [ ] T039 [US7] Tratar o evento `deposit.completed` no webhook `src/routes/api/public/agpay-webhook.ts`: ao `paid` de cobrança de assinatura, renovar `access_until` +30d e lançar no ledger
-- [ ] T040 [US7] UI de pagamento da assinatura por Pix (QR/código) na tela de assinatura/Ag Pay do dono
+> **Bloqueio (2026-11-06):** `createPixCharge` exige **CPF + e-mail do pagador**. No fluxo de
+> sinal esses dados vêm do **cliente final**; na assinatura o pagador é o **dono**, cujo
+> **CPF não é armazenado** (coluna `cpf` só existe em `customers`). Além disso não há fluxo de
+> cobrança de assinatura hoje (`renovarAssinatura` só abre o painel Ag Pay). Precisa de decisão
+> do responsável antes de implementar: (a) **onde coletar/guardar o CPF+e-mail do dono** (novo
+> campo em `businesses`/profile, ou pedir na hora do pagamento); (b) **gatilho** da cobrança
+> (dono clica "pagar" vs. auto-gerar no vencimento); (c) **aplicar a migration** no Supabase real
+> (schema novo). A lógica de renovação (+30d) já está pronta e testada (T035).
+
+- [ ] T037 [US7] ⛔ Migration `supabase/migrations/*_subscription_charges.sql` (method, provider_payment_id, status, period_start/end, payer_cpf/payer_email) — schema depende da decisão (a); não aplicar sem aval
+- [ ] T038 [US7] ⛔ `createSubscriptionCharge({ businessId, method:"pix", payer... })` reusando `createPixCharge` e o valor já configurado (`subscriptionTotalCents(monthly_fee_cents, profissionais)` + cupom) — bloqueado por (a)
+- [ ] T039 [US7] ⛔ Renovar `access_until` +30d (via `nextAccessAfterPayment`) no worker do webhook ao pago de cobrança de assinatura — caminho crítico; exige teste de banco (T036)
+- [ ] T040 [US7] ⛔ UI de pagamento da assinatura por Pix (QR/código) — depende de (a)/(b)
 
 ### Implementation US7 (Cartão via VeoPag) — ⏸️ ADIADO
 
@@ -191,14 +200,14 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US8
 
-- [ ] T047 [P] [US8] Reativar/validar a suíte dos módulos religados (rodar `*.test.ts` dos módulos da referência portados) e registrar verdes
+- [X] T047 [P] [US8] Validar a suíte dos módulos de paridade — os `*.test.ts` dos módulos (agpay-fees, agpay-performance, security-pin, login-attempts, env-security, reset-password, sdr, lifecycle, platform-overview/dossier etc.) rodam verdes na suíte completa (712+ ok)
 
 ### Implementation US8 (guiada pela parity-matrix de T005)
 
-- [ ] T048 [US8] Religar módulos de endurecimento ausentes: `env-security.server`, `login-attempts.server`, `security-pin.functions` (+ telas que os usam)
-- [ ] T049 [US8] Religar `reset-password.functions`, `sdr.*`, `lifecycle-settings.functions`, `platform-settings.server`
-- [ ] T050 [US8] Religar telas/relatórios financeiros: `agpay-fees.functions`, `agpay-performance.functions`, carteira-config/desempenho (sob o rebrand Ag Pay)
-- [ ] T051 [US8] Corrigir cada item "quebrado/faltando" da parity-matrix (autorização ampla no backend), com teste cobrindo o que foi religado
+- [X] T048 [US8] `env-security.server`, `login-attempts.server`, `security-pin.functions` — **presentes** na base (0 ausentes na parity-matrix); nada a religar
+- [X] T049 [US8] `reset-password.functions`, `sdr.*`, `lifecycle-settings.functions`, `platform-settings.server` — **presentes**; nada a religar
+- [X] T050 [US8] `agpay-fees.functions`, `agpay-performance.functions`, carteira-config/desempenho (sob o rebrand Ag Pay) — **presentes** e rebrandizados (US5)
+- [X] T051 [US8] parity-matrix sem itens "quebrado/faltando" (0 módulos ausentes nas 27 telas); validação funcional por tela permanece via `verificar` na matriz (exige sessão/dados reais)
 
 **Checkpoint**: todas as telas funcionais.
 
@@ -228,10 +237,10 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ## Phase 12: Polish & Cross-Cutting
 
-- [ ] T057 [P] Remover lixo herdado do repo do cliente (`styles.css.*.bak`, `__tmp_master.mjs`, cópias aninhadas) se presentes na base de trabalho
-- [ ] T058 [P] Rodar `npm run lint` e `npm run format`; corrigir apontamentos
-- [ ] T059 Rodar a suíte completa: `npm test`, `npm run test:db`, `npm run test:e2e` — tudo verde, sem regressões (SC-009)
-- [ ] T060 Executar o `quickstart.md` ponta a ponta e marcar cada história validada
+- [X] T057 [P] Remover lixo herdado — **removido `public/__tmp_master_session.json`** (⚠️ continha sessão Supabase real — access/refresh token — commitada e em `public/`; ver nota de segurança). Nenhum `*.bak`/`__tmp_master.mjs` presente.
+- [X] T058 [P] `npm run lint`/`format` — meus arquivos formatados com prettier. Repo tem ~4.8k apontamentos prettier **pré-existentes** (296 arquivos); reformatar tudo está fora de escopo (geraria diff gigante/risco). Lint sem erros de código nos meus arquivos.
+- [~] T059 Suíte completa: `npm test` verde (só a falha pré-existente do baseline sendo zerada). `npm run test:db` (tests/db/**) e `npm run test:e2e` (painel) exigem DB de ensaio/sessão de dono — não executáveis sem infra aqui; e2e públicos de US1 verdes.
+- [~] T060 `quickstart.md` ponta a ponta — validação manual por tela exige sessão de dono/Master com dados reais (não disponível nesta sessão); testes automatizados cobrem a lógica.
 
 ---
 

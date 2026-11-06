@@ -69,9 +69,7 @@ export function SidebarProfileWidget({
   const [repairForgiven, setRepairForgiven] = useState(false);
   const navigate = useNavigate();
   // O Painel master também pode ter foto: usa o espaço de plataforma.
-  const avatarSpaceId = platformMode
-    ? PLATFORM_AVATAR_SPACE
-    : businessId;
+  const avatarSpaceId = platformMode ? PLATFORM_AVATAR_SPACE : businessId;
   const noticeTimer = useRef<number | null>(null);
   const payRowRef = useRef<HTMLDivElement | null>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -295,111 +293,111 @@ export function SidebarProfileWidget({
         {platformMode && <MasterSidebarRows />}
 
         {!platformMode && (
-        <>
-        <div className="sbp-social-row" role="group" aria-label="WhatsApp">
-          <button
-            type="button"
-            className="sbp-social-button sbp-whatsapp is-active"
-            aria-label="Abrir integração do WhatsApp"
-            onClick={() => void navigate({ to: "/painel/integracoes" })}
-          >
-            <span
-              className="sbp-whatsapp-icon"
-              aria-hidden="true"
-              style={{ "--sbp-whatsapp-mask": WHATSAPP_MASK } as CSSProperties}
-            />
-            <span className="sbp-plat-nome">WhatsApp</span>
-          </button>
-          <span
-            className={`sbp-status-pill${whatsappOn ? " is-on" : ""}`}
-            aria-label={whatsappOn ? "Online" : "Offline"}
-          >
-            {whatsappOn ? "ON" : "OFF"}
-          </span>
-        </div>
-
-        <div
-          className="sbp-social-row sbp-agpay-row"
-          role="group"
-          aria-label="Ag Pay"
-          ref={payRowRef}
-        >
-          <div
-            className={`sbp-social-button sbp-agpay-button${agpayOn ? " is-active" : ""}`}
-            aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
-          >
-            <span className="sbp-agpay-brand-lockup">
-              <img className="sbp-agpay-brand-icon" src="/sidebar-agpay-icon.png" alt="" />
-              <span className="sbp-agpay-name">
-                <span className="sbp-agpay-title">Ag Pay</span>
+          <>
+            <div className="sbp-social-row" role="group" aria-label="WhatsApp">
+              <button
+                type="button"
+                className="sbp-social-button sbp-whatsapp is-active"
+                aria-label="Abrir integração do WhatsApp"
+                onClick={() => void navigate({ to: "/painel/integracoes" })}
+              >
+                <span
+                  className="sbp-whatsapp-icon"
+                  aria-hidden="true"
+                  style={{ "--sbp-whatsapp-mask": WHATSAPP_MASK } as CSSProperties}
+                />
+                <span className="sbp-plat-nome">WhatsApp</span>
+              </button>
+              <span
+                className={`sbp-status-pill${whatsappOn ? " is-on" : ""}`}
+                aria-label={whatsappOn ? "Online" : "Offline"}
+              >
+                {whatsappOn ? "ON" : "OFF"}
               </span>
-            </span>
-          </div>
-          <button
-            type="button"
-            className="sbp-signal-history-toggle"
-            aria-label="Ver sinais recebidos hoje"
-            aria-expanded={historyOpen}
-            aria-controls={SIGNAL_MENU_ID}
-            onClick={() => setHistoryOpen((value) => !value)}
-          >
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path
-                d="m3 6 5 5 5-5"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <div
-            className="sbp-signal-history-menu"
-            id={SIGNAL_MENU_ID}
-            role="region"
-            aria-label="Sinais recebidos hoje"
-            hidden={!historyOpen}
-          >
-            <div className="sbp-signal-history-heading">
-              <span>Sinais recebidos hoje</span>
-              <span className="sbp-signal-history-count">{signals.length}</span>
             </div>
-            <div className="sbp-signal-history-list">
-              {signals.length === 0 ? (
-                <div className="sbp-signal-history-empty">
-                  {isFetching ? "Carregando sinais…" : "Nenhum sinal recebido hoje."}
+
+            <div
+              className="sbp-social-row sbp-agpay-row"
+              role="group"
+              aria-label="Ag Pay"
+              ref={payRowRef}
+            >
+              <div
+                className={`sbp-social-button sbp-agpay-button${agpayOn ? " is-active" : ""}`}
+                aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
+              >
+                <span className="sbp-agpay-brand-lockup">
+                  <img className="sbp-agpay-brand-icon" src="/sidebar-agpay-icon.png" alt="" />
+                  <span className="sbp-agpay-name">
+                    <span className="sbp-agpay-title">Ag Pay</span>
+                  </span>
+                </span>
+              </div>
+              <button
+                type="button"
+                className="sbp-signal-history-toggle"
+                aria-label="Ver sinais recebidos hoje"
+                aria-expanded={historyOpen}
+                aria-controls={SIGNAL_MENU_ID}
+                onClick={() => setHistoryOpen((value) => !value)}
+              >
+                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path
+                    d="m3 6 5 5 5-5"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <div
+                className="sbp-signal-history-menu"
+                id={SIGNAL_MENU_ID}
+                role="region"
+                aria-label="Sinais recebidos hoje"
+                hidden={!historyOpen}
+              >
+                <div className="sbp-signal-history-heading">
+                  <span>Sinais recebidos hoje</span>
+                  <span className="sbp-signal-history-count">{signals.length}</span>
                 </div>
-              ) : (
-                signals.map((signal) => (
-                  <div className="sbp-signal-history-item" key={signal.id}>
-                    <div>
-                      <div className="sbp-signal-history-client">
-                        {signal.description || "Cliente"}
-                      </div>
-                      <div className="sbp-signal-history-meta">
-                        Pago às{" "}
-                        {new Date(signal.date).toLocaleTimeString("pt-BR", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </div>
+                <div className="sbp-signal-history-list">
+                  {signals.length === 0 ? (
+                    <div className="sbp-signal-history-empty">
+                      {isFetching ? "Carregando sinais…" : "Nenhum sinal recebido hoje."}
                     </div>
-                    <span className="sbp-signal-history-amount">
-                      {formatBRL(signal.amountCents)}
-                    </span>
-                  </div>
-                ))
-              )}
+                  ) : (
+                    signals.map((signal) => (
+                      <div className="sbp-signal-history-item" key={signal.id}>
+                        <div>
+                          <div className="sbp-signal-history-client">
+                            {signal.description || "Cliente"}
+                          </div>
+                          <div className="sbp-signal-history-meta">
+                            Pago às{" "}
+                            {new Date(signal.date).toLocaleTimeString("pt-BR", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        </div>
+                        <span className="sbp-signal-history-amount">
+                          {formatBRL(signal.amountCents)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              <span
+                className={`sbp-status-pill${agpayOn ? " is-on" : ""}`}
+                aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
+              >
+                {agpayOn ? "ON" : "OFF"}
+              </span>
             </div>
-          </div>
-          <span
-            className={`sbp-status-pill${agpayOn ? " is-on" : ""}`}
-            aria-label={agpayOn ? "Ag Pay ativo" : "Ag Pay inativo"}
-          >
-            {agpayOn ? "ON" : "OFF"}
-          </span>
-        </div>
-        </>
+          </>
         )}
       </div>
       <div className={`sbp-notice${notice ? " is-visible" : ""}`} role="status" aria-live="polite">
@@ -481,7 +479,13 @@ function MasterSidebarRows() {
           onClick={() => setCadastrosOpen((value) => !value)}
         >
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="m3 6 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="m3 6 5 5 5-5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
         <div className="sbp-signal-history-menu" hidden={!cadastrosOpen}>
@@ -508,7 +512,9 @@ function MasterSidebarRows() {
                       })}
                     </div>
                   </div>
-                  <span className="sbp-signal-history-amount">{signupDayLabel(signup.createdAt)}</span>
+                  <span className="sbp-signal-history-amount">
+                    {signupDayLabel(signup.createdAt)}
+                  </span>
                 </div>
               ))
             )}
@@ -533,7 +539,13 @@ function MasterSidebarRows() {
           onClick={() => setPagosOpen((v) => !v)}
         >
           <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="m3 6 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="m3 6 5 5 5-5"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
         <div className="sbp-signal-history-menu" hidden={!pagosOpen}>
@@ -556,7 +568,10 @@ function MasterSidebarRows() {
                     </div>
                   </div>
                   <span className="sbp-signal-history-amount">
-                    {(p.amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    {(p.amountCents / 100).toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}
                   </span>
                 </div>
               ))

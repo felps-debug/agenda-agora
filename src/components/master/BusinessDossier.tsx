@@ -33,10 +33,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { AccessCyclePanel } from "@/components/master/AccessCyclePanel";
 import { impersonateBusinessOwner } from "@/lib/lifecycle.functions";
 import { resetOwnerPassword } from "@/lib/reset-password.functions";
-import {
-  setAgpayAccessBlock,
-  setAgpayWithdrawalBlock,
-} from "@/lib/agpay-support.functions";
+import { setAgpayAccessBlock, setAgpayWithdrawalBlock } from "@/lib/agpay-support.functions";
 import {
   addBusinessNote,
   getBusinessDossier,
@@ -265,8 +262,7 @@ export function BusinessDossier({
 
   const accessBlockFn = useServerFn(setAgpayAccessBlock);
   const accessBlock = useMutation({
-    mutationFn: (blocked: boolean) =>
-      accessBlockFn({ data: { businessId: businessId!, blocked } }),
+    mutationFn: (blocked: boolean) => accessBlockFn({ data: { businessId: businessId!, blocked } }),
     onSuccess: async (_result, blocked) => {
       toast.success(blocked ? "Ag Pay bloqueado: o dono volta à tela base." : "Ag Pay liberado.");
       await queryClient.invalidateQueries({ queryKey: ["carteira-flags"] });
@@ -393,9 +389,7 @@ export function BusinessDossier({
             </nav>
 
             <div className="max-h-[70vh] overflow-y-auto bg-[var(--c-0f1114)] p-5">
-              {tab === "acesso" && businessId ? (
-                <AccessCyclePanel businessId={businessId} />
-              ) : null}
+              {tab === "acesso" && businessId ? <AccessCyclePanel businessId={businessId} /> : null}
               {tab === "visao" && (
                 <div className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -465,13 +459,22 @@ export function BusinessDossier({
                         <InfoRow label="Telefone" value={data.business.phone || "—"} />
                         <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-2.5 text-[13px]">
                           <span className="text-[#9aa1ab]">Acesso do dono</span>
-                          <Button size="sm" variant="outline" disabled={resetPassword.isPending} onClick={() => { setTemporaryPassword(null); resetPassword.mutate(); }}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={resetPassword.isPending}
+                            onClick={() => {
+                              setTemporaryPassword(null);
+                              resetPassword.mutate();
+                            }}
+                          >
                             {resetPassword.isPending ? "Gerando…" : "Redefinir senha"}
                           </Button>
                         </div>
                         {temporaryPassword ? (
                           <p className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
-                            Senha temporária, exibida uma vez: <code className="select-all">{temporaryPassword}</code>
+                            Senha temporária, exibida uma vez:{" "}
+                            <code className="select-all">{temporaryPassword}</code>
                           </p>
                         ) : null}
                         <InfoRow label="Responsável" value={data.owner?.fullName || "—"} />
@@ -1097,9 +1100,7 @@ export function BusinessDossier({
                         <div className="flex items-center gap-2">
                           <Lock
                             className={`size-4 ${
-                              data.agpayAccessBlocked
-                                ? "text-[#ff6b6b]"
-                                : "text-[#9ee493]"
+                              data.agpayAccessBlocked ? "text-[#ff6b6b]" : "text-[#9ee493]"
                             }`}
                           />
                           <p className="text-[14px] font-bold text-white">Bloqueio de Acesso</p>
@@ -1150,9 +1151,7 @@ export function BusinessDossier({
                         <div className="flex items-center gap-2">
                           <Lock
                             className={`size-4 ${
-                              data.agpayWithdrawalBlocked
-                                ? "text-[#ff6b6b]"
-                                : "text-[#9ee493]"
+                              data.agpayWithdrawalBlocked ? "text-[#ff6b6b]" : "text-[#9ee493]"
                             }`}
                           />
                           <p className="text-[14px] font-bold text-white">Bloqueio de Saque</p>
@@ -1738,13 +1737,7 @@ function CommercialTab({
 /* Cupom de desconto — master ativa, define % e dias; expira sozinho    */
 /* ------------------------------------------------------------------ */
 
-function CouponCard({
-  businessId,
-  baseCents,
-}: {
-  businessId: string | null;
-  baseCents: number;
-}) {
+function CouponCard({ businessId, baseCents }: { businessId: string | null; baseCents: number }) {
   const queryClient = useQueryClient();
   const couponFn = useServerFn(getBusinessCoupon);
   const setFn = useServerFn(setBusinessCoupon);

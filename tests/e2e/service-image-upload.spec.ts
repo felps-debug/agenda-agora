@@ -15,7 +15,10 @@ test.describe("US4 — upload de imagem do serviço (requer sessão de dono)", (
   test("recusa PDF com mensagem clara em Editar serviço → Imagem", async ({ page }) => {
     await page.goto("/painel/servicos");
     // Abre o primeiro serviço para edição.
-    await page.getByRole("button", { name: /editar|novo servi/i }).first().click();
+    await page
+      .getByRole("button", { name: /editar|novo servi/i })
+      .first()
+      .click();
 
     const input = page.locator('input[type="file"][accept*="image"]').first();
     await input.setInputFiles({
@@ -29,7 +32,10 @@ test.describe("US4 — upload de imagem do serviço (requer sessão de dono)", (
 
   test("aceita JPEG válido (abre o recorte)", async ({ page }) => {
     await page.goto("/painel/servicos");
-    await page.getByRole("button", { name: /editar|novo servi/i }).first().click();
+    await page
+      .getByRole("button", { name: /editar|novo servi/i })
+      .first()
+      .click();
 
     const input = page.locator('input[type="file"][accept*="image"]').first();
     // JPEG mínimo (assinatura FF D8 FF).
