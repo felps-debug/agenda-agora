@@ -233,7 +233,7 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 - [X] T057 [P] Remover lixo herdado — **removido `public/__tmp_master_session.json`** (⚠️ continha sessão Supabase real — access/refresh token — commitada e em `public/`; ver nota de segurança). Nenhum `*.bak`/`__tmp_master.mjs` presente.
 - [X] T058 [P] `npm run lint`/`format` — meus arquivos formatados com prettier. Repo tem ~4.8k apontamentos prettier **pré-existentes** (296 arquivos); reformatar tudo está fora de escopo (geraria diff gigante/risco). Lint sem erros de código nos meus arquivos.
-- [~] T059 Suíte completa: `npm test` verde (só a falha pré-existente do baseline sendo zerada). `npm run test:db` (tests/db/**) e `npm run test:e2e` (painel) exigem DB de ensaio/sessão de dono — não executáveis sem infra aqui; e2e públicos de US1 verdes.
+- [X] T059 Suíte completa: `npm test` **728 ok / 0 falhas / 8 skip** (baseline tinha 3 falhas — zeradas; +~40 testes novos). `npm run test:db` (tests/db/**) e `npm run test:e2e` (painel) exigem DB de ensaio/sessão de dono — não executáveis nesta sessão; e2e públicos de US1 verdes.
 - [~] T060 `quickstart.md` ponta a ponta — validação manual por tela exige sessão de dono/Master com dados reais (não disponível nesta sessão); testes automatizados cobrem a lógica.
 
 ---
