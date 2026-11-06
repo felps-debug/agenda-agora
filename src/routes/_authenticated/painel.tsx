@@ -60,6 +60,7 @@ import { addDismissed, readDismissedIds, readSeenAt, writeSeenAt } from "@/lib/n
 import { trialInfo } from "@/lib/trial-store";
 import { getBillingCycle } from "@/lib/subscription.functions";
 import type { BillingStage } from "@/lib/billing-cycle";
+import { SubscriptionPixPayment } from "@/components/painel/SubscriptionPixPayment";
 import { AvisoCobranca } from "@/components/painel/AvisoCobranca";
 import { formatPhoneBR } from "@/lib/format-phone";
 import {
@@ -1220,6 +1221,11 @@ function PagamentosView({ business }: { business: Business | null }) {
     <div className="owner-route-content">
       <div className="mx-auto w-full max-w-5xl pb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-white">Pagamentos</h1>
+        {business ? (
+          <div className="mx-auto mt-6 w-full max-w-sm">
+            <SubscriptionPixPayment businessId={business.id} onPaid={() => cycle.refetch()} />
+          </div>
+        ) : null}
         <div className="report-luminous-card report-effect-strong relative mx-auto mt-8 w-full max-w-sm p-6 pt-7">
           <div
             aria-hidden="true"

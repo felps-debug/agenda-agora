@@ -6,6 +6,7 @@ import {
   debitRefund,
   settleWithdrawal,
 } from "./ledger.server";
+import { nextAccessAfterPayment } from "./billing-cycle";
 
 type WebhookPayload = {
   event?: string;
@@ -158,6 +159,65 @@ async function readCancellableCharge(db: Database, chargeId: string) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data as CancellableCharge | null;
+}
+
+/**
+ * US7 — Confirma o pagamento de uma cobrança de assinatura (Pix/cartão). Idempotente:
+ * só a transição pendente→pago renova o acesso. Ao pagar: estende `access_until`
+ * (+30d via vencimento rolante) e registra no histórico `subscription_payments`.
+ */
+export async function confirmSubscriptionCharge(providerPaymentId: string) {
+  const db = await database();
+  const { data: charge, error } = await db
+    .from("subscription_charges")
+    .select("id, business_id, amount_cents, status")
+    .eq("provider_payment_id", providerPaymentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!charge) return { outcome: "not_found" as const };
+  if (charge.status === "paid") return { outcome: "already_paid" as const };
+
+  const paidAt = new Date();
+  const { data: transitioned, error: updateError } = await db
+    .from("subscription_charges")
+    .update({ status: "paid", paid_at: paidAt.toISOString(), updated_at: paidAt.toISOString() })
+    .eq("id", charge.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!transitioned) return { outcome: "already_paid" as const };
+
+  // Renova o acesso a partir do vencimento rolante (nunca come dias).
+  const { data: business, error: bizError } = await db
+    .from("businesses")
+    .select("access_until")
+    .eq("id", charge.business_id)
+    .maybeSingle();
+  if (bizError) throw new Error(bizError.message);
+  const newAccessUntil = nextAccessAfterPayment(business?.access_until ?? null, paidAt);
+  const { error: renewError } = await db
+    .from("businesses")
+    .update({ access_until: newAccessUntil })
+    .eq("id", charge.business_id);
+  if (renewError) throw new Error(renewError.message);
+
+  await db
+    .from("subscription_charges")
+    .update({ period_end: newAccessUntil })
+    .eq("id", charge.id);
+
+  // Histórico: uma caixa "Pago" por cobrança confirmada (menu Assinatura).
+  const { error: historyError } = await db.from("subscription_payments").insert({
+    business_id: charge.business_id,
+    amount_cents: charge.amount_cents,
+    status: "pago",
+    paid_at: paidAt.toISOString(),
+    reference_month: paidAt.toISOString().slice(0, 7),
+  });
+  if (historyError) throw new Error(historyError.message);
+
+  return { outcome: "renewed" as const, accessUntil: newAccessUntil };
 }
 
 export async function persistAgpayWebhookEvent(rawBody: string, input: unknown) {
@@ -464,7 +524,12 @@ async function processWebhookEvent(row: {
 
   if (row.event_type === "deposit.completed") {
     const result = await confirmDepositPayment(transactionUuid, "completed");
-    if (result.outcome === "not_found") throw new MissingLocalReferenceError("Pagamento ainda não encontrado localmente.");
+    if (result.outcome === "not_found") {
+      // Pode ser uma cobrança de assinatura (US7), não um sinal de agendamento.
+      const sub = await confirmSubscriptionCharge(transactionUuid);
+      if (sub.outcome === "not_found")
+        throw new MissingLocalReferenceError("Pagamento ainda não encontrado localmente.");
+    }
     return;
   }
   if (row.event_type === "transaction.failed") {

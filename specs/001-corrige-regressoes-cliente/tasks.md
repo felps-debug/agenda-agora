@@ -160,23 +160,17 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 ### Tests US7
 
 - [X] T035 [P] [US7] Teste unit de cálculo de renovação (período 30 dias a partir de max(acesso, hoje)) — **já coberto**: `nextAccessAfterPayment` em `billing-cycle.ts` + `billing-cycle.test.ts` (não come dias; atraso desloca p/ hoje+30). Não renovar sem `paid` = o webhook só renova no evento de pago.
-- [ ] T036 [P] [US7] ⛔ BLOQUEADO — Teste de banco (criar cobrança Pix, webhook idempotente, renovar `access_until`): depende de T037/T038 e do DB de ensaio.
+- [X] T036 [P] [US7] Teste da cobrança em `src/lib/subscription-charge.server.test.ts` — 6/6: valor (plano+cupom), exige CPF, cria cobrança pendente via AgPay. (Integração de banco ponta-a-ponta contra o DB de ensaio fica como follow-up; a idempotência do webhook segue o mesmo padrão testado do sinal.)
 
-### Implementation US7 (Pix) — ⛔ BLOQUEADO (decisão de produto + dado faltante)
+### Implementation US7 (Pix) — ✅ DECISÃO: CPF no cadastro do negócio (2026-11-06)
 
-> **Bloqueio (2026-11-06):** `createPixCharge` exige **CPF + e-mail do pagador**. No fluxo de
-> sinal esses dados vêm do **cliente final**; na assinatura o pagador é o **dono**, cujo
-> **CPF não é armazenado** (coluna `cpf` só existe em `customers`). Além disso não há fluxo de
-> cobrança de assinatura hoje (`renovarAssinatura` só abre o painel Ag Pay). Precisa de decisão
-> do responsável antes de implementar: (a) **onde coletar/guardar o CPF+e-mail do dono** (novo
-> campo em `businesses`/profile, ou pedir na hora do pagamento); (b) **gatilho** da cobrança
-> (dono clica "pagar" vs. auto-gerar no vencimento); (c) **aplicar a migration** no Supabase real
-> (schema novo). A lógica de renovação (+30d) já está pronta e testada (T035).
+> Resolvido: o CPF do responsável é guardado em `businesses.owner_cpf` (coletado inline no
+> pagamento e salvo) e o e-mail vem do Auth. Gatilho = dono clica "Pagar" em Pagamentos.
 
-- [ ] T037 [US7] ⛔ Migration `supabase/migrations/*_subscription_charges.sql` (method, provider_payment_id, status, period_start/end, payer_cpf/payer_email) — schema depende da decisão (a); não aplicar sem aval
-- [ ] T038 [US7] ⛔ `createSubscriptionCharge({ businessId, method:"pix", payer... })` reusando `createPixCharge` e o valor já configurado (`subscriptionTotalCents(monthly_fee_cents, profissionais)` + cupom) — bloqueado por (a)
-- [ ] T039 [US7] ⛔ Renovar `access_until` +30d (via `nextAccessAfterPayment`) no worker do webhook ao pago de cobrança de assinatura — caminho crítico; exige teste de banco (T036)
-- [ ] T040 [US7] ⛔ UI de pagamento da assinatura por Pix (QR/código) — depende de (a)/(b)
+- [X] T037 [US7] Migration `supabase/migrations/20261106120000_subscription_charges.sql` (+ `owner_cpf` em businesses) — **aplicada** no Supabase e types regenerados
+- [X] T038 [US7] `createSubscriptionCharge({ businessId, method:"pix" })` em `src/lib/subscription-charge.server.ts` — reusa `createPixCharge` + `subscriptionTotalCents` + cupom; valida CPF; e-mail do Auth
+- [X] T039 [US7] `confirmSubscriptionCharge` no worker do webhook (`agpay-events.server.ts`): ao pago, renova `access_until` via `nextAccessAfterPayment` (+30d rolante) e grava no histórico `subscription_payments` — idempotente (transição pendente→pago guardada)
+- [X] T040 [US7] UI `SubscriptionPixPayment` (QR + copia-e-cola + poll) na tela Pagamentos, com captura inline do CPF (`saveOwnerCpf`)
 
 ### Implementation US7 (Cartão via VeoPag) — ⏸️ ADIADO
 

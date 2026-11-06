@@ -443,6 +443,7 @@ export type Database = {
           logo_url: string | null
           monthly_fee_cents: number
           name: string
+          owner_cpf: string | null
           owner_id: string
           payment_confirmation_template: string | null
           phone: string | null
@@ -499,6 +500,7 @@ export type Database = {
           logo_url?: string | null
           monthly_fee_cents?: number
           name: string
+          owner_cpf?: string | null
           owner_id?: string
           payment_confirmation_template?: string | null
           phone?: string | null
@@ -555,6 +557,7 @@ export type Database = {
           logo_url?: string | null
           monthly_fee_cents?: number
           name?: string
+          owner_cpf?: string | null
           owner_id?: string
           payment_confirmation_template?: string | null
           phone?: string | null
@@ -1495,6 +1498,65 @@ export type Database = {
           started_at?: string
         }
         Relationships: []
+      }
+      subscription_charges: {
+        Row: {
+          amount_cents: number
+          business_id: string
+          created_at: string
+          id: string
+          method: string
+          paid_at: string | null
+          payer_cpf: string | null
+          payer_email: string | null
+          period_end: string | null
+          period_start: string | null
+          provider: string
+          provider_payment_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount_cents: number
+          business_id: string
+          created_at?: string
+          id?: string
+          method?: string
+          paid_at?: string | null
+          payer_cpf?: string | null
+          payer_email?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          provider?: string
+          provider_payment_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_cents?: number
+          business_id?: string
+          created_at?: string
+          id?: string
+          method?: string
+          paid_at?: string | null
+          payer_cpf?: string | null
+          payer_email?: string | null
+          period_end?: string | null
+          period_start?: string | null
+          provider?: string
+          provider_payment_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_charges_business_id_fkey"
+            columns: ["business_id"]
+            isOneToOne: false
+            referencedRelation: "businesses"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       subscription_payments: {
         Row: {
