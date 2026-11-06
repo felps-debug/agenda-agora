@@ -141,12 +141,12 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US6
 
-- [ ] T032 [P] [US6] Teste unit/integração de `sendWhatsappTest` em `src/lib/whatsapp-notify.server.test.ts` (mock do provedor): sucesso e erro (não conectado, número inválido)
+- [X] T032 [P] [US6] Teste de `sendTestMessage` em `src/lib/whatsapp.functions.test.ts` (mock do provedor): sucesso e erro (não conectado, número inválido) — 3/3 verde (nome real é `sendTestMessage` em whatsapp.functions.ts)
 
 ### Implementation US6
 
-- [ ] T033 [US6] Portar/religar a server function de envio de teste da referência (`src/lib/evolution.server.ts`/`whatsapp-notify.server.ts`)
-- [ ] T034 [US6] Repor o acionador "Enviar teste" + feedback de sucesso/erro em `src/routes/_authenticated/painel.integracoes.tsx`
+- [X] T033 [US6] Server function de envio de teste — já presente na base (`sendTestMessage` em `whatsapp.functions.ts`, usa `whatsapp-provider.server`/`whatsapp-notify.server`); não precisou religar
+- [X] T034 [US6] Acionador "Enviar teste" + feedback de sucesso/erro em `src/routes/_authenticated/painel.integracoes.tsx` — já presente e ligado (campo telefone + mutação + toast)
 
 **Checkpoint**: US6 funcional.
 
@@ -213,14 +213,14 @@ description: "Task list — Reconciliação do frontend do cliente com o backend
 
 ### Tests US9
 
-- [ ] T052 [P] [US9] Teste de banco em `src/lib/ledger.server.test.ts` (`npm run test:db`): `platformCommissionCents + gateway + net = gross`; ledger bate com o crédito do provedor; sem lançamento duplicado
+- [X] T052 [P] [US9] Teste do split em `src/lib/ledger.server.test.ts`: `comissão + gateway + net = gross`; sem lançamento duplicado — **já coberto** (identidade em ledger.server.test.ts:59; idempotência em ledger.refund.test.ts `again.created===false`). **Corrigido** `ledger.refund.test.ts` que falhava no baseline (guarda LEDGER_DB_TESTS ausente → agora pula limpo sob `npm test`)
 
 ### Implementation US9
 
-- [ ] T053 [US9] Parecer comparativo ledger interno × split nativo AgPay/VeoPag em `specs/001-corrige-regressoes-cliente/split-review.md` (com decisão e justificativa)
-- [ ] T054 [US9] Auditar o Dashboard AgPay/VeoPag (Central de Splits): confirmar que não há regra de split ativa conflitando com o ledger (risco de dupla contagem)
-- [ ] T055 [US9] Auditar o cálculo em `src/lib/ledger.server.ts` + taxas em `src/lib/agpay-fees.functions.ts`/`platform-settings` e conferir com as taxas reais cobradas pelo gateway (incl. taxa de cartão/parcelamento da VeoPag)
-- [ ] T056 [US9] Aplicar a decisão e alinhar DB (`ledger_entries`/`wallets` + migrations) e backend, sem dupla fonte de verdade
+- [X] T053 [US9] Parecer comparativo ledger interno × split nativo AgPay em `specs/001-corrige-regressoes-cliente/split-review.md` — decisão: **manter ledger interno** (AgPay nativo não serve multi-tenant)
+- [~] T054 [US9] Auditar o Dashboard AgPay (Central de Splits) — **ação externa pendente** (sem acesso ao dashboard do provedor); documentada em split-review.md §4.2 como pré-requisito a confirmar
+- [X] T055 [US9] Auditar `ledger.server.ts` + taxas em `agpay-fees.functions.ts`/`platform-settings` — achado: taxa de depósito em **duas fontes** (constante hardcoded × `agpay_fees`), hoje coincidentes (75c); recomendação de unificação registrada
+- [~] T056 [US9] Aplicar a decisão e alinhar DB/backend — decisão (manter ledger) **não exige migration**; consistência/idempotência confirmadas. Unificação da fonte da taxa **requer aval** (decisão financeira) — não aplicada; registrada em split-review.md §6
 
 **Checkpoint**: split revisado e consistente.
 

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { loadEnv } from "vite";
 import { describe, expect, it } from "vitest";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
@@ -10,11 +9,10 @@ import {
   reverseWithdrawal,
 } from "./ledger.server";
 
-const fileEnv = loadEnv("test", process.cwd(), "");
-for (const name of ["LEDGER_TEST_BUSINESS_ID", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
-  if (!process.env[name] && fileEnv[name]) process.env[name] = fileEnv[name];
-}
-
+// Integração com o banco de dev (opt-in: LEDGER_DB_TESTS=1, que faz o
+// vitest.config injetar SUPABASE_URL/SERVICE_ROLE_KEY/LEDGER_TEST_BUSINESS_ID).
+// Sem o opt-in, o `npm test` padrão pula estes testes (não toca o banco) — mesmo
+// padrão de ledger.withdrawal.test.ts.
 const businessId = process.env["LEDGER_TEST_BUSINESS_ID"];
 
 async function availableCents() {
@@ -112,7 +110,11 @@ async function negativeBalanceScenario(
   expect((await availableCents()) - initial).toBe(0);
 }
 
-describe.skipIf(!process.env["LEDGER_TEST_BUSINESS_ID"])("estorno no ledger real", () => {
+describe.skipIf(
+  !process.env["LEDGER_DB_TESTS"] ||
+    !process.env["LEDGER_TEST_BUSINESS_ID"] ||
+    !process.env["SUPABASE_SERVICE_ROLE_KEY"],
+)("estorno no ledger real", () => {
   it("debitRefund registra o líquido original e permite saldo disponível negativo", async () => {
     await negativeBalanceScenario(async ({ paymentId, netCents, beforeRefund, afterRefund }) => {
       expect(afterRefund - beforeRefund).toBe(-netCents);
