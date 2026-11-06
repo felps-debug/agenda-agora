@@ -46,3 +46,7 @@ supabase/.temp/
 
 # banco de ensaio (Spec 010)
 scripts/ensaio/.data/
+
+# Artefatos de debug/sessão temporários — nunca versionar (vazam segredos)
+__tmp_*
+public/__tmp_*
