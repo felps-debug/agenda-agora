@@ -11,11 +11,32 @@ import { join } from "node:path";
  * Basta soltar os arquivos nessas pastas: nada precisa ser cadastrado no código.
  * Se as pastas não existirem (ex.: ambiente de produção sem os arquivos), a
  * função devolve uma lista vazia e a tela mostra o estado vazio.
+ *
+ * Em dev os arquivos ficam em `<cwd>/public/templates`. No build Nitro/Docker o
+ * runtime roda a partir de `.output` (o Dockerfile copia só `.output`), então os
+ * mesmos assets ficam em `<cwd>/.output/public/templates`. Resolvemos a raiz
+ * tentando os caminhos conhecidos para a listagem funcionar nos dois ambientes.
  */
 
 const ASSET_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".avif"]);
 const TEMPLATE_DIR = "templates-prontos";
 const PHOTO_DIR = "fotos-de-servicos";
+
+/** Primeira raiz de `templates` que existir (dev: public/; prod Nitro: .output/public/). */
+function resolveTemplatesRoot(): string | null {
+  const candidates = [
+    join(process.cwd(), "public", "templates"),
+    join(process.cwd(), ".output", "public", "templates"),
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // tenta a próxima
+    }
+  }
+  return null;
+}
 
 export type NicheAssetKind = "template" | "foto";
 
@@ -38,8 +59,8 @@ function titleFromFilename(filename: string) {
   return words.join(" ") || "Arte";
 }
 
-function readFolder(nicheId: string, folder: string, kind: NicheAssetKind): NicheAsset[] {
-  const absolute = join(process.cwd(), "public", "templates", nicheId, folder);
+function readFolder(root: string, nicheId: string, folder: string, kind: NicheAssetKind): NicheAsset[] {
+  const absolute = join(root, nicheId, folder);
   let entries: string[];
   try {
     if (!statSync(absolute).isDirectory()) return [];
@@ -61,9 +82,11 @@ function readFolder(nicheId: string, folder: string, kind: NicheAssetKind): Nich
 
 /** Todas as artes de todos os nichos, indexadas por id do nicho. */
 export function readNicheAssets(): Record<string, NicheAsset[]> {
+  const root = resolveTemplatesRoot();
+  if (!root) return {};
+
   let niches: string[];
   try {
-    const root = join(process.cwd(), "public", "templates");
     niches = readdirSync(root).filter((name) => {
       try {
         return statSync(join(root, name)).isDirectory() && name !== "nichos";
@@ -78,8 +101,8 @@ export function readNicheAssets(): Record<string, NicheAsset[]> {
   const result: Record<string, NicheAsset[]> = {};
   for (const nicheId of niches) {
     const assets = [
-      ...readFolder(nicheId, TEMPLATE_DIR, "template"),
-      ...readFolder(nicheId, PHOTO_DIR, "foto"),
+      ...readFolder(root, nicheId, TEMPLATE_DIR, "template"),
+      ...readFolder(root, nicheId, PHOTO_DIR, "foto"),
     ];
     if (assets.length > 0) result[nicheId] = assets;
   }
