@@ -8,7 +8,9 @@ import {
   HeadContent,
   Scripts,
 } from "@tanstack/react-router";
-import { type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
+import { ClientErrorMonitor } from "@/components/ClientErrorMonitor";
+import { reportCapturedError } from "@/lib/error-collector";
 
 import appCss from "../styles.css?url";
 import { Toaster } from "@/components/ui/sonner";
@@ -36,6 +38,9 @@ function NotFoundComponent() {
 }
 
 function ErrorComponent({ error, reset }: ErrorComponentProps) {
+  useEffect(() => {
+    reportCapturedError(error);
+  }, [error]);
   console.error(error);
   const router = useRouter();
   return (
@@ -142,6 +147,7 @@ function RootShell({ children }: { children: ReactNode }) {
         />
       </head>
       <body className="antialiased">
+        <ClientErrorMonitor />
         {children}
         <Scripts />
       </body>

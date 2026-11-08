@@ -438,6 +438,7 @@ function ServicosPage() {
 
   return (
     <div>
+      <h1 className="mb-5 text-2xl font-semibold tracking-tight text-white">Serviços</h1>
       <section className="professional-list-panel">
         <div className="professional-segmented-header">
           <button

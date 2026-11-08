@@ -71,3 +71,9 @@ export function getAllowedAppOrigins() {
   if (!origins.length) throw new Error("ALLOWED_APP_ORIGINS precisa conter ao menos uma origem.");
   return new Set(origins);
 }
+
+export { validateProductionConfig } from "./production-config";
+import { validateProductionConfig } from "./production-config";
+export function assertProductionConfig() {
+  return validateProductionConfig(process.env);
+}

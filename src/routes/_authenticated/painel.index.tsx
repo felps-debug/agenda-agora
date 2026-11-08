@@ -165,17 +165,17 @@ function AgendaPage() {
   });
 
   // Horário de funcionamento (menu Funcionamento) — define os dias com/sem atendimento.
-  // Sempre fresco: se o dono mexer nos dias, a grade reflete na hora.
+  // Fresh for a minute; editing hours invalidates this shared query.
   const { data: businessHours } = useQuery({
     queryKey: ["business_hours", businessId],
     enabled: !!businessId,
-    staleTime: 0,
-    refetchOnMount: "always",
+    staleTime: 60_000,
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("business_hours")
-        .select("weekday, starts_at, ends_at")
+        .select("*")
         .eq("business_id", businessId!);
       if (error) throw error;
       return data;
@@ -188,8 +188,8 @@ function AgendaPage() {
   const { data: timeBlocks } = useQuery({
     queryKey: ["time_blocks", businessId],
     enabled: !!businessId,
-    staleTime: 0,
-    refetchOnMount: "always",
+    staleTime: 60_000,
+    refetchOnMount: true,
     refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase

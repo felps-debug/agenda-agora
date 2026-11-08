@@ -11,12 +11,13 @@
     "start": "node .output/server/index.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1 --no-file-parallelism",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:db": "vitest run -c vitest.db.config.ts",
     "db:ensaio": "node scripts/ensaio/db.mjs up",
-    "db:ensaio:check": "node scripts/ensaio/db.mjs check"
+    "db:ensaio:check": "node scripts/ensaio/db.mjs check",
+    "qa": "node scripts/qa/run.mjs"
   },
   "overrides": {
     "rolldown": "1.2.1",

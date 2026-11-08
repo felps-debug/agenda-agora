@@ -62,6 +62,8 @@ import { getBillingCycle } from "@/lib/subscription.functions";
 import type { BillingStage } from "@/lib/billing-cycle";
 import { SubscriptionPixPayment } from "@/components/painel/SubscriptionPixPayment";
 import { AvisoCobranca } from "@/components/painel/AvisoCobranca";
+import { dayKey } from "@/lib/day-key";
+import { consumeFreshSupportSession } from "@/lib/support-session";
 import { formatPhoneBR } from "@/lib/format-phone";
 import {
   getPlatformNavCounts,
@@ -313,6 +315,12 @@ const platformNav = [
         hint: "Avisos para todos os usuários",
         icon: BellRing,
       },
+      {
+        to: "/painel/erros",
+        label: "Erros de produção",
+        hint: "Falhas de interface e requisições",
+        icon: TriangleAlert,
+      },
     ],
   },
   {
@@ -342,15 +350,28 @@ const routePermission: Partial<Record<string, string | string[]>> = {
 };
 
 function NotificationBell() {
+  const [day, setDay] = useState("");
   const [open, setOpen] = useState(false);
   // Carrega o estado "visto/dispensado" sincronamente (lazy initializer) para o
   // popup não piscar como "não visto" no primeiro render após navegar/recarregar.
   const [seenAt, setSeenAt] = useState(() => readSeenAt());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => readDismissedIds());
+  useEffect(() => {
+    const refresh = () => {
+      setDay(dayKey());
+      setDismissedIds(readDismissedIds());
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30_000);
+    window.addEventListener("storage", refresh);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("storage", refresh);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
   const [popup, setPopup] = useState<{ id: string; title: string; message: string } | null>(null);
-  // Evita reabrir o mesmo popup dentro de um mesmo ciclo de refetch (otimização);
-  // a fonte de verdade da não-repetição é dismissedIds/seenAt (persistidos).
-  const shownRef = useRef<string | null>(null);
   const listBroadcastsFn = useServerFn(listBroadcasts);
   const { data: list = [] } = useQuery({
     queryKey: ["broadcasts"],
@@ -369,15 +390,31 @@ function NotificationBell() {
   // (mesma identidade do aviso de vencimento), no máximo uma vez por aviso.
   useEffect(() => {
     const nova = list[0];
-    if (!nova || shownRef.current === nova.id) return;
-    shownRef.current = nova.id;
-    if (!shouldShowPopup(nova, { seenAt, dismissedIds })) return;
-    setPopup({ id: nova.id, title: nova.title, message: nova.message });
-    // Auto-fecha após 8s e persiste a dispensa: visto uma vez não reaparece em reload.
-    const t = setTimeout(() => dismissPopup(nova.id), 8000);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, seenAt, dismissedIds]);
+    if (!day || !shouldShowPopup(nova, { seenAt, dismissedIds })) {
+      setPopup(null);
+      return;
+    }
+    setPopup((current) =>
+      current?.id === nova.id
+        ? current
+        : {
+            id: nova.id,
+            title: nova.title,
+            message: nova.message,
+          },
+    );
+  }, [list, seenAt, dismissedIds, day]);
+
+  // Query refetches must not cancel the automatic dismissal timer.
+  const popupId = popup?.id;
+  useEffect(() => {
+    if (!popupId) return;
+    const timer = window.setTimeout(() => {
+      setDismissedIds(addDismissed(popupId));
+      setPopup(null);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [popupId]);
 
   const toggle = () => {
     setOpen((v) => {
@@ -1221,11 +1258,6 @@ function PagamentosView({ business }: { business: Business | null }) {
     <div className="owner-route-content">
       <div className="mx-auto w-full max-w-5xl pb-8">
         <h1 className="text-2xl font-semibold tracking-tight text-white">Pagamentos</h1>
-        {business ? (
-          <div className="mx-auto mt-6 w-full max-w-sm">
-            <SubscriptionPixPayment businessId={business.id} onPaid={() => cycle.refetch()} />
-          </div>
-        ) : null}
         <div className="report-luminous-card report-effect-strong relative mx-auto mt-8 w-full max-w-sm p-6 pt-7">
           <div
             aria-hidden="true"
@@ -1326,6 +1358,11 @@ function PagamentosView({ business }: { business: Business | null }) {
               </ul>
             </div>
           </div>
+          {business ? (
+            <div className="mt-5">
+              <SubscriptionPixPayment businessId={business.id} onPaid={() => cycle.refetch()} />
+            </div>
+          ) : null}
           <div className="mt-4 space-y-2">
             {statusCardVisible && statusCard ? (
               <div
@@ -1760,6 +1797,8 @@ function PainelLayout() {
     });
   };
   const [pendingPath, setPendingPath] = useState<string | null>(null);
+  const [pendingVisible, setPendingVisible] = useState(false);
+  const routerPending = useRouterState({ select: (state) => state.status === "pending" });
   const [profileOpen, setProfileOpen] = useState(false);
   const [impersonation, setImpersonation] = useState<"checking" | "off" | "on">("checking");
   const [impersonationToken, setImpersonationToken] = useState("");
@@ -1836,8 +1875,10 @@ function PainelLayout() {
   const impersonateValidateFn = useServerFn(validateImpersonationSession);
   const impersonateReturnFn = useServerFn(returnToMasterSession);
   useEffect(() => {
-    if (impersonation === "off" || impersonation === "on") return;
     if (!user) return;
+    let cancelled = false;
+    setImpersonation("checking");
+    setImpersonationFabOpen(false);
     let raw: string | null = null;
     try {
       raw = window.sessionStorage.getItem("agenda-agora:impersonation");
@@ -1861,9 +1902,16 @@ function PainelLayout() {
       return;
     }
     setImpersonationToken(token);
+    if (consumeFreshSupportSession(token)) {
+      setImpersonation("on");
+      return;
+    }
     impersonateValidateFn({ data: { token } })
-      .then(() => setImpersonation("on"))
+      .then(() => {
+        if (!cancelled) setImpersonation("on");
+      })
       .catch(() => {
+        if (cancelled) return;
         try {
           window.sessionStorage.removeItem("agenda-agora:impersonation");
         } catch {
@@ -1872,8 +1920,12 @@ function PainelLayout() {
         setImpersonationToken("");
         setImpersonation("off");
       });
+    return () => {
+      cancelled = true;
+    };
+    // A new owner/master identity must revalidate support without a full page reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, impersonation]);
+  }, [user?.id, impersonateValidateFn]);
 
   const goBackToMaster = useMutation({
     mutationFn: (pin: string) =>
@@ -1896,20 +1948,37 @@ function PainelLayout() {
         setReturnError("Não foi possível restaurar a sessão do master.");
         return;
       }
+      setReturnOpen(false);
+      setReturnPin("");
+      setReturnError("");
+      setImpersonationFabOpen(false);
+      setImpersonation("off");
+      setImpersonationToken("");
+      setPayOpen(false);
+      setSubOpen(false);
+      setConfigOpen(false);
+      setProfileOpen(false);
       toast.success("Sessão do master restaurada.");
-      window.location.href = "/painel/master";
+      await navigate({ to: "/painel/master", replace: true });
     },
-    onError: (error: Error) => {
-      setReturnError(error.message);
-      // Sessão encerrada por segurança (3 erros): limpa o banner.
-      if (error.message.includes("encerrada")) {
+    onError: async (error: Error) => {
+      const message = error.message.includes("ORIGIN_NOT_ALLOWED")
+        ? "Este endereço não está autorizado para retornar ao Master. Verifique ALLOWED_APP_ORIGINS no servidor."
+        : error.message;
+      setReturnError(message);
+      // Expired/revoked support must end this generated owner session only.
+      if (/encerrada|expirada|não encontrada/i.test(error.message)) {
         try {
           window.sessionStorage.removeItem("agenda-agora:impersonation");
         } catch {
           // Ignora.
         }
         setImpersonation("off");
+        setImpersonationToken("");
         setReturnOpen(false);
+        toast.error(error.message);
+        await supabase.auth.signOut({ scope: "local" });
+        await navigate({ to: "/auth", replace: true });
       }
     },
   });
@@ -1936,7 +2005,14 @@ function PainelLayout() {
   }, [pendingPath]);
 
   // Esqueleto visível enquanto a rota de destino ainda não terminou de montar.
-  const isRoutePending = pendingPath !== null && pendingPath !== resolvedPathname;
+  useEffect(() => {
+    setPendingVisible(false);
+    if (!pendingPath || !routerPending) return;
+    const timer = window.setTimeout(() => setPendingVisible(true), 150);
+    return () => window.clearTimeout(timer);
+  }, [pendingPath, routerPending]);
+  const isRoutePending =
+    pendingVisible && routerPending && pendingPath !== null && pendingPath !== resolvedPathname;
 
   const beginNavigation = (to?: string) => {
     setOpen(false);
@@ -2554,6 +2630,8 @@ function PainelLayout() {
           />
         </header>
         <main
+          data-resolved-pathname={resolvedPathname}
+          aria-busy={routerPending}
           className={`relative mx-auto w-full ${
             resolvedPathname.startsWith("/painel/aparencia-editor")
               ? "max-w-none p-0 sm:p-0 lg:p-0"
@@ -2683,7 +2761,9 @@ function PainelLayout() {
       billingStage !== "ok" &&
       billingStage !== "bloqueado" ? (
         <AvisoCobranca
+          key={`${business.id}:${billingStage}`}
           stage={billingStage}
+          businessId={business.id}
           businessName={business.name}
           onRenovar={renovarAssinatura}
         />

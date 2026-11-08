@@ -137,81 +137,81 @@ function FuncionamentoPage() {
                   <Plus className="size-4" strokeWidth={2.2} /> Cadastrar
                 </Button>
               </DialogTrigger>
-            <DialogContent className="professional-dialog max-h-[92vh] max-w-lg overflow-y-auto p-0">
-              <DialogHeader className="professional-dialog-header">
-                <div className="flex items-start gap-3 text-left">
-                  <div className="professional-dialog-icon">
-                    <Clock3 className="size-[1.05rem]" strokeWidth={1.8} />
-                  </div>
-                  <div className="min-w-0">
-                    <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
-                      Horário de funcionamento
-                    </DialogTitle>
-                    <p className="mt-1 text-xs leading-relaxed text-[#686b74]">
-                      Defina o dia da semana e o intervalo de atendimento.
-                    </p>
-                  </div>
-                </div>
-              </DialogHeader>
-              <div className="px-4 pb-4 sm:px-5 sm:pb-5">
-                <div className="professional-form-section space-y-4">
-                  <div className="space-y-2">
-                    <Label className="professional-section-label">Dia</Label>
-                    <Select
-                      value={form.weekday}
-                      onValueChange={(weekday) => setForm({ ...form, weekday })}
-                    >
-                      <SelectTrigger className="professional-input w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {WEEKDAYS.map((d) => (
-                          <SelectItem key={d.value} value={String(d.value)}>
-                            {d.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label className="professional-section-label" htmlFor="hstart">
-                        Começo
-                      </Label>
-                      <Input
-                        id="hstart"
-                        type="time"
-                        value={form.starts}
-                        onChange={(e) => setForm({ ...form, starts: e.target.value })}
-                        className="professional-input"
-                      />
+              <DialogContent className="professional-dialog max-h-[92vh] max-w-lg overflow-y-auto p-0">
+                <DialogHeader className="professional-dialog-header">
+                  <div className="flex items-start gap-3 text-left">
+                    <div className="professional-dialog-icon">
+                      <Clock3 className="size-[1.05rem]" strokeWidth={1.8} />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="professional-section-label" htmlFor="hend">
-                        Fim
-                      </Label>
-                      <Input
-                        id="hend"
-                        type="time"
-                        value={form.ends}
-                        onChange={(e) => setForm({ ...form, ends: e.target.value })}
-                        className="professional-input"
-                      />
+                    <div className="min-w-0">
+                      <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
+                        Horário de funcionamento
+                      </DialogTitle>
+                      <p className="mt-1 text-xs leading-relaxed text-[#686b74]">
+                        Defina o dia da semana e o intervalo de atendimento.
+                      </p>
                     </div>
                   </div>
+                </DialogHeader>
+                <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+                  <div className="professional-form-section space-y-4">
+                    <div className="space-y-2">
+                      <Label className="professional-section-label">Dia</Label>
+                      <Select
+                        value={form.weekday}
+                        onValueChange={(weekday) => setForm({ ...form, weekday })}
+                      >
+                        <SelectTrigger className="professional-input w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAYS.map((d) => (
+                            <SelectItem key={d.value} value={String(d.value)}>
+                              {d.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="professional-section-label" htmlFor="hstart">
+                          Começo
+                        </Label>
+                        <Input
+                          id="hstart"
+                          type="time"
+                          value={form.starts}
+                          onChange={(e) => setForm({ ...form, starts: e.target.value })}
+                          className="professional-input"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="professional-section-label" htmlFor="hend">
+                          Fim
+                        </Label>
+                        <Input
+                          id="hend"
+                          type="time"
+                          value={form.ends}
+                          onChange={(e) => setForm({ ...form, ends: e.target.value })}
+                          className="professional-input"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <DialogFooter className="professional-dialog-footer">
-                <Button
-                  className="professional-primary-button"
-                  onClick={() => save.mutate()}
-                  disabled={save.isPending}
-                >
-                  Salvar
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                <DialogFooter className="professional-dialog-footer">
+                  <Button
+                    className="professional-primary-button"
+                    onClick={() => save.mutate()}
+                    disabled={save.isPending}
+                  >
+                    Salvar
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </section>
@@ -240,7 +240,7 @@ function FuncionamentoPage() {
             </thead>
             <tbody>
               {hours.map((h) => (
-                <tr key={h.id} className="border-t border-border/60">
+                <tr key={`${h.business_id}:${h.weekday}`} className="border-t border-border/60">
                   <td className="px-4 py-3 font-medium">{weekdayLabel(h.weekday)}</td>
                   <td className="px-4 py-3">{hhmm(h.starts_at)}</td>
                   <td className="px-4 py-3">{hhmm(h.ends_at)}</td>

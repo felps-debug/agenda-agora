@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { useAvisoDismissal } from "@/hooks/useAvisoDismissal";
 import { BellRing, TriangleAlert } from "lucide-react";
 import type { BillingStage } from "@/lib/billing-cycle";
 import { AvisoPop } from "@/components/painel/AvisoPop";
@@ -7,6 +8,7 @@ import { TONE_GREEN, TONE_RED } from "@/components/master/PlatformOverview";
 type AvisoCobrancaProps = {
   stage: BillingStage;
   businessName: string;
+  businessId?: string;
   onRenovar: () => void;
 };
 
@@ -17,30 +19,24 @@ type AvisoCobrancaProps = {
  * - 1 dia após: popup vermelho "ATENÇÃO!";
  * - 2º e 3º dias após: modal escuro "Urgente!" (fechável, só aviso);
  * - 4º dia: o painel é travado na tela de assinaturas (fora deste componente).
- * Aparecem a cada abertura/login do painel e podem ser fechados pelo dono.
+ * A dispensa vale por negócio, estágio e dia local, inclusive após F5.
  */
-export function AvisoCobranca({ stage, businessName, onRenovar }: AvisoCobrancaProps) {
-  const [fechado, setFechado] = useState(false);
-
-  // Novo estágio = popup volta a aparecer (ex.: "amanhã" → "venceu hoje").
-  useEffect(() => {
-    setFechado(false);
-  }, [stage]);
-
-  if (fechado) return null;
-
-  const fechar = () => setFechado(true);
+export function AvisoCobranca({ stage, businessName, businessId, onRenovar }: AvisoCobrancaProps) {
+  const { visible, dismiss: fechar } = useAvisoDismissal(
+    "cobranca",
+    businessId ? `${businessId}:${stage}` : stage,
+  );
+  if (!visible) return null;
   const renovar = () => {
     onRenovar();
-    setFechado(true);
+    fechar();
   };
 
   if (stage === "amanha") {
     return (
       <TopAviso tom="verde" fechar={fechar}>
         <p>
-          Passando pra lembrar que sua fatura vai vencer{" "}
-          <span className="font-bold">amanhã!</span>
+          Passando pra lembrar que sua fatura vai vencer <span className="font-bold">amanhã!</span>
         </p>
         <p className="mt-1">
           <button type="button" onClick={renovar} className="aa-link">
@@ -56,8 +52,7 @@ export function AvisoCobranca({ stage, businessName, onRenovar }: AvisoCobrancaP
     return (
       <TopAviso tom="verde" fechar={fechar} title={`Olá, ${businessName}!`}>
         <p>
-          Passando pra lembrar que sua fatura venceu{" "}
-          <span className="font-bold">hoje!</span>
+          Passando pra lembrar que sua fatura venceu <span className="font-bold">hoje!</span>
         </p>
         <p className="mt-1">
           <button type="button" onClick={renovar} className="aa-link">
@@ -112,8 +107,8 @@ export function AvisoCobranca({ stage, businessName, onRenovar }: AvisoCobrancaP
           </div>
           <h2>Pagamento pendente</h2>
           <p>
-            Ainda <b>não identificamos</b> seu pagamento. O funcionamento do sistema poderá parar
-            a qualquer momento. Renove agora pra manter sua agenda e seus lembretes no automático.
+            Ainda <b>não identificamos</b> seu pagamento. O funcionamento do sistema poderá parar a
+            qualquer momento. Renove agora pra manter sua agenda e seus lembretes no automático.
           </p>
           <button type="button" className="smodal-cta sm-cta-amber" onClick={renovar}>
             Renovar meu plano

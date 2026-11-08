@@ -20,13 +20,13 @@ import {
 const ROOT = process.cwd();
 
 describe("login do dono por telefone + PIN (preservado)", () => {
-  it("mantém o campo de senha restrito ao PIN numérico de 4 dígitos", () => {
+  it("aceita senha forte sem bloquear o PIN legado de 4 dígitos", () => {
     expect(loginInputMode("(11) 93935-4416")).toMatchObject({
       email: false,
-      label: "Senha de 4 dígitos",
-      inputMode: "numeric",
-      maxLength: 4,
-      pattern: "\\d{4}",
+      label: "Senha",
+      inputMode: "text",
+      maxLength: 128,
+      pattern: undefined,
     });
     expect(resolveLoginCredentials("(11) 93935-4416", "1234").kind).toBe("owner");
   });

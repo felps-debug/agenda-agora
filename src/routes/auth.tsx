@@ -118,7 +118,11 @@ function AuthPage() {
       // de 4 dígitos dos donos (prefixo "agendaagora:"), mas entram pelo campo de e-mail.
       // Se a tentativa direta falhar e a senha digitada for um PIN de 4 dígitos, tenta de
       // novo com o prefixo antes de desistir.
-      if ((error || !data.user) && credentials.kind === "admin" && /^\d{4}$/.test(password)) {
+      if (
+        (error || !data.user) &&
+        ((credentials.kind === "admin" && /^\d{4}$/.test(password)) ||
+          (credentials.kind === "owner" && !/^\d{4}$/.test(password)))
+      ) {
         ({ data, error } = await supabase.auth.signInWithPassword({
           email: credentials.email,
           password: `agendaagora:${password}`,
@@ -199,7 +203,19 @@ function AuthPage() {
                 Telefone ou e-mail
               </label>
               <div className="relative">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" aria-hidden="true">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
+                  aria-hidden="true"
+                >
                   <path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" />
                   <rect x="2" y="4" width="20" height="16" rx="2" />
                 </svg>
@@ -225,20 +241,30 @@ function AuthPage() {
                 {passwordMode.label}
               </label>
               <div className="relative">
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" aria-hidden="true">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40"
+                  aria-hidden="true"
+                >
                   <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                 </svg>
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  inputMode={emailMode ? "text" : "numeric"}
+                  inputMode="text"
                   autoComplete="current-password"
                   value={password}
-                  onChange={(e) =>
-                    setPassword(emailMode ? e.target.value : onlyDigits(e.target.value).slice(0, 4))
-                  }
-                  placeholder={emailMode ? "Sua senha" : "1234"}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Sua senha"
                   maxLength={passwordMode.maxLength}
                   pattern={passwordMode.pattern}
                   required
@@ -250,7 +276,11 @@ function AuthPage() {
                   aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 transition-colors hover:text-[var(--c-4a90e2)]"
                 >
-                  {showPassword ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+                  {showPassword ? (
+                    <EyeOff className="size-[18px]" />
+                  ) : (
+                    <Eye className="size-[18px]" />
+                  )}
                 </button>
               </div>
             </div>
@@ -271,7 +301,13 @@ function AuthPage() {
                   className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[var(--c-rgba-51-125-255-a0d29)] bg-[var(--c-rgba-22-119-255-a0d09)] px-4 py-2 text-base font-bold text-[var(--c-69a2ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_0_18px_var(--c-rgba-22-119-255-a0d08)] transition-colors hover:border-[var(--c-rgba-51-125-255-a0d5)] hover:bg-[var(--c-rgba-22-119-255-a0d14)] hover:text-[var(--c-8fb5ff)] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {busy ? "Aguarde..." : "Entrar"}
-                  {!busy && <ChevronRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />}
+                  {!busy && (
+                    <ChevronRight
+                      className="size-4 shrink-0"
+                      strokeWidth={2.5}
+                      aria-hidden="true"
+                    />
+                  )}
                 </button>
               </span>
             </div>
@@ -307,9 +343,27 @@ function AuthPage() {
           </div>
         </div>
         <div className="mt-8 flex select-none items-center justify-center gap-2">
-          <svg viewBox="0 0 16 16" fill="none" className="h-3.5 w-3.5 text-[#22c55e] drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]" aria-hidden="true">
-            <rect x="2" y="7" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M5 7V5a3 3 0 016 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <svg
+            viewBox="0 0 16 16"
+            fill="none"
+            className="h-3.5 w-3.5 text-[#22c55e] drop-shadow-[0_0_6px_rgba(34,197,94,0.7)]"
+            aria-hidden="true"
+          >
+            <rect
+              x="2"
+              y="7"
+              width="12"
+              height="8"
+              rx="1.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M5 7V5a3 3 0 016 0v2"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
           <span className="text-xs text-neutral-700">Conexão segura</span>
         </div>

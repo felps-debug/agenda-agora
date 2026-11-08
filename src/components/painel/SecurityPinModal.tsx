@@ -37,11 +37,18 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess }: Securit
       const result = await verifyPin({ data: { pin } });
       setError("");
       setPin("");
-      window.sessionStorage.setItem("agenda-agora:security-pin-valid-until", String(result.validUntil));
+      window.sessionStorage.setItem(
+        "agenda-agora:security-pin-valid-until",
+        String(result.validUntil),
+      );
       onSuccess();
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "INVALID_PIN";
-      setError(message.includes("TOO_MANY_ATTEMPTS") ? "Muitas tentativas. Aguarde antes de tentar novamente." : "PIN incorreto. Tente novamente.");
+      setError(
+        message.includes("TOO_MANY_ATTEMPTS")
+          ? "Muitas tentativas. Aguarde antes de tentar novamente."
+          : "PIN incorreto. Tente novamente.",
+      );
       setPin("");
       inputRef.current?.focus();
     } finally {
@@ -49,7 +56,7 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess }: Securit
     }
   };
 
-  // Aceita apenas dígitos, no máximo 4
+  // Aceita apenas dígitos, no máximo 12.
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/\D/g, "").slice(0, 12);
     setPin(value);
@@ -65,18 +72,16 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess }: Securit
         </div>
 
         <div className="text-center mb-6">
-          <h3 className="text-xl font-bold tracking-tight text-white">
-            Autenticação de Segurança
-          </h3>
+          <h3 className="text-xl font-bold tracking-tight text-white">Autenticação de Segurança</h3>
           <p className="mt-1 text-sm text-gray-400">
-            Digite a senha de 4 dígitos para acessar Notificações e Alertas
+            Digite o PIN de 6 a 12 dígitos para acessar Notificações e Alertas
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">
-              PIN de Acesso (4 dígitos)
+              PIN de Acesso (6 a 12 dígitos)
             </label>
             <input
               ref={inputRef}
@@ -92,9 +97,7 @@ export default function SecurityPinModal({ isOpen, onClose, onSuccess }: Securit
             />
           </div>
 
-          {error && (
-            <p className="text-center text-xs text-red-500 font-medium">{error}</p>
-          )}
+          {error && <p className="text-center text-xs text-red-500 font-medium">{error}</p>}
 
           <div className="flex gap-3 pt-2">
             <button

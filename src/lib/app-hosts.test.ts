@@ -39,6 +39,7 @@ describe("separação dos painéis por subdomínio", () => {
       "/painel/notificacoes-alertas",
       "/painel/equipe-geral",
       "/painel/suporte",
+      "/painel/erros",
     ]) {
       expect(panelPathHref(path, productionLocation, true)).toBe(
         `https://admin.agendagora.company${path}`,

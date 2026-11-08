@@ -1,3 +1,4 @@
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -19,6 +20,7 @@ import {
   Lock,
   LockOpen,
   MessageSquarePlus,
+  Pencil,
   Settings2,
   Users,
   Wallet,
@@ -32,13 +34,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { supabase } from "@/integrations/supabase/client";
 import { AccessCyclePanel } from "@/components/master/AccessCyclePanel";
 import { impersonateBusinessOwner } from "@/lib/lifecycle.functions";
-import { resetOwnerPassword } from "@/lib/reset-password.functions";
+import { resetOwnerPassword, setOwnerPassword } from "@/lib/reset-password.functions";
 import { setAgpayAccessBlock, setAgpayWithdrawalBlock } from "@/lib/agpay-support.functions";
 import {
   addBusinessNote,
   getBusinessDossier,
   getBusinessSupportSnapshot,
   updateBusinessCommercial,
+  updateBusinessContact,
 } from "@/lib/master/dossier.functions";
 import {
   clearBusinessCoupon,
@@ -46,6 +49,9 @@ import {
   setBusinessCoupon,
 } from "@/lib/subscription.functions";
 import { formatPrice } from "@/lib/format";
+import { rememberFreshSupportSession, clearFreshSupportSession } from "@/lib/support-session";
+import { saveCachedIsPlatformAdmin } from "@/lib/business-cache";
+import { isStrongOwnerPassword, OWNER_PASSWORD_MESSAGE } from "@/lib/password-strength";
 import { categoryLabel } from "@/lib/format";
 
 type DossierTab =
@@ -159,17 +165,26 @@ export function BusinessDossier({
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const router = useRouter();
   const dossierFn = useServerFn(getBusinessDossier);
   const noteFn = useServerFn(addBusinessNote);
   const commercialFn = useServerFn(updateBusinessCommercial);
   const impersonateFn = useServerFn(impersonateBusinessOwner);
   const resetPasswordFn = useServerFn(resetOwnerPassword);
   const impersonate = useMutation({
-    mutationFn: (targetBusinessId: string) =>
-      impersonateFn({
+    mutationFn: (targetBusinessId: string) => {
+      void router.preloadRoute({ to: "/painel" }).catch(() => {});
+      return impersonateFn({
         data: { businessId: targetBusinessId, origin: window.location.origin },
-      }),
+      });
+    },
     onSuccess: async (result, variables) => {
+      try {
+        window.localStorage.setItem("agendaagora:business", variables);
+      } catch {
+        // This optional selection cache must not prevent saving the support token.
+      }
       try {
         // Token da sessão de impersonação: habilita o banner "Voltar ao Painel
         // Master" (com PIN) apenas nesta aba e apenas nesta conta.
@@ -178,22 +193,37 @@ export function BusinessDossier({
           JSON.stringify({ token: result.impersonationToken, businessId: variables }),
         );
       } catch {
-        // Ignora armazenamento indisponível.
+        toast.error("Permita o armazenamento de sessão no navegador para abrir o modo suporte.");
+        return;
       }
       // Entra como dono NA MESMA ORIGEM (sem redirect pelo Supabase — que
       // caía no domínio de produção quando o painel rodava em LAN/preview).
-      const { error } = await supabase.auth.setSession({
+      rememberFreshSupportSession(result.impersonationToken);
+      const { data: ownerSession, error } = await supabase.auth.setSession({
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
       });
       if (error) {
+        clearFreshSupportSession();
+        try {
+          window.sessionStorage.removeItem("agenda-agora:impersonation");
+        } catch {
+          /* Storage unavailable. */
+        }
         toast.error("Não foi possível entrar no Painel 2. Tente novamente.");
         return;
       }
+      if (ownerSession.user) saveCachedIsPlatformAdmin(ownerSession.user.id, false);
       toast.info(`Entrando no Painel 2 como dono (${result.ownerEmail})…`);
-      window.location.href = "/painel";
+      onClose();
+      await navigate({ to: "/painel", replace: true });
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: Error) =>
+      toast.error(
+        error.message.includes("ORIGIN_NOT_ALLOWED")
+          ? "Este endereço não está autorizado para suporte. Configure ALLOWED_APP_ORIGINS no servidor."
+          : error.message,
+      ),
   });
   const [tab, setTab] = useState<DossierTab>("visao");
   const [periodDays, setPeriodDays] = useState<7 | 30 | 90>(30);
@@ -449,14 +479,40 @@ export function BusinessDossier({
                         </p>
                       </div>
                       <dl className="space-y-2.5 text-[13px]">
-                        <InfoRow label="Nome" value={data.business.name} />
+                        <EditableContact
+                          key={`${data.business.id}:name`}
+                          businessId={data.business.id}
+                          field="name"
+                          label="Nome"
+                          value={data.business.name}
+                        />
                         <InfoRow label="Segmento" value={categoryLabel(data.business.category)} />
                         <InfoRow
                           label="Página pública"
                           value={`/agendar/${data.business.slug}`}
                           link={`/agendar/${data.business.slug}`}
                         />
-                        <InfoRow label="Telefone" value={data.business.phone || "—"} />
+                        <EditableContact
+                          key={`${data.business.id}:phone`}
+                          businessId={data.business.id}
+                          field="phone"
+                          label="Telefone de login"
+                          value={data.business.phone ?? ""}
+                        />
+                        <EditableContact
+                          key={`${data.business.id}:responsavel`}
+                          businessId={data.business.id}
+                          field="responsavel"
+                          label="Responsável"
+                          value={data.owner?.fullName ?? ""}
+                        />
+                        <EditableContact
+                          key={`${data.business.id}:password`}
+                          businessId={data.business.id}
+                          field="password"
+                          label="Senha"
+                          value=""
+                        />
                         <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-2.5 text-[13px]">
                           <span className="text-[#9aa1ab]">Acesso do dono</span>
                           <Button
@@ -1894,5 +1950,110 @@ function CouponCard({ businessId, baseCents }: { businessId: string | null; base
         </div>
       ) : null}
     </section>
+  );
+}
+
+function EditableContact({
+  businessId,
+  field,
+  label,
+  value,
+}: {
+  businessId: string;
+  field: "name" | "phone" | "responsavel" | "password";
+  label: string;
+  value: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const contactFn = useServerFn(updateBusinessContact);
+  const passwordFn = useServerFn(setOwnerPassword);
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: () => {
+      if (field === "password" && !isStrongOwnerPassword(draft))
+        return Promise.reject(new Error(OWNER_PASSWORD_MESSAGE));
+      return field === "password"
+        ? passwordFn({ data: { businessId, password: draft } })
+        : contactFn({ data: { businessId, field, value: draft } });
+    },
+    onSuccess: async () => {
+      setDraft("");
+      setEditing(false);
+      toast.success("Dados salvos.");
+      await queryClient.invalidateQueries({ queryKey: ["master-business-dossier", businessId] });
+      await queryClient.invalidateQueries({ queryKey: ["master-businesses"] });
+      await queryClient.invalidateQueries({ queryKey: ["businesses"] });
+    },
+  });
+  return (
+    <div className="border-t border-white/5 pt-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <dt className="text-[#9aa1ab]">{label}</dt>
+        {!editing && (
+          <dd className="flex items-center gap-2 text-right text-white">
+            <span>{field === "password" ? "********" : value || "-"}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={"Editar " + label}
+              onClick={() => {
+                setDraft(field === "password" ? "" : value);
+                save.reset();
+                setEditing(true);
+              }}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+          </dd>
+        )}
+      </div>
+      {editing && (
+        <dd className="mt-2 space-y-2">
+          <Input
+            aria-label={label}
+            autoFocus
+            autoComplete={field === "password" ? "new-password" : "off"}
+            type={field === "password" ? "password" : "text"}
+            value={draft}
+            maxLength={field === "password" ? 128 : 120}
+            disabled={save.isPending}
+            onChange={(event) => setDraft(event.target.value)}
+          />
+          {field === "password" && (
+            <p className="text-xs text-[#9aa1ab]">Use 8 a 128 caracteres, com letra e número.</p>
+          )}
+          {save.error && (
+            <p role="alert" className="text-xs text-destructive">
+              {save.error.message}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={save.isPending || !draft.trim()}
+              onClick={() => save.mutate()}
+            >
+              {save.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={save.isPending}
+              onClick={() => {
+                setDraft("");
+                setEditing(false);
+                save.reset();
+              }}
+            >
+              Cancelar
+            </Button>
+          </div>
+        </dd>
+      )}
+    </div>
   );
 }

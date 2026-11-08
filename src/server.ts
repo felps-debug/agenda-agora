@@ -1,3 +1,11 @@
+import { assertProductionConfig } from "./lib/env-security.server";
+
+if (process.env["NODE_ENV"] === "production") {
+  const config = assertProductionConfig();
+  if (!config.ok)
+    throw new Error(`Configuração de produção inválida: ${config.problems.join(" ")}`);
+}
+
 import "./lib/error-capture";
 
 import { consumeLastCapturedError } from "./lib/error-capture";

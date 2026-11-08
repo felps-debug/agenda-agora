@@ -1,5 +1,7 @@
 /** Regras puras do login em /auth (T051); sem dependências de React ou Supabase. */
 
+import { isStrongOwnerPassword, OWNER_PASSWORD_MESSAGE } from "../password-strength";
+
 export const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const phoneLogin = (phone: string) => `${onlyDigits(phone)}@agenda.local`;
 const phonePassword = (senha: string) => `agendaagora:${senha}`;
@@ -10,10 +12,10 @@ export function loginInputMode(identifier: string) {
   const email = looksLikeEmail(identifier);
   return {
     email,
-    label: email ? "Senha" : "Senha de 4 dígitos",
-    inputMode: email ? "text" : "numeric",
-    maxLength: email ? undefined : 4,
-    pattern: email ? undefined : "\\d{4}",
+    label: "Senha",
+    inputMode: "text",
+    maxLength: email ? undefined : 128,
+    pattern: undefined,
   } as const;
 }
 
@@ -33,8 +35,15 @@ export function resolveLoginCredentials(identifier: string, secret: string): Log
     return { kind: "admin", email, password: secret };
   }
   if (onlyDigits(identifier).length < 10) throw new Error("Informe o telefone com DDD.");
-  if (!/^\d{4}$/.test(secret)) throw new Error("A senha deve ter exatamente 4 dígitos.");
-  return { kind: "owner", email: phoneLogin(identifier), password: phonePassword(secret) };
+  const legacyPin = /^\d{4}$/.test(secret);
+  if (!legacyPin && !isStrongOwnerPassword(secret)) {
+    throw new Error(`Informe seu PIN de 4 dígitos ou sua senha. ${OWNER_PASSWORD_MESSAGE}`);
+  }
+  return {
+    kind: "owner",
+    email: phoneLogin(identifier),
+    password: legacyPin ? phonePassword(secret) : secret,
+  };
 }
 
 export type PostLoginDestination = "/painel" | "/painel/master";

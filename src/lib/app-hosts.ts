@@ -72,6 +72,7 @@ const MASTER_PANEL_PATHS = [
   "/painel/notificacoes-alertas",
   "/painel/equipe-geral",
   "/painel/suporte",
+  "/painel/erros",
 ] as const;
 
 export function surfaceForPanelPath(pathname: string): AppSurface {

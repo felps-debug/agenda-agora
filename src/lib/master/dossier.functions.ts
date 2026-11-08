@@ -44,6 +44,116 @@ const commercialInput = z.object({
   commercialNotes: z.string().max(4000).optional(),
 });
 
+/** Login phone changes must update Auth and the owner's profile as well as the business. */
+export const updateBusinessContact = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        businessId: z.string().uuid(),
+        field: z.enum(["phone", "name", "responsavel"]),
+        value: z.string().trim().min(1).max(120),
+      })
+      .parse(input),
+  )
+  .handler(async ({ context, data }) => {
+    const admin = await assertSuperAdmin(context);
+    const { data: business, error } = await admin
+      .from("businesses")
+      .select("id, owner_id, phone, name")
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (error || !business) throw new Error("Estabelecimento não encontrado.");
+    const value = data.field === "phone" ? data.value.replace(/\D/g, "") : data.value;
+    if (data.field === "phone" && !/^\d{10,11}$/.test(value))
+      throw new Error("Informe telefone com DDD, de 10 ou 11 dígitos.");
+    const { data: event, error: auditError } = await admin
+      .from("master_business_events")
+      .insert({
+        business_id: business.id,
+        actor_id: context.userId,
+        type: "edicao_ficha",
+        title: "Edição da ficha solicitada",
+        description: `Campo: ${data.field}. Alteração pendente.`,
+      })
+      .select("id")
+      .single();
+    if (auditError || !event) throw new Error("Não foi possível registrar a auditoria da edição.");
+
+    let operationError: string | null = null;
+    if (data.field === "phone") {
+      if (!business.owner_id) throw new Error("Dono não encontrado.");
+      const { data: owner, error: ownerError } = await admin.auth.admin.getUserById(
+        business.owner_id,
+      );
+      if (ownerError || !owner.user?.email)
+        throw new Error("Não foi possível consultar o login do dono.");
+      const oldEmail = owner.user.email;
+      const email = `${value}@agenda.local`;
+      const { error: authError } = await admin.auth.admin.updateUserById(business.owner_id, {
+        email,
+        email_confirm: true,
+      });
+      if (authError) throw new Error("Telefone já utilizado ou login não pôde ser atualizado.");
+      const { error: profileError } = await admin
+        .from("profiles")
+        .update({ email })
+        .eq("id", business.owner_id)
+        .select("id")
+        .single();
+      const { error: businessError } = profileError
+        ? { error: profileError }
+        : await admin
+            .from("businesses")
+            .update({ phone: value })
+            .eq("id", business.id)
+            .select("id")
+            .single();
+      if (profileError || businessError) {
+        const { error: rollbackAuth } = await admin.auth.admin.updateUserById(business.owner_id, {
+          email: oldEmail,
+          email_confirm: true,
+        });
+        const { error: rollbackProfile } = await admin
+          .from("profiles")
+          .update({ email: oldEmail })
+          .eq("id", business.owner_id);
+        operationError =
+          rollbackAuth || rollbackProfile
+            ? "Edição incompleta: confira o login e o perfil do dono antes de tentar novamente."
+            : "Não foi possível salvar o telefone. O login anterior foi preservado.";
+      }
+    } else if (data.field === "responsavel") {
+      if (!business.owner_id) throw new Error("Dono não encontrado.");
+      const { error: updateError } = await admin
+        .from("profiles")
+        .update({ full_name: value })
+        .eq("id", business.owner_id)
+        .select("id")
+        .single();
+      if (updateError) operationError = "Não foi possível salvar o responsável.";
+    } else {
+      const { error: updateError } = await admin
+        .from("businesses")
+        .update({ name: value })
+        .eq("id", business.id)
+        .select("id")
+        .single();
+      if (updateError) operationError = "Não foi possível salvar o nome.";
+    }
+    const { error: resultError } = await admin
+      .from("master_business_events")
+      .update({
+        title: operationError ? "Edição da ficha não concluída" : "Ficha editada pelo Master",
+        description: `Campo: ${data.field}. ${operationError ?? "Alteração concluída."}`,
+      })
+      .eq("id", event.id);
+    if (operationError) throw new Error(operationError);
+    if (resultError)
+      throw new Error("Dados salvos; não foi possível confirmar o resultado na auditoria.");
+    return { ok: true as const };
+  });
+
 type TimelineEvent = {
   id: string;
   type: string;
