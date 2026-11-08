@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-08
 
-**Status**: Draft
+**Status**: Implementada e validada
 
 **Input**: User description: feedback do cliente (dono de estabelecimento) após deploy na VPS, investigado reproduzindo o app com automação (Playwright) nas contas de dono e master. Escopo dividido em CORRIGIR, PREVENIR e FORA DE ESCOPO.
 
