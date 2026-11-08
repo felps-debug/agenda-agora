@@ -17,6 +17,7 @@ export async function avisos(browser) {
       const page = await context.newPage();
       try {
         await loginOwner(page);
+        await page.waitForLoadState("networkidle");
         if (stage === "amanha") {
           const broadcast = page.locator(".aa-aviso-pop--broadcast");
           await broadcast.waitFor({ state: "visible", timeout: 10000 });
@@ -53,6 +54,7 @@ export async function avisos(browser) {
         await notice.waitFor({ state: "visible", timeout: 20000 });
         await notice.getByRole("button", { name: /Fechar/ }).click();
         console.log("PASS aviso " + stage + ": SPA, F5, expired-day marker");
+        await page.waitForLoadState("networkidle");
         persisted = await page.evaluate(() =>
           localStorage.getItem("agenda-agora:avisos-dismissed"),
         );

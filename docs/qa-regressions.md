@@ -45,6 +45,18 @@ O runner grava `test-results/qa/latest.json`, com resultado e duração de cada 
 
 Os exploratórios substituídos foram retirados de `scripts/`; cópias locais reversíveis estão em `test-results/qa/legacy-scripts/`. `qa-fotos.mjs` e `qa-flicker-real.mjs` permanecem como diagnósticos específicos de imagens com dados reais, fora da correção desta spec.
 
+## Validação com os três domínios
+
+O caso de suporte precisa também do build com `VITE_SPLIT_PANELS=true`. Com o dev parado para poupar memória, execute:
+
+```powershell
+node --env-file=.env.local scripts/qa/verify-split-panels.mjs
+```
+
+O comando compila com heap de 768 MB, inicia o artefato com heap de 512 MB e sobe um proxy HTTPS em `127.0.0.1:443`. Requer essa porta livre e OpenSSL no PATH ou na instalação do Git para Windows. O certificado de teste fica na pasta ignorada `test-results/qa/`. Os três nomes públicos são resolvidos para o loopback apenas no Chromium do teste; as chamadas Supabase usam o projeto autorizado.
+
+O cenário confirma entrada em até 3 segundos, navegação até Serviços, F5, permanência na origem inicial, retorno com PIN, encerramento de sessão expirada no F5 e encerramento após três PINs incorretos. Logs e resultado ficam em `test-results/qa/qa-split-panels.log` e `test-results/qa/split-panels.json`. O comando encerra seu navegador, proxy e servidor ao terminar.
+
 ## Configuração e aplicação no servidor
 
 Em produção são obrigatórios `PUBLIC_APP_URL`, `ALLOWED_APP_ORIGINS`, `MASTER_SECURITY_PIN` e `MASTER_RETURN_PIN`. A lista de origens deve incluir a origem de `PUBLIC_APP_URL`; os PINs devem conter de 6 a 12 dígitos. O servidor recusa configuração inconsistente na inicialização.
@@ -64,7 +76,7 @@ O coletor de produção captura erros de UI, rejeições não tratadas, imagens 
 
 O token de gerenciamento fornecido foi salvo apenas no `.env.local`, ignorado pelo Git, e permitiu concluir a aplicação das duas migrations. Os erros anteriores `PGRST205` e de constraint de auditoria foram resolvidos. Ficha, nova credencial de login, auditoria, gravação/deduplicação de erro anônimo e painel do Master passaram na validação integrada. O cenário de monitoramento também verifica RLS pela API: nega INSERT anônimo, permite INSERT do dono no negócio de teste, oculta o feed do dono, permite leitura pelo Master e nega ator falsificado; os registros temporários são removidos.
 
-Na rodada final, **774 testes passaram, 8 foram ignorados**, e **7/7 cenários da QA passaram**, incluindo a varredura de **27 telas/rotas**. O acesso de suporte levou **1964 ms**. Os PINs locais foram padronizados para o valor acordado e o dev da porta 3002 foi reiniciado com heap limitado a 768 MB. Resultados em `test-results/qa/latest.json` e `test-results/qa/qa-after-migrations.log`.
+Na rodada final, **779 testes passaram, 8 foram ignorados**, e **7/7 cenários da QA passaram**, incluindo a varredura de **27 telas/rotas**. O acesso de suporte levou **1956 ms**. Os PINs locais foram padronizados para o valor acordado e o dev da porta 3002 foi reiniciado com heap limitado a 768 MB. Resultados em `test-results/qa/latest.json` e `test-results/qa/qa-support-final.log`.
 
 A rota `/painel/erros` permanece explicitamente no subdomínio `admin`, e o modal de acesso informa a faixa correta de 6 a 12 dígitos. A verificação de produção fez uma tentativa com o PIN operacional acordado no acesso protegido, que não foi aceita. A verificação do retorno ficou inconclusiva porque o FAB não apareceu na tentativa de suporte. Evidência em `test-results/qa/production-pins.json`; isso não substitui a execução de T011 na VPS. T036/T037 estão concluídas pela validação local; T011 permanece aberta.
 
@@ -73,3 +85,5 @@ A tarefa **T011** continua dependendo de acesso SSH/EasyPanel à VPS; o token do
 Após o usuário informar o deploy com os dois PINs, o acesso protegido aceitou o valor acordado. Na verificação anterior ao envio do código desta spec, a main remota ainda estava no commit `ae0cac2`; o site não apresentava os controles novos de edição da ficha nem o link do painel de erros, e o retorno não pôde ser validado porque o FAB não apareceu nessa versão antiga. O aceite local e a aplicação das migrations não representam um deploy da aplicação na VPS.
 
 O build de produção foi validado localmente com heap de 768 MB e o dev pausado temporariamente. Um smoke no artefato compilado confirmou o coletor automático de produção, sua deduplicação, RLS e o painel do Master, sem importar módulos do Vite. A checagem dos 765 arquivos públicos não encontrou credenciais privadas. Resultados em `test-results/qa/build-production.log` e `test-results/qa/production-build.json`; o dev foi restaurado na porta 3002.
+
+Após salvar as variáveis corretas no EasyPanel, o monitoramento público passou em produção: registro, deduplicação e consulta pelo Master, com limpeza do evento de teste. O suporte entrou em menos de um segundo, mas a navegação de domínio ainda enviava o dono de `admin` para `painel`, onde a sessão não existia. A correção usa o valor `isMaster`, separa o cache de status por usuário e preserva a origem durante suporte e sua validação. Se a validação após F5 recusar a sessão, o acesso gerado é encerrado localmente com mensagem clara e retorno ao login. O build com os três domínios passou: entrada em 1933 ms, navegação/F5, retorno, expiração e três PINs errados. Os testes unitários passaram com 779 aprovados e 8 ignorados. A publicação dessa correção e a validação final do retorno em produção ficam registradas em tasks.md.

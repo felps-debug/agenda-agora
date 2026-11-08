@@ -89,6 +89,22 @@ export function panelPathHref(
   return appSurfaceHref(surfaceForPanelPath(pathname), pathname, location, enabled);
 }
 
+/** A sessão de suporte pertence à origem em que o master iniciou o acesso. */
+export function masterPanelRedirectHref(
+  pathname: string,
+  location: LocationLike,
+  state: { isMaster: boolean; supportState: "checking" | "off" | "on" },
+  enabled = SPLIT_PANELS_ENABLED,
+): string | null {
+  if (!state.isMaster || state.supportState !== "off") return null;
+  const href = panelPathHref(pathname, location, enabled);
+  if (href.startsWith("/")) return null;
+  const currentOrigin = new URL(
+    `${location.protocol}//${location.hostname}${location.port ? `:${location.port}` : ""}`,
+  ).origin;
+  return new URL(href).origin === currentOrigin ? null : href;
+}
+
 export function publicBookingOrigin(
   currentOrigin: string | null | undefined,
   enabled = SPLIT_PANELS_ENABLED,

@@ -168,7 +168,7 @@ Antes de cada entrega, uma verificação automatizada percorre as telas principa
 
 ## Assumptions
 
-- O cliente acessa o painel por um único host em produção (a separação de painéis por host não está ativa em produção).
+- A validação de produção confirmou os três hosts ativos: `app.agendagora.company`, `painel.agendagora.company` e `admin.agendagora.company`. A sessão de suporte permanece na origem em que foi iniciada, inclusive durante navegação, F5 e retorno ao Master.
 - O estado de dispensa de avisos é por dispositivo/navegador (armazenamento local), coerente com o comportamento já existente do aviso de broadcast.
 - Os PINs de segurança e de retorno são configuração de ambiente e não são alteráveis pela interface; alinhar com a equipe os valores vigentes.
 - A verificação de QA roda contra o projeto/banco **real** (não há ambiente isolado separado). As operações de escrita (seed realista) ficam restritas a **negócios de teste dedicados** (ex.: "Teste sdr"); a suíte é **não-destrutiva** para os dados reais do cliente (leitura livre, nunca alterar/apagar registros reais).

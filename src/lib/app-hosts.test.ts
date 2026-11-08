@@ -3,6 +3,7 @@ import {
   appSurfaceForHostname,
   appSurfaceHref,
   panelPathHref,
+  masterPanelRedirectHref,
   publicBookingOrigin,
 } from "./app-hosts";
 
@@ -68,5 +69,68 @@ describe("separação dos painéis por subdomínio", () => {
     expect(publicBookingOrigin("https://painel.agendagora.company", false)).toBe(
       "https://painel.agendagora.company",
     );
+  });
+
+  it("mantém o dono no host em que a sessão de suporte foi criada", () => {
+    expect(
+      masterPanelRedirectHref(
+        "/painel",
+        { hostname: "admin.agendagora.company", protocol: "https:" },
+        { isMaster: false, supportState: "on" },
+        true,
+      ),
+    ).toBeNull();
+    expect(
+      masterPanelRedirectHref(
+        "/painel",
+        { hostname: "admin.agendagora.company", protocol: "https:" },
+        { isMaster: false, supportState: "off" },
+        true,
+      ),
+    ).toBeNull();
+  });
+
+  it.each(["checking", "on"] as const)(
+    "ignora status antigo de master durante suporte %s",
+    (supportState) => {
+      expect(
+        masterPanelRedirectHref(
+          "/painel",
+          { hostname: "admin.agendagora.company", protocol: "https:" },
+          { isMaster: true, supportState },
+          true,
+        ),
+      ).toBeNull();
+    },
+  );
+
+  it("leva um master fora do suporte para o domínio administrativo", () => {
+    expect(
+      masterPanelRedirectHref(
+        "/painel/erros",
+        { hostname: "painel.agendagora.company", protocol: "https:" },
+        { isMaster: true, supportState: "off" },
+        true,
+      ),
+    ).toBe("https://admin.agendagora.company/painel/erros");
+  });
+
+  it("não recarrega uma página que já está na origem correta", () => {
+    expect(
+      masterPanelRedirectHref(
+        "/painel/master",
+        { hostname: "admin.agendagora.company", protocol: "https:" },
+        { isMaster: true, supportState: "off" },
+        true,
+      ),
+    ).toBeNull();
+    expect(
+      masterPanelRedirectHref(
+        "/painel/master",
+        { hostname: "localhost", protocol: "http:", port: "3002" },
+        { isMaster: true, supportState: "off" },
+        true,
+      ),
+    ).toBeNull();
   });
 });

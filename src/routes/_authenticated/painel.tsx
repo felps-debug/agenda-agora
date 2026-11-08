@@ -71,7 +71,7 @@ import {
   returnToMasterSession,
   validateImpersonationSession,
 } from "@/lib/lifecycle.functions";
-import { panelPathHref, publicBookingOrigin } from "@/lib/app-hosts";
+import { masterPanelRedirectHref, publicBookingOrigin } from "@/lib/app-hosts";
 import {
   PLATFORM_AVATAR_SPACE,
   panelAvatarPathFromMetadata,
@@ -1851,7 +1851,7 @@ function PainelLayout() {
     },
   });
   const { data: masterStatus } = useQuery({
-    queryKey: ["master-status"],
+    queryKey: ["master-status", user?.id],
     enabled: !!user,
     queryFn: () => masterStatusFn(),
     retry: false,
@@ -1910,7 +1910,7 @@ function PainelLayout() {
       .then(() => {
         if (!cancelled) setImpersonation("on");
       })
-      .catch(() => {
+      .catch(async () => {
         if (cancelled) return;
         try {
           window.sessionStorage.removeItem("agenda-agora:impersonation");
@@ -1919,6 +1919,10 @@ function PainelLayout() {
         }
         setImpersonationToken("");
         setImpersonation("off");
+        setReturnOpen(false);
+        toast.error("Sessão de suporte expirada ou inválida. Entre novamente como Master.");
+        await supabase.auth.signOut({ scope: "local" });
+        await navigate({ to: "/auth", replace: true });
       });
     return () => {
       cancelled = true;
@@ -1984,10 +1988,12 @@ function PainelLayout() {
   });
 
   useEffect(() => {
-    if (!masterStatus) return;
-    const href = panelPathHref(pathname, window.location);
-    if (!href.startsWith("/") && href !== window.location.href) window.location.replace(href);
-  }, [masterStatus, pathname]);
+    const href = masterPanelRedirectHref(pathname, window.location, {
+      isMaster: masterStatus?.isMaster === true,
+      supportState: impersonation,
+    });
+    if (href) window.location.replace(href);
+  }, [masterStatus, pathname, impersonation]);
 
   // A rota de destino terminou de montar (o `resolvedLocation` mudou): limpa o estado
   // de espera para a página nova aparecer já com a animação de entrada. Usar o

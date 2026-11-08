@@ -30,10 +30,30 @@ export async function impersonacao(browser) {
     profiling = true;
     await openPanel.click();
     await page.locator(".impersonation-fab").waitFor({ state: "visible", timeout: 20000 });
+    await page.waitForURL((url) => url.pathname === "/painel");
+    await page.locator('main[data-resolved-pathname="/painel"][aria-busy="false"]').waitFor();
     const elapsed = Date.now() - start;
     profiling = false;
     console.log("Support entry: " + elapsed + "ms");
     console.log("Support request timings: " + JSON.stringify(timings));
+    assert.equal(
+      new URL(page.url()).origin,
+      new URL(BASE).origin,
+      "Support must keep its initial origin",
+    );
+    await page.locator('a[href$="/painel/servicos"]').first().click();
+    await page.waitForURL((url) => url.pathname === "/painel/servicos");
+    await page
+      .locator('main[data-resolved-pathname="/painel/servicos"][aria-busy="false"]')
+      .waitFor();
+    await page.waitForLoadState("networkidle");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.locator(".impersonation-fab").waitFor({ state: "visible", timeout: 20000 });
+    assert.equal(
+      new URL(page.url()).origin,
+      new URL(BASE).origin,
+      "Support must survive navigation and F5 on the initial origin",
+    );
     await page.locator(".impersonation-fab").click();
     await page.getByRole("button", { name: /Voltar ao Painel Master/ }).click();
     await page.locator("input[type=password]").last().fill(process.env.MASTER_RETURN_PIN);
@@ -44,6 +64,44 @@ export async function impersonacao(browser) {
     await page.waitForURL(/\/painel\/master/, { timeout: 20000, waitUntil: "domcontentloaded" });
     assert(elapsed <= 3000, "Support entry exceeded 3 seconds: " + elapsed + "ms");
     console.log("PASS support entry, indicator and PIN return");
+    await row.getByRole("button", { name: /Ver detalhes|Ver informa/ }).click();
+    await openPanel.waitFor({ state: "visible" });
+    await openPanel.click();
+    await page.locator(".impersonation-fab").waitFor({ state: "visible", timeout: 20000 });
+    const support = await page.evaluate(() =>
+      JSON.parse(sessionStorage.getItem("agenda-agora:impersonation")),
+    );
+    const fixture = await testContext();
+    const fixtureId = assertTestBusiness(fixture.business);
+    const expired = await fixture.admin
+      .from("master_impersonation_sessions")
+      .update({ expires_at: new Date(Date.now() - 60_000).toISOString() })
+      .eq("business_id", fixtureId)
+      .eq("token", support.token)
+      .select("id")
+      .single();
+    if (expired.error) throw expired.error;
+    await page.waitForLoadState("networkidle");
+    await page.reload({ waitUntil: "networkidle" });
+    await page.waitForURL(/\/auth/, { timeout: 20000 });
+    await page
+      .getByText("Sessão de suporte expirada ou inválida. Entre novamente como Master.", {
+        exact: true,
+      })
+      .waitFor();
+    assert.equal(
+      await page.evaluate(() => sessionStorage.getItem("agenda-agora:impersonation")),
+      null,
+    );
+    const removed = await fixture.admin
+      .from("master_impersonation_sessions")
+      .delete()
+      .eq("business_id", fixtureId)
+      .eq("token", support.token);
+    if (removed.error) throw removed.error;
+    console.log("PASS expired support on F5 ends only the generated session with a clear message");
+    await loginMaster(page);
+    await page.goto(BASE + "/painel/master", { waitUntil: "networkidle" });
     await row.getByRole("button", { name: /Ver detalhes|Ver informa/ }).click();
     await openPanel.waitFor({ state: "visible" });
     await openPanel.click();

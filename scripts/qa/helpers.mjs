@@ -6,6 +6,7 @@ export async function qaContext(browser) {
   const context = await browser.newContext({
     timezoneId: "America/Sao_Paulo",
     viewport: { width: 1366, height: 900 },
+    ignoreHTTPSErrors: process.env.QA_LOCAL_SPLIT_HTTPS === "1",
   });
   if (process.env.QA_INJECT_DISMISSAL === "1") {
     await context.addInitScript(() => {
@@ -83,12 +84,28 @@ export async function login(page, role = "owner") {
     try {
       await page.waitForURL(/\/painel/, { timeout: 25000, waitUntil: "domcontentloaded" });
       await page
-        .locator(role === "master" ? 'a[href="/painel/master"]' : 'a[href="/painel/servicos"]')
+        .locator(role === "master" ? 'a[href$="/painel/master"]' : 'a[href$="/painel/servicos"]')
         .first()
         .waitFor({ state: "visible" });
       return;
     } catch (error) {
-      if (attempt === 2) throw error;
+      if (attempt === 2) {
+        if (process.env.QA_LOCAL_SPLIT_HTTPS === "1") {
+          const url = new URL(page.url());
+          console.error("Split preview login failed at " + url.origin + url.pathname);
+          const text = await page
+            .locator("body")
+            .innerText()
+            .catch(() => "");
+          console.error(
+            text
+              .slice(0, 900)
+              .replace(/[\w.+-]+@[\w.-]+\.[a-z]+/gi, "[email]")
+              .replace(/\b\d{9,}\b/g, "[phone]"),
+          );
+        }
+        throw error;
+      }
     }
   }
 }
@@ -152,7 +169,9 @@ export async function assertHealthy(page, errors) {
   const broken = await page
     .locator("img")
     .evaluateAll((imgs) =>
-      imgs.filter((img) => !img.complete || img.naturalWidth === 0).map((img) => img.currentSrc.split(/[?#]/)[0]),
+      imgs
+        .filter((img) => !img.complete || img.naturalWidth === 0)
+        .map((img) => img.currentSrc.split(/[?#]/)[0]),
     );
   assert.deepEqual(broken, [], "Broken images at " + page.url());
   let text = await page.locator("body").innerText();
