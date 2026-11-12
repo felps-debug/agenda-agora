@@ -19,6 +19,16 @@ import { isValidCpf } from "@/lib/cpf";
 
 const digitsOnly = (value: string) => value.replace(/\D/g, "");
 
+/**
+ * Donos que entram por telefone têm e-mail sintético (`5511999999999@agenda.local`) no Auth.
+ * Esse domínio não existe e gateways de pagamento costumam recusá-lo; para a cobrança usamos
+ * um endereço válido derivado do mesmo identificador. O e-mail real de login não muda.
+ */
+export function payerEmailForGateway(authEmail: string): string {
+  const [local = "", domain = ""] = authEmail.toLowerCase().split("@");
+  return domain === "agenda.local" ? `${local}@agendagora.company` : authEmail;
+}
+
 /** Valor da assinatura em centavos, já com o desconto do cupom ativo aplicado. */
 export function subscriptionChargeAmountCents(input: {
   baseCents: number;
@@ -151,8 +161,9 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
 
     // E-mail do pagador (dono) via Auth.
     const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(business.owner_id);
-    const payerEmail = authUser?.user?.email?.trim();
-    if (!payerEmail) throw new Error("E-mail do responsável não encontrado.");
+    const authEmail = authUser?.user?.email?.trim();
+    if (!authEmail) throw new Error("E-mail do responsável não encontrado.");
+    const payerEmail = payerEmailForGateway(authEmail);
 
     const { count: professionalsCount } = await supabaseAdmin
       .from("professionals")
@@ -169,12 +180,28 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
     });
     if (amountCents < 1) throw new Error("Valor da assinatura inválido.");
 
-    const pix = await createPixCharge({
-      amountCents,
-      payerName: authUser?.user?.user_metadata?.["name"] ?? "Responsável",
-      payerEmail,
-      payerCpf: cpf,
-    });
+    let pix: Awaited<ReturnType<typeof createPixCharge>>;
+    try {
+      pix = await createPixCharge({
+        amountCents,
+        payerName: authUser?.user?.user_metadata?.["name"] ?? "Responsável",
+        payerEmail,
+        payerCpf: cpf,
+      });
+    } catch (error) {
+      // O erro do AgPay perde o `name` ao cruzar a fronteira do server fn e a UI o mostrava
+      // como "serviço indisponível". Registra o motivo real e devolve uma mensagem clara.
+      const detail = error as { status?: unknown; providerMessage?: unknown; message?: unknown };
+      console.error("Falha ao criar cobrança Pix da assinatura", {
+        businessId: data.businessId,
+        status: detail.status ?? null,
+        providerMessage: detail.providerMessage ?? null,
+        message: typeof detail.message === "string" ? detail.message : null,
+      });
+      throw new Error(
+        "Não foi possível gerar o Pix agora. Tente novamente em instantes ou fale com o suporte.",
+      );
+    }
 
     const periodEnd = nextAccessAfterPayment(business.access_until ?? null, now);
     const { data: charge, error: insertError } = await supabaseAdmin

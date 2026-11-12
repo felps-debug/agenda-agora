@@ -1374,7 +1374,7 @@ function PagamentosView({ business }: { business: Business | null }) {
               </ul>
             </div>
           </div>
-          {business ? (
+          {business && !checkoutOpen ? (
             <div className="mt-5">
               <SubscriptionPixPayment businessId={business.id} onPaid={() => cycle.refetch()} />
             </div>

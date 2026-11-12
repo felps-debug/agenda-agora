@@ -147,6 +147,34 @@ describe("createSubscriptionCharge (US7)", () => {
       payer_email: "dono@example.com",
     });
   });
+
+  it("não envia o e-mail sintético do login por telefone ao AgPay", async () => {
+    runtime.email = "5511999990000@agenda.local";
+    await create({ data: { businessId, method: "pix" }, context });
+    expect(runtime.createPixCharge).toHaveBeenCalledWith(
+      expect.objectContaining({ payerEmail: "5511999990000@agendagora.company" }),
+    );
+    expect(runtime.inserted).toMatchObject({ payer_email: "5511999990000@agendagora.company" });
+  });
+
+  it("transforma falha do AgPay em mensagem clara e não grava cobrança", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    runtime.createPixCharge.mockRejectedValue(
+      Object.assign(new Error("Falha na comunicação com o AgPay (502)."), {
+        status: 502,
+        providerMessage: "Bad gateway",
+      }),
+    );
+    await expect(create({ data: { businessId, method: "pix" }, context })).rejects.toThrow(
+      "Não foi possível gerar o Pix agora.",
+    );
+    expect(runtime.inserted).toBeNull();
+    expect(spy).toHaveBeenCalledWith(
+      "Falha ao criar cobrança Pix da assinatura",
+      expect.objectContaining({ status: 502, providerMessage: "Bad gateway" }),
+    );
+    spy.mockRestore();
+  });
 });
 
 describe("saveOwnerCpf (US7) — CPF salvo pelo servidor", () => {

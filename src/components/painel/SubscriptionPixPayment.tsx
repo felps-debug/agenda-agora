@@ -86,12 +86,14 @@ export function SubscriptionPixPayment({
       setCharge(result);
     },
     onError: (error: Error) => {
+      // CPF ausente no cadastro: no modo inline abre o formulário de CPF. No checkout o campo
+      // já aparece sozinho (askCpf), então só atualiza o status. Em qualquer caso o erro é
+      // mostrado — antes ele sumia em silêncio quando a mensagem citava "CPF".
       if (/CPF/i.test(error.message)) {
         setNeedsCpf(true);
         void queryClient.invalidateQueries({ queryKey: ["owner-cpf-status", businessId] });
-      } else {
-        toast.error(friendlyError(error));
       }
+      toast.error(friendlyError(error));
     },
   });
 
