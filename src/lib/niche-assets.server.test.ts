@@ -71,9 +71,9 @@ describe("readNicheAssets (US1)", () => {
       },
     });
     const result = readNicheAssets();
-    expect(result.barbearia).toHaveLength(2);
-    const template = result.barbearia.find((a) => a.kind === "template");
-    const foto = result.barbearia.find((a) => a.kind === "foto");
+    expect(result["barbearia"]).toHaveLength(2);
+    const template = result["barbearia"]!.find((a) => a.kind === "template");
+    const foto = result["barbearia"]!.find((a) => a.kind === "foto");
     expect(template).toMatchObject({
       kind: "template",
       title: "Combo Corte Barba",
@@ -91,8 +91,8 @@ describe("readNicheAssets (US1)", () => {
       lash: { "templates-prontos": ["volume.png"] },
     });
     const result = readNicheAssets();
-    expect(result.nichos).toBeUndefined();
-    expect(result.lash).toHaveLength(1);
+    expect(result["nichos"]).toBeUndefined();
+    expect(result["lash"]).toHaveLength(1);
   });
 
   it("ignora nicho sem nenhuma pasta/arte (estado vazio só quando vazio de fato)", () => {
@@ -101,8 +101,8 @@ describe("readNicheAssets (US1)", () => {
       manicure: { "fotos-de-servicos": ["nail.webp"] },
     });
     const result = readNicheAssets();
-    expect(result.vazio).toBeUndefined();
-    expect(result.manicure).toHaveLength(1);
+    expect(result["vazio"]).toBeUndefined();
+    expect(result["manicure"]).toHaveLength(1);
   });
 
   it("aceita extensões válidas e ignora arquivos não-imagem e dotfiles", () => {
@@ -121,8 +121,8 @@ describe("readNicheAssets (US1)", () => {
       },
     });
     const result = readNicheAssets();
-    expect(result.estetica).toHaveLength(5);
-    expect(result.estetica.every((a) => a.kind === "template")).toBe(true);
+    expect(result["estetica"]).toHaveLength(5);
+    expect(result["estetica"]!.every((a) => a.kind === "template")).toBe(true);
   });
 
   it("devolve {} quando a raiz public/templates não existe", () => {

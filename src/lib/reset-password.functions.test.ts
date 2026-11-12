@@ -20,3 +20,15 @@ describe("owner password policy and login compatibility", () => {
     expect(resolveLoginCredentials("11900000000", "1234").password).toBe("agendaagora:1234");
   });
 });
+
+describe("PIN do dono definido pelo Master (4 dígitos)", () => {
+  it.each(["", "123", "12345", "abcd", "12a4", "1 34"])("recusa %j", async (pin) => {
+    const { isOwnerPin } = await import("./password-strength");
+    expect(isOwnerPin(pin)).toBe(false);
+  });
+  it.each(["0000", "1234", "7992"])("aceita %s e o login envia com o mesmo prefixo gravado", async (pin) => {
+    const { isOwnerPin, OWNER_PIN_PREFIX } = await import("./password-strength");
+    expect(isOwnerPin(pin)).toBe(true);
+    expect(resolveLoginCredentials("11900000000", pin).password).toBe(`${OWNER_PIN_PREFIX}${pin}`);
+  });
+});

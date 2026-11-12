@@ -46,6 +46,21 @@ export function resolveLoginCredentials(identifier: string, secret: string): Log
   };
 }
 
+/**
+ * Segunda tentativa de login quando a primeira é recusada pelo Auth.
+ *
+ * O Auth guarda dois formatos de senha: o PIN de 4 dígitos e as senhas definidas pelo Master
+ * (inclusive a senha temporária do "Redefinir senha") levam o prefixo `agendaagora:`, enquanto
+ * a primeira tentativa envia o texto digitado puro (e-mail) ou só prefixa PINs (telefone).
+ * Esta função devolve a senha a tentar em seguida, ou `null` quando não há o que tentar.
+ */
+export function fallbackLoginPassword(credentials: LoginCredentials, typed: string): string | null {
+  const isPin = /^\d{4}$/.test(typed);
+  const shouldRetry =
+    (credentials.kind === "admin" && isPin) || (credentials.kind === "owner" && !isPin);
+  return shouldRetry ? phonePassword(typed) : null;
+}
+
 export type PostLoginDestination = "/painel" | "/painel/master";
 
 /** Destino pela role lida do banco. */

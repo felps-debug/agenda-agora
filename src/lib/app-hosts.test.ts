@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   appSurfaceForHostname,
@@ -37,6 +39,8 @@ describe("separação dos painéis por subdomínio", () => {
       "/painel/precisa-de-atencao",
       "/painel/pix-aprovacao",
       "/painel/carteira-desempenho",
+      "/painel/carteira-config",
+      "/painel/transacoes",
       "/painel/notificacoes-alertas",
       "/painel/equipe-geral",
       "/painel/suporte",
@@ -132,5 +136,21 @@ describe("separação dos painéis por subdomínio", () => {
         true,
       ),
     ).toBeNull();
+  });
+});
+
+describe("rotas exclusivas do master", () => {
+  it("toda rota com requireMasterAccess abre no host admin (senão volta pro login)", () => {
+    const dir = join(process.cwd(), "src/routes/_authenticated");
+    const masterRoutes = readdirSync(dir)
+      .filter((f) => /^painel\..+\.tsx$/.test(f) && !f.endsWith(".test.tsx"))
+      .filter((f) => readFileSync(join(dir, f), "utf8").includes("requireMasterAccess"))
+      .map((f) => "/painel/" + f.replace(/^painel\./, "").replace(/\.tsx$/, ""));
+    expect(masterRoutes.length).toBeGreaterThan(5);
+    for (const path of masterRoutes) {
+      expect(panelPathHref(path, productionLocation, true), path).toBe(
+        `https://admin.agendagora.company${path}`,
+      );
+    }
   });
 });

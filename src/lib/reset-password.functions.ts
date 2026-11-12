@@ -3,7 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
-import { isStrongOwnerPassword, OWNER_PASSWORD_MESSAGE } from "@/lib/password-strength";
+import { isOwnerPin, OWNER_PIN_MESSAGE, OWNER_PIN_PREFIX } from "@/lib/password-strength";
 
 export const setOwnerPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -11,7 +11,7 @@ export const setOwnerPassword = createServerFn({ method: "POST" })
     z
       .object({
         businessId: z.string().uuid(),
-        password: z.string().refine(isStrongOwnerPassword, OWNER_PASSWORD_MESSAGE),
+        password: z.string().refine(isOwnerPin, OWNER_PIN_MESSAGE),
       })
       .parse(input),
   )
@@ -38,7 +38,7 @@ export const setOwnerPassword = createServerFn({ method: "POST" })
     if (auditError || !event)
       throw new Error("Não foi possível registrar a auditoria da alteração.");
     const { error: updateError } = await admin.auth.admin.updateUserById(business.owner_id, {
-      password: data.password,
+      password: `${OWNER_PIN_PREFIX}${data.password}`,
     });
     const { error: resultError } = await admin
       .from("master_business_events")

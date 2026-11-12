@@ -50,7 +50,7 @@ describe("production error collector", () => {
     expect(first.status).toBe(500);
     await vi.advanceTimersByTimeAsync(1000);
     expect(report).toHaveBeenCalledTimes(1);
-    expect(report.mock.calls[0][0]).toMatchObject({
+    expect(report.mock.calls[0]?.[0]).toMatchObject({
       kind: "request_failed",
       source: "https://app.test/painel",
       detail: { url: "https://api.test/data", status: 500 },

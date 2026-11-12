@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { hasSuperAdminRole } from "@/lib/auth/require-super-admin";
 import { subscriptionTotalCents, nextAccessAfterPayment } from "@/lib/billing-cycle";
+import { isValidCpf } from "@/lib/cpf";
 
 /**
  * US7 — Cobrança da assinatura (ciclo de 30 dias) via Ag Pay.
@@ -38,28 +39,67 @@ export function subscriptionChargeAmountCents(input: {
   return Math.max(0, discounted);
 }
 
-/** Salva o CPF do responsável (dono) no cadastro do negócio — reusado nas cobranças. */
+/**
+ * Salva o CPF do responsável (dono) no cadastro do negócio — reusado nas cobranças.
+ *
+ * A coluna `owner_cpf` NÃO está na lista de colunas que o dono pode atualizar direto
+ * (migration 20261103000000_security_hardening: REVOKE UPDATE + trigger de colunas de
+ * controle). Gravar com o cliente do usuário dava "permission denied", que a UI mostrava
+ * como "Você não tem permissão para fazer isso". Por isso a gravação é feita pelo servidor,
+ * depois de confirmar que quem chama é o dono (ou o master) deste negócio.
+ */
 export const saveOwnerCpf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) =>
     z
       .object({
         businessId: z.string().uuid(),
-        cpf: z.string().refine((v) => digitsOnly(v).length === 11, "CPF inválido."),
+        cpf: z.string().refine((v) => isValidCpf(v), "Informe um CPF válido."),
       })
       .parse(d),
   )
   .handler(async ({ context, data }) => {
-    const { data: updated, error } = await context.supabase
+    const { data: business, error } = await context.supabase
       .from("businesses")
-      .update({ owner_cpf: digitsOnly(data.cpf) })
+      .select("id, owner_id")
       .eq("id", data.businessId)
-      .eq("owner_id", context.userId)
-      .select("id")
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!updated) throw new Error("Somente o dono pode alterar o CPF deste negócio.");
+    if (!business) throw new Error("Negócio não encontrado.");
+    if (business.owner_id !== context.userId && !(await hasSuperAdminRole(context.userId))) {
+      throw new Error("Somente o dono pode alterar o CPF deste negócio.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error: updateError } = await supabaseAdmin
+      .from("businesses")
+      .update({ owner_cpf: digitsOnly(data.cpf) })
+      .eq("id", data.businessId);
+    if (updateError) throw new Error(updateError.message);
     return { ok: true as const };
+  });
+
+/**
+ * Diz se o dono já tem CPF salvo (para o pop-up de assinatura pedir só na primeira vez).
+ * Devolve apenas uma versão mascarada — o CPF completo nunca volta para o navegador.
+ */
+export const getOwnerCpfStatus = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ businessId: z.string().uuid() }).parse(d))
+  .handler(async ({ context, data }) => {
+    const { data: business, error } = await context.supabase
+      .from("businesses")
+      .select("owner_id, owner_cpf")
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!business) throw new Error("Negócio não encontrado.");
+    if (business.owner_id !== context.userId && !(await hasSuperAdminRole(context.userId))) {
+      throw new Error("Você não tem permissão para ver este negócio.");
+    }
+    const cpf = digitsOnly(business.owner_cpf ?? "");
+    if (cpf.length !== 11) return { hasCpf: false as const, masked: null };
+    return { hasCpf: true as const, masked: `***.***.***-${cpf.slice(9)}` };
   });
 
 /** Status atual de uma cobrança de assinatura (para a UI poll o pagamento). */

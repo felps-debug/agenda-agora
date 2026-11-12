@@ -55,7 +55,8 @@ import { getMasterStatus } from "@/lib/admin.functions";
 import { useBusiness, type Business } from "@/lib/business";
 import { publicBookingUrl } from "@/lib/public-booking-link";
 import { listBroadcasts } from "@/lib/broadcasts.functions";
-import { shouldShowPopup } from "@/lib/broadcast";
+import { broadcastVisibleTo, shouldShowPopup, type BroadcastAudienceTag } from "@/lib/broadcast";
+import { broadcastIconOption } from "@/components/painel/BroadcastIcon";
 import { addDismissed, readDismissedIds, readSeenAt, writeSeenAt } from "@/lib/notifications-store";
 import { trialInfo } from "@/lib/trial-store";
 import { getBillingCycle } from "@/lib/subscription.functions";
@@ -91,7 +92,6 @@ import { SidebarProfileWidget } from "@/components/painel/SidebarProfileWidget";
 import { SupportFaq } from "@/components/painel/SupportFaq";
 import SecurityPinModal from "@/components/painel/SecurityPinModal";
 import { AvisoPop } from "@/components/painel/AvisoPop";
-import { TONE_PINK } from "@/components/master/PlatformOverview";
 
 /**
  * Logo da sidebar por tema de cor. O CSS também substitui a imagem via
@@ -349,7 +349,7 @@ const routePermission: Partial<Record<string, string | string[]>> = {
   "/painel/relatorio": "view_reports",
 };
 
-function NotificationBell() {
+function NotificationBell({ audienceTag }: { audienceTag?: BroadcastAudienceTag | undefined }) {
   const [day, setDay] = useState("");
   const [open, setOpen] = useState(false);
   // Carrega o estado "visto/dispensado" sincronamente (lazy initializer) para o
@@ -371,14 +371,23 @@ function NotificationBell() {
       window.removeEventListener("focus", refresh);
     };
   }, []);
-  const [popup, setPopup] = useState<{ id: string; title: string; message: string } | null>(null);
+  const [popup, setPopup] = useState<{
+    id: string;
+    title: string;
+    message: string;
+    accent?: string | undefined;
+    icon?: string | undefined;
+  } | null>(null);
   const listBroadcastsFn = useServerFn(listBroadcasts);
   const { data: list = [] } = useQuery({
     queryKey: ["broadcasts"],
     queryFn: () => listBroadcastsFn(),
     refetchInterval: 10000,
   });
-  const unread = list.filter((b) => new Date(b.createdAt).getTime() > seenAt).length;
+  // O painel 2 só vê avisos do público-alvo escolhido no painel 3 e que ainda estão
+  // dentro do prazo de exibição (1 a 7 dias); os expirados saem da caixa sozinhos.
+  const visible = audienceTag ? list.filter((b) => broadcastVisibleTo(b, audienceTag)) : list;
+  const unread = visible.filter((b) => new Date(b.createdAt).getTime() > seenAt).length;
 
   /** Marca o aviso como dispensado (X do popup): persiste por id e fecha. */
   const dismissPopup = (id: string) => {
@@ -389,8 +398,8 @@ function NotificationBell() {
   // Nova notificação enviada pelo Painel 3: aparece como pop-up padrão
   // (mesma identidade do aviso de vencimento), no máximo uma vez por aviso.
   useEffect(() => {
-    const nova = list[0];
-    if (!day || !shouldShowPopup(nova, { seenAt, dismissedIds })) {
+    const nova = visible[0];
+    if (!nova || !day || !shouldShowPopup(nova, { seenAt, dismissedIds })) {
       setPopup(null);
       return;
     }
@@ -401,9 +410,11 @@ function NotificationBell() {
             id: nova.id,
             title: nova.title,
             message: nova.message,
+            accent: nova.accent ?? undefined,
+            icon: nova.icon ?? undefined,
           },
     );
-  }, [list, seenAt, dismissedIds, day]);
+  }, [visible, seenAt, dismissedIds, day]);
 
   // Query refetches must not cancel the automatic dismissal timer.
   const popupId = popup?.id;
@@ -430,17 +441,22 @@ function NotificationBell() {
 
   return (
     <div className="relative">
-      {popup ? (
-        <AvisoPop
-          extraClass="aa-aviso-pop--broadcast"
-          tone={TONE_PINK}
-          icon={<TriangleAlert strokeWidth={1.8} aria-hidden="true" />}
-          title={popup.title}
-          onClose={() => dismissPopup(popup.id)}
-        >
-          <p>{popup.message}</p>
-        </AvisoPop>
-      ) : null}
+      {popup
+        ? (() => {
+            const { Icon } = broadcastIconOption(popup.icon);
+            return (
+              <AvisoPop
+                extraClass="aa-aviso-pop--broadcast"
+                accent={popup.accent}
+                icon={<Icon strokeWidth={1.8} aria-hidden="true" />}
+                title={popup.title}
+                onClose={() => dismissPopup(popup.id)}
+              >
+                <p>{popup.message}</p>
+              </AvisoPop>
+            );
+          })()
+        : null}
       <Button
         variant="ghost"
         size="icon"
@@ -459,13 +475,13 @@ function NotificationBell() {
           <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-[#626872]">
             Notificações
           </p>
-          {!list.length ? (
+          {!visible.length ? (
             <p className="px-1 py-4 text-center text-sm text-[#626872]">
               Nenhuma notificação por enquanto.
             </p>
           ) : (
             <ul className="max-h-80 space-y-2 overflow-y-auto">
-              {list.map((b) => (
+              {visible.map((b) => (
                 <li
                   key={b.id}
                   className="rounded-lg border border-[var(--c-1f232b)] bg-[var(--c-12141a)] p-3"
@@ -1665,15 +1681,16 @@ function PagamentosView({ business }: { business: Business | null }) {
                     </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          toast.info("Checkout Pix em breve. Fale com o suporte para assinar.")
-                        }
-                        className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5]"
-                      >
-                        Continuar para PIX
-                      </button>
+                      {business ? (
+                        <SubscriptionPixPayment
+                          mode="checkout"
+                          businessId={business.id}
+                          onPaid={() => {
+                            closeCheckout();
+                            void cycle.refetch();
+                          }}
+                        />
+                      ) : null}
                       <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
                         Pagamento via PIX (instantâneo) — liberação automática.
                       </p>
@@ -2629,7 +2646,17 @@ function PainelLayout() {
               />
             </span>
           </Link>
-          <NotificationBell />
+          <NotificationBell
+            audienceTag={
+              platformMode
+                ? undefined
+                : planInfo.tone === "ativo"
+                  ? "assinantes"
+                  : planInfo.tone === "teste"
+                    ? "teste"
+                    : "expirados"
+            }
+          />
           <FloatingSupportButton
             businessId={businessId ?? null}
             ownerName={business?.name ?? null}

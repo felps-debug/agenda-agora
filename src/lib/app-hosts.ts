@@ -69,6 +69,8 @@ const MASTER_PANEL_PATHS = [
   "/painel/precisa-de-atencao",
   "/painel/pix-aprovacao",
   "/painel/carteira-desempenho",
+  "/painel/carteira-config",
+  "/painel/transacoes",
   "/painel/notificacoes-alertas",
   "/painel/equipe-geral",
   "/painel/suporte",

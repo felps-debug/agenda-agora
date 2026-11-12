@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis } from "recharts";
 import { supabase } from "@/integrations/supabase/client";
+import { useListedCustomers } from "@/hooks/useListedCustomers";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { formatPhoneBR } from "@/lib/format-phone";
@@ -502,25 +503,16 @@ function PaymentRulesView({
   const mode: PixMode = (rulesQuery.data?.pixMode as PixMode) ?? "opcional";
   const exceptions: string[] = rulesQuery.data?.pixExceptionClients ?? [];
 
-  const customersQuery = useQuery({
-    queryKey: ["rules-customers", businessId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("name, phone")
-        .eq("business_id", businessId)
-        .order("name")
-        .limit(200);
-      if (error) throw error;
-      const seen = new Map<string, string | null>();
-      for (const c of data ?? []) {
-        const name = (c.name ?? "").trim();
-        if (!name || seen.has(name)) continue;
-        seen.set(name, (c.phone ?? null) as string | null);
-      }
-      return [...seen.entries()].map(([name, phone]) => ({ name, phone }));
-    },
-  });
+  const listedCustomers = useListedCustomers(businessId);
+  const customersQuery = useMemo(() => {
+    const seen = new Map<string, string | null>();
+    for (const c of listedCustomers.data ?? []) {
+      const name = (c.name ?? "").trim();
+      if (!name || seen.has(name)) continue;
+      seen.set(name, c.phone ?? null);
+    }
+    return { data: [...seen.entries()].map(([name, phone]) => ({ name, phone })) };
+  }, [listedCustomers.data]);
   const customerNames = useMemo(() => customersQuery.data ?? [], [customersQuery.data]);
 
   const save = useMutation({
@@ -1555,7 +1547,7 @@ function AsPayPage() {
           />
           <div className="relative z-10 mx-auto max-w-xl text-center">
             <p className="lembretes-hero-eyebrow lembretes-fade-slide-up lembretes-delay-1">
-              Ag Pay <span className="ew-white">Ag Pay</span>
+              Carteira <span className="ew-white">Ag Pay</span>
             </p>
             <h1 className="lembretes-hero-title lembretes-fade-slide-up lembretes-delay-2 mx-auto mt-4 max-w-md">
               Seu saldo <span>Ag Pay</span>

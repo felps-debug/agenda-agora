@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useListedCustomers } from "@/hooks/useListedCustomers";
 import { useAuth } from "@/hooks/useAuth";
 import { useBusiness } from "@/lib/business";
 import { getPanel1Config, savePanel1Config } from "@/lib/panel1-config.functions";
@@ -382,19 +383,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
   const [loadedBusinessId, setLoadedBusinessId] = useState<string | null>(null);
   const [postServiceClientSearch, setPostServiceClientSearch] = useState("");
 
-  const customersQuery = useQuery({
-    queryKey: ["customers", businessId],
-    enabled: !!businessId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("customers")
-        .select("id, name, phone")
-        .eq("business_id", businessId!)
-        .order("name");
-      if (error) throw error;
-      return data ?? [];
-    },
-  });
+  const customersQuery = useListedCustomers(businessId);
   const customers = customersQuery.data ?? [];
 
   const loadPreferences = async () => {

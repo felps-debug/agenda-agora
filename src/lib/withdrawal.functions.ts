@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { isValidCpf } from "@/lib/cpf";
 
 export const withdrawalPixKeyTypes = ["cpf", "cnpj", "email", "telefone", "aleatoria"] as const;
 
@@ -13,20 +14,6 @@ export const MIN_WITHDRAWAL_CENTS = AGPAY_MIN_PAYOUT_CENTS + WITHDRAWAL_FEE_CENT
 
 const cpfDigits = (value: string) => value.replace(/\D/g, "");
 
-function isValidCpf(value: string) {
-  if (!/^[\d.\-\s]+$/.test(value)) return false;
-  const digits = cpfDigits(value);
-  if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) return false;
-  const checkDigit = (length: number) => {
-    const sum = digits
-      .slice(0, length)
-      .split("")
-      .reduce((total, digit, index) => total + Number(digit) * (length + 1 - index), 0);
-    const remainder = (sum * 10) % 11;
-    return remainder === 10 ? 0 : remainder;
-  };
-  return checkDigit(9) === Number(digits[9]) && checkDigit(10) === Number(digits[10]);
-}
 
 function isValidCnpj(value: string) {
   if (!/^[\d./\-\s]+$/.test(value)) return false;

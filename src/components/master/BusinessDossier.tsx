@@ -31,6 +31,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { AccessCyclePanel } from "@/components/master/AccessCyclePanel";
 import { impersonateBusinessOwner } from "@/lib/lifecycle.functions";
@@ -51,7 +61,7 @@ import {
 import { formatPrice } from "@/lib/format";
 import { rememberFreshSupportSession, clearFreshSupportSession } from "@/lib/support-session";
 import { saveCachedIsPlatformAdmin } from "@/lib/business-cache";
-import { isStrongOwnerPassword, OWNER_PASSWORD_MESSAGE } from "@/lib/password-strength";
+import { isOwnerPin, OWNER_PIN_MESSAGE } from "@/lib/password-strength";
 import { categoryLabel } from "@/lib/format";
 
 type DossierTab =
@@ -234,6 +244,7 @@ export function BusinessDossier({
   const [salesOwner, setSalesOwner] = useState<string | null>(null);
   const [commercialNotes, setCommercialNotes] = useState<string | null>(null);
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const resetPassword = useMutation({
     mutationFn: () => resetPasswordFn({ data: { businessId: businessId! } }),
     onSuccess: (result) => setTemporaryPassword(result.temporaryPassword),
@@ -519,10 +530,7 @@ export function BusinessDossier({
                             size="sm"
                             variant="outline"
                             disabled={resetPassword.isPending}
-                            onClick={() => {
-                              setTemporaryPassword(null);
-                              resetPassword.mutate();
-                            }}
+                            onClick={() => setConfirmResetOpen(true)}
                           >
                             {resetPassword.isPending ? "Gerando…" : "Redefinir senha"}
                           </Button>
@@ -1500,6 +1508,33 @@ export function BusinessDossier({
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Redefinir a senha do dono?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A senha atual do dono deixará de funcionar imediatamente. Uma nova senha temporária
+              será gerada e exibida uma única vez — copie e repasse ao responsável.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                setTemporaryPassword(null);
+                resetPassword.mutate(undefined, {
+                  onSettled: () => setConfirmResetOpen(false),
+                });
+              }}
+              disabled={resetPassword.isPending}
+            >
+              Redefinir senha
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
@@ -1971,8 +2006,8 @@ function EditableContact({
   const queryClient = useQueryClient();
   const save = useMutation({
     mutationFn: () => {
-      if (field === "password" && !isStrongOwnerPassword(draft))
-        return Promise.reject(new Error(OWNER_PASSWORD_MESSAGE));
+      if (field === "password" && !isOwnerPin(draft))
+        return Promise.reject(new Error(OWNER_PIN_MESSAGE));
       return field === "password"
         ? passwordFn({ data: { businessId, password: draft } })
         : contactFn({ data: { businessId, field, value: draft } });
@@ -2016,13 +2051,18 @@ function EditableContact({
             autoFocus
             autoComplete={field === "password" ? "new-password" : "off"}
             type={field === "password" ? "password" : "text"}
+            inputMode={field === "password" ? "numeric" : undefined}
             value={draft}
-            maxLength={field === "password" ? 128 : 120}
+            maxLength={field === "password" ? 4 : 120}
             disabled={save.isPending}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) =>
+              setDraft(
+                field === "password" ? event.target.value.replace(/\D/g, "") : event.target.value,
+              )
+            }
           />
           {field === "password" && (
-            <p className="text-xs text-[#9aa1ab]">Use 8 a 128 caracteres, com letra e número.</p>
+            <p className="text-xs text-[#9aa1ab]">Use um PIN de 4 dígitos numéricos.</p>
           )}
           {save.error && (
             <p role="alert" className="text-xs text-destructive">

@@ -7960,149 +7960,6 @@ body:has(.carteira-dim) .owner-panel > div:nth-child(4) {
   opacity: 0.55;
 }
 
-/* Entrada dos avisos de cobrança (popup desce suave junto ao sino). */
-.aa-aviso-in {
-  animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes aa-aviso-in {
-  from {
-    opacity: 0;
-    transform: translateY(-14px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-/* ===== Pop-up padrão de avisos/notificações — identidade, proporções e
-   efeitos FIXOS (só mensagem, tópico e ícone variam). A COR da caixa, do
-   neon e do brilho segue SEMPRE a cor do ícone (var --aviso-*) ===== */
-.aa-aviso-pop {
-  position: fixed;
-  left: auto;
-  right: 10px;
-  top: 4.4rem;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(21.5rem, calc(100vw - 20px));
-  padding: 13px 40px 15px 17px;
-  border-radius: 1.1rem;
-  border: 1px solid var(--aviso-border, rgba(51, 125, 255, 0.35));
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--aviso-accent, #69a2ff) 30%, #0a0d12) 0%,
-    #0a0d12 88%
-  );
-  box-shadow:
-    0 0 22px var(--aviso-glow, rgba(22, 119, 255, 0.22)),
-    0 18px 50px rgba(0, 0, 0, 0.65);
-  overflow: hidden;
-  color: var(--c-e6e9ee, #e6e9ee);
-  font-size: 0.84rem;
-  line-height: 1.35;
-  animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-/* Faixa vertical na borda esquerda (cor do aviso) */
-.aa-aviso-pop::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 4px;
-  background: var(--aviso-accent, #69a2ff);
-  box-shadow: 0 0 16px 2px var(--aviso-glow, rgba(22, 119, 255, 0.6));
-}
-/* Barrinha de destaque embaixo */
-.aa-aviso-pop::after {
-  content: "";
-  position: absolute;
-  left: 62px;
-  bottom: 4px;
-  width: 64px;
-  height: 3px;
-  border-radius: 9999px;
-  background: var(--aviso-accent, #69a2ff);
-  box-shadow: 0 0 10px var(--aviso-glow, rgba(22, 119, 255, 0.6));
-}
-.aa-aviso-pop-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  flex-shrink: 0;
-  color: var(--aviso-accent, #69a2ff);
-}
-.aa-aviso-pop-icon > svg {
-  width: 28px;
-  height: 28px;
-}
-.aa-aviso-pop-body {
-  min-width: 0;
-  flex: 1;
-}
-.aa-aviso-pop-title {
-  font-weight: 800;
-  font-size: 0.9rem;
-  color: #fff;
-}
-.aa-aviso-pop-msg {
-  font-weight: 500;
-  color: #c9cdd4;
-}
-.aa-aviso-pop-msg .aa-link {
-  font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.aa-aviso-pop-x {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 9999px;
-  color: var(--aviso-accent, #8a919c);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.aa-aviso-pop-x:hover {
-  background: rgb(255 255 255 / 0.08);
-  color: #fff;
-}
-/* Notificação do Painel 3: desce abaixo do aviso de fatura quando os dois
-   aparecem juntos (empilhados, sem se cobrirem). */
-.aa-aviso-pop--broadcast {
-  top: 4.4rem;
-}
-body:has(.aa-aviso-faturamento) .aa-aviso-pop--broadcast {
-  top: calc(4.4rem + 128px);
-}
-
-/* ---------- Modal de cobrança (estágio urgente) — réplica ScaleReels ---------- */
-.smodal-card {
-  position: relative;
-  width: 100%;
-  max-width: 21rem;
-  overflow: hidden;
-  border-radius: 20px;
-  padding: 20px;
-  text-align: center;
-  /* Fundo em gradiente escuro, igual à caixa de referência. */
-  background: linear-gradient(180deg, #232323 0%, #151515 100%);
-  box-shadow:
-    0 18px 60px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 /* Brilho âmbar no topo da caixa, atrás do badge. */
 .smodal-card::before {
   content: "";
@@ -9893,4 +9750,220 @@ html:has(body[data-scroll-locked]) {
   .profile-pop-out {
     animation: none;
   }
+}
+
+/* ===== Avisos/notificações (visual do painel 3 → painel 2, vindo do repo do Guilherme) ===== */
+/* Entrada dos avisos de cobrança (popup desce suave junto ao sino). */
+.aa-aviso-in {
+  animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes aa-aviso-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* ===== Pop-up padrão de avisos/notificações — IDENTIDADE ALERTA ROSA =====
+   Toast escuro com faixa vertical neon rosa, ícone à esquerda e linha neon no
+   rodapé — em TODOS os avisos do painel (faturamento, notificação do painel 3,
+   preview do master). UMA ÚNICA proporção para PC e celular (sem media query):
+   altura abraça o conteúdo, textos legíveis em qualquer aparelho.
+   A COR de destaque (rosa por padrão) vem das variáveis --pop-*, que o painel
+   3 pode sobrescrever inline por notificação (apenas cor e efeitos mudam). */
+.aa-aviso-pop {
+  --pop-accent: #ff1764;
+  --pop-light: #ff3a79;
+  --pop-deep: #b90048;
+  --pop-pale: #ffb5d0;
+  --pop-x-hover: #ffd2e2;
+  --pop-border: rgba(190, 107, 163, 0.38);
+  --pop-inner: rgba(255, 18, 99, 0.12);
+  --pop-inset: rgba(255, 35, 111, 0.06);
+  --pop-glow: rgba(255, 23, 100, 0.1);
+  --pop-icon-shadow: rgba(255, 35, 111, 0.34);
+  --pop-bar-shadow: rgba(255, 0, 91, 0.28);
+  --pop-progress-shadow: rgba(255, 23, 100, 0.62);
+  --pop-panel: rgba(47, 10, 31, 0.98);
+  position: fixed;
+  left: auto;
+  right: 10px;
+  top: 4.4rem;
+  z-index: 80;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: min(19.75rem, calc(100vw - 20px));
+  min-height: 72px;
+  padding: 11px 24px 12px 14px;
+  overflow: hidden;
+  /* Impede o "font boosting" do Android/iOS de inflar/adiar linhas do toast. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  border: 1px solid var(--pop-border);
+  border-radius: 13px;
+  background: linear-gradient(
+    112deg,
+    var(--pop-panel) 0%,
+    rgba(19, 11, 22, 0.98) 48%,
+    rgba(16, 12, 22, 0.98) 100%
+  );
+  box-shadow:
+    0 0 0 1px var(--pop-inset) inset,
+    0 12px 32px rgba(0, 0, 0, 0.42),
+    0 0 24px var(--pop-glow);
+  color: #f8f3f8;
+  animation: aa-toast-enter 0.38s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+/* Brilho da cor de destaque vindo do canto superior esquerdo. */
+.aa-aviso-pop::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(115deg, var(--pop-inner), transparent 34%);
+  pointer-events: none;
+}
+/* Faixa neon lateral (barra vertical à esquerda, na cor de destaque). */
+.aa-aviso-pop::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  background: linear-gradient(180deg, var(--pop-light), var(--pop-accent) 65%, var(--pop-deep));
+  box-shadow: 3px 0 14px var(--pop-bar-shadow);
+}
+/* Ícone (triângulo de alerta ou sino) claro com glow da cor de destaque. */
+.aa-aviso-pop-icon {
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 40px;
+  flex-shrink: 0;
+  color: var(--pop-pale);
+}
+.aa-aviso-pop-icon svg {
+  width: 30px;
+  height: 30px;
+  display: block;
+  filter: drop-shadow(0 0 6px var(--pop-icon-shadow));
+}
+.aa-aviso-pop-body {
+  min-width: 0;
+  flex: 1;
+}
+.aa-aviso-pop-title {
+  margin: 0 0 2px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  letter-spacing: -0.022em;
+  color: #fff7fb;
+}
+.aa-aviso-pop-msg {
+  margin: 0;
+  max-width: 100%;
+  font-weight: 400;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: #e7dfe8;
+}
+/* Parágrafos/linhas adicionais (ex.: link de renovação) colados e alinhados. */
+.aa-aviso-pop-msg > * + * {
+  margin-top: 2px;
+}
+/* Tudo dentro da mensagem herda o mesmo ritmo de linha. */
+.aa-aviso-pop-msg :is(p, span, button) {
+  line-height: inherit;
+  font-size: inherit;
+  margin: 0;
+}
+.aa-aviso-pop-msg .aa-link {
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.aa-aviso-pop-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: var(--pop-accent);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+.aa-aviso-pop-x svg {
+  width: 12px;
+  height: 12px;
+}
+.aa-aviso-pop-x:hover {
+  color: var(--pop-x-hover);
+  transform: scale(1.12);
+  background: transparent;
+}
+/* Linha neon inferior (rodapé decorativo, na cor de destaque). */
+.aa-aviso-pop-progress {
+  position: absolute;
+  left: 64px;
+  bottom: 0;
+  width: 46px;
+  height: 3px;
+  border-radius: 99px 99px 0 0;
+  background: linear-gradient(90deg, var(--pop-accent), var(--pop-light));
+  box-shadow: 0 0 10px var(--pop-progress-shadow);
+  pointer-events: none;
+}
+/* Saída suave (igual ao original: some para cima ao fechar). */
+.aa-aviso-pop.is-hiding {
+  animation: aa-toast-exit 0.22s ease forwards;
+}
+/* Notificação do Painel 3: encosta logo abaixo do aviso de faturamento.
+   (As posições são ajustadas em tempo real no JS medindo o popup de cima;
+   este valor é o fallback quando aquele não existe/ainda não mediu.) */
+.aa-aviso-pop--broadcast {
+  top: 4.4rem;
+}
+body:has(.aa-aviso-faturamento) .aa-aviso-pop--broadcast {
+  top: calc(4.4rem + 104px);
+}
+/* Preview estático do pop-up de broadcast (painel master, caixa de pré-visualização):
+   versus caixa fixa nos avisos, aqui ele fica travado dentro da caixa de preview. */
+.aa-broadcast-preview .aa-aviso-pop {
+  position: relative;
+  right: auto;
+  top: auto;
+  width: 100%;
+}
+/* ---------- Modal de cobrança (estágio urgente) — réplica ScaleReels ---------- */
+.smodal-card {
+  position: relative;
+  width: 100%;
+  max-width: 21rem;
+  overflow: hidden;
+  border-radius: 20px;
+  padding: 20px;
+  text-align: center;
+  /* Fundo em gradiente escuro, igual à caixa de referência. */
+  background: linear-gradient(180deg, #232323 0%, #151515 100%);
+  box-shadow:
+    0 18px 60px rgba(0, 0, 0, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: aa-aviso-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

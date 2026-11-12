@@ -42,16 +42,22 @@ export type HeicConverter = (blob: Blob) => Promise<Blob>;
 /** Converte HEIC→JPEG via heic2any, carregado por import dinâmico só quando necessário. */
 async function defaultHeicConverter(blob: Blob): Promise<Blob> {
   const mod = await import("heic2any");
+  type Heic2Any = (opts: {
+    blob: Blob;
+    toType: string;
+    quality?: number;
+  }) => Promise<Blob | Blob[]>;
   const heic2any =
-    (mod as unknown as { default?: HeicConverter }).default ?? (mod as unknown as HeicConverter);
-  const out = await (
-    heic2any as (opts: { blob: Blob; toType: string; quality?: number }) => Promise<Blob | Blob[]>
-  )({
+    (mod as unknown as { default?: Heic2Any }).default ?? (mod as unknown as Heic2Any);
+  const out = await heic2any({
     blob,
     toType: "image/jpeg",
     quality: 0.92,
   });
-  return Array.isArray(out) ? out[0] : out;
+  const converted = Array.isArray(out) ? out[0] : out;
+  // Lista vazia faria `new File([undefined])` gravar um "JPEG" com o texto "undefined".
+  if (!converted) throw new Error("Não foi possível converter a imagem HEIC.");
+  return converted;
 }
 
 /**

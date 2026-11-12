@@ -45,34 +45,38 @@ describe("dossier login and contact changes", () => {
       contact({ data: { businessId: BUSINESS, field: "name", value: "New" }, context }),
     ).rejects.toThrow(/master/);
     await expect(
-      password({ data: { businessId: BUSINESS, password: "Senha123" }, context }),
+      password({ data: { businessId: BUSINESS, password: "4821" }, context }),
     ).rejects.toThrow(/master/);
     expect(runtime.fake!.calls.inserts).toHaveLength(0);
     expect(runtime.authUpdate).not.toHaveBeenCalled();
   });
-  it("rejects weak passwords before Auth", async () => {
-    await expect(
-      password({ data: { businessId: BUSINESS, password: "1234" }, context }),
-    ).rejects.toThrow();
-    expect(runtime.authUpdate).not.toHaveBeenCalled();
-  });
+  it.each(["", "123", "12345", "Senha123", "12a4"])(
+    "rejects anything that is not a 4-digit PIN (%j) before Auth",
+    async (value) => {
+      await expect(
+        password({ data: { businessId: BUSINESS, password: value }, context }),
+      ).rejects.toThrow();
+      expect(runtime.authUpdate).not.toHaveBeenCalled();
+    },
+  );
   it("fails closed if audit cannot be written", async () => {
     runtime.fake!.failures["master_business_events:insert"] = { message: "offline" };
     await expect(
-      password({ data: { businessId: BUSINESS, password: "Senha123" }, context }),
+      password({ data: { businessId: BUSINESS, password: "4821" }, context }),
     ).rejects.toThrow(/auditoria/);
     expect(runtime.authUpdate).not.toHaveBeenCalled();
   });
-  it("sets the exact strong password and never includes it in audit", async () => {
-    await password({ data: { businessId: BUSINESS, password: "Senha123" }, context });
-    expect(runtime.authUpdate).toHaveBeenCalledWith("owner", { password: "Senha123" });
-    const events = runtime.fake!.tables.master_business_events;
+  it("stores the PIN with the login prefix and never includes it in audit", async () => {
+    await password({ data: { businessId: BUSINESS, password: "4821" }, context });
+    // O login por telefone envia `agendaagora:<PIN>`; o Auth precisa guardar igual.
+    expect(runtime.authUpdate).toHaveBeenCalledWith("owner", { password: "agendaagora:4821" });
+    const events = runtime.fake!.tables["master_business_events"]!;
     expect(events[0]).toMatchObject({
       actor_id: "master",
       type: "troca_senha_dono",
       title: "Senha do dono alterada pelo Master",
     });
-    expect(JSON.stringify(events)).not.toContain("Senha123");
+    expect(JSON.stringify(events)).not.toContain("4821");
   });
   it("updates name and responsible person in their authoritative records", async () => {
     await contact({ data: { businessId: BUSINESS, field: "name", value: "Novo nome" }, context });
@@ -80,8 +84,8 @@ describe("dossier login and contact changes", () => {
       data: { businessId: BUSINESS, field: "responsavel", value: "Responsável" },
       context,
     });
-    expect(runtime.fake!.tables.businesses[0].name).toBe("Novo nome");
-    expect(runtime.fake!.tables.profiles[0].full_name).toBe("Responsável");
+    expect(runtime.fake!.tables["businesses"]![0]!["name"]).toBe("Novo nome");
+    expect(runtime.fake!.tables["profiles"]![0]!["full_name"]).toBe("Responsável");
   });
   it("updates the phone login in Auth, profile and business", async () => {
     await contact({
@@ -92,8 +96,8 @@ describe("dossier login and contact changes", () => {
       email: "11911112222@agenda.local",
       email_confirm: true,
     });
-    expect(runtime.fake!.tables.profiles[0].email).toBe("11911112222@agenda.local");
-    expect(runtime.fake!.tables.businesses[0].phone).toBe("11911112222");
+    expect(runtime.fake!.tables["profiles"]![0]!["email"]).toBe("11911112222@agenda.local");
+    expect(runtime.fake!.tables["businesses"]![0]!["phone"]).toBe("11911112222");
   });
   it("restores the original login if the business update fails", async () => {
     runtime.fake!.failures["businesses:update"] = { message: "offline" };
@@ -104,7 +108,7 @@ describe("dossier login and contact changes", () => {
       email: "old@agenda.local",
       email_confirm: true,
     });
-    expect(runtime.fake!.tables.profiles[0].email).toBe("old@agenda.local");
-    expect(runtime.fake!.tables.businesses[0].phone).toBe("11900000000");
+    expect(runtime.fake!.tables["profiles"]![0]!["email"]).toBe("old@agenda.local");
+    expect(runtime.fake!.tables["businesses"]![0]!["phone"]).toBe("11900000000");
   });
 });

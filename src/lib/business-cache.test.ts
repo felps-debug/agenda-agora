@@ -73,7 +73,7 @@ describe("business-cache localStorage (US2)", () => {
 
   it("mergeUpdatedBusiness aplica só campos de Business na linha certa", () => {
     const next = mergeUpdatedBusiness(sample, { id: "biz-1", name: "Novo Nome" });
-    expect(next?.[0].name).toBe("Novo Nome");
-    expect(next?.[0].slug).toBe("barbearia-x");
+    expect(next?.[0]?.name).toBe("Novo Nome");
+    expect(next?.[0]?.slug).toBe("barbearia-x");
   });
 });

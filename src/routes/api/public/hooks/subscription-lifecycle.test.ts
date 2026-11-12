@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeAdmin } from "@/test-support/fake-admin";
 
 const DAY = 86_400_000;
@@ -40,7 +40,18 @@ function request(authorization?: string) {
 
 const iso = (offsetDays: number) => new Date(Date.now() + offsetDays * DAY).toISOString();
 
+// A classificação conta dias de calendário no fuso local (startOfDay). Sem congelar o relógio,
+// "agora - 4,2 dias" cai no dia 5 quando o teste roda entre 00:00 e ~04:48 e a suíte passa a
+// depender da hora em que é executada. Meio-dia local mantém todos os cenários no dia esperado.
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  const noon = new Date();
+  noon.setHours(12, 0, 0, 0);
+  vi.setSystemTime(noon);
   process.env["AGENDA_CRON_SECRET"] = SECRET;
   delete process.env["AGENDA_CRON_SECRET_PREVIOUS"];
   runtime.autoCancel = false;

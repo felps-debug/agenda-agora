@@ -13,12 +13,14 @@ const runtime = vi.hoisted(() => ({
   email: "dono@example.com" as string | null,
   pix: { providerPaymentId: "tx-1", qrCode: "PIXCODE", expiresAt: null } as Record<string, unknown>,
   inserted: null as Record<string, unknown> | null,
+  cpfUpdate: null as { values: Record<string, unknown>; id: string } | null,
+  isSuper: false,
   createPixCharge: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-start", () => serverFnMock());
 vi.mock("@/integrations/supabase/auth-middleware", () => ({ requireSupabaseAuth: {} }));
-vi.mock("@/lib/auth/require-super-admin", () => ({ hasSuperAdminRole: vi.fn(async () => false) }));
+vi.mock("@/lib/auth/require-super-admin", () => ({ hasSuperAdminRole: vi.fn(async () => runtime.isSuper) }));
 vi.mock("@/lib/agpay.server", () => ({
   createPixCharge: (...args: unknown[]) => runtime.createPixCharge(...args),
 }));
@@ -28,6 +30,16 @@ vi.mock("@/integrations/supabase/client.server", () => ({
     from: (table: string) => {
       if (table === "professionals") {
         return { select: () => ({ eq: async () => ({ count: runtime.professionalsCount }) }) };
+      }
+      if (table === "businesses") {
+        return {
+          update: (values: Record<string, unknown>) => ({
+            eq: async (_col: string, id: string) => {
+              runtime.cpfUpdate = { values, id };
+              return { error: null };
+            },
+          }),
+        };
       }
       if (table === "subscription_charges") {
         return {
@@ -42,11 +54,12 @@ vi.mock("@/integrations/supabase/client.server", () => ({
   },
 }));
 
-const { createSubscriptionCharge, subscriptionChargeAmountCents } =
+const { createSubscriptionCharge, saveOwnerCpf, subscriptionChargeAmountCents } =
   await import("./subscription-charge.functions");
 
 type Caller = (arg: { data: unknown; context: unknown }) => Promise<Record<string, unknown>>;
 const create = createSubscriptionCharge as unknown as Caller;
+const saveCpf = saveOwnerCpf as unknown as Caller;
 
 const businessId = "11111111-1111-4111-8111-111111111111";
 const context = {
@@ -65,6 +78,8 @@ beforeEach(() => {
   runtime.professionalsCount = 1;
   runtime.email = "dono@example.com";
   runtime.inserted = null;
+  runtime.cpfUpdate = null;
+  runtime.isSuper = false;
   runtime.business = {
     id: businessId,
     owner_id: "dono-1",
@@ -131,5 +146,38 @@ describe("createSubscriptionCharge (US7)", () => {
       status: "pending",
       payer_email: "dono@example.com",
     });
+  });
+});
+
+describe("saveOwnerCpf (US7) — CPF salvo pelo servidor", () => {
+  const validCpf = "390.533.447-05";
+
+  it("grava só os dígitos em businesses.owner_cpf, via servidor (service role)", async () => {
+    await expect(saveCpf({ data: { businessId, cpf: validCpf }, context })).resolves.toEqual({
+      ok: true,
+    });
+    expect(runtime.cpfUpdate).toEqual({ values: { owner_cpf: "39053344705" }, id: businessId });
+  });
+
+  it("recusa CPF com dígito verificador errado e não grava", async () => {
+    await expect(
+      saveCpf({ data: { businessId, cpf: "390.533.447-06" }, context }),
+    ).rejects.toThrow();
+    expect(runtime.cpfUpdate).toBeNull();
+  });
+
+  it("recusa quem não é o dono do negócio e não grava", async () => {
+    runtime.business = { ...runtime.business!, owner_id: "outra-pessoa" };
+    await expect(saveCpf({ data: { businessId, cpf: validCpf }, context })).rejects.toThrow(
+      /dono/i,
+    );
+    expect(runtime.cpfUpdate).toBeNull();
+  });
+
+  it("permite o master gravar o CPF de um negócio", async () => {
+    runtime.business = { ...runtime.business!, owner_id: "outra-pessoa" };
+    runtime.isSuper = true;
+    await saveCpf({ data: { businessId, cpf: validCpf }, context });
+    expect(runtime.cpfUpdate?.id).toBe(businessId);
   });
 });

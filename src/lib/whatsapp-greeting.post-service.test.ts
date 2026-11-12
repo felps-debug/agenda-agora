@@ -181,3 +181,22 @@ describe("mensagem pós-atendimento (US7)", () => {
     expect(await processPostServiceMessages()).toMatchObject({ sent: 1 });
   });
 });
+
+describe("seleção de clientes do pós-atendimento (agendamento público sem customer_id)", () => {
+  it("'somente para' envia para quem foi escolhido pelo telefone", async () => {
+    const { postServiceSelectionMatches } = await import("./whatsapp-greeting.server");
+    const chosen = new Set(["appointment:11981549276"]);
+    expect(postServiceSelectionMatches(chosen, null, "(11) 98154-9276")).toBe(true);
+    expect(postServiceSelectionMatches(chosen, null, "(11) 97484-4809")).toBe(false);
+  });
+
+  it("reconhece cliente cadastrado por UUID mesmo com agendamento sem customer_id", async () => {
+    const { postServiceSelectionMatches } = await import("./whatsapp-greeting.server");
+    const chosen = new Set(["11111111-1111-4111-8111-111111111111"]);
+    expect(postServiceSelectionMatches(chosen, null, "11981549276")).toBe(false);
+    expect(postServiceSelectionMatches(chosen, null, "11981549276", new Set(["11981549276"]))).toBe(true);
+    expect(
+      postServiceSelectionMatches(chosen, "11111111-1111-4111-8111-111111111111", null),
+    ).toBe(true);
+  });
+});

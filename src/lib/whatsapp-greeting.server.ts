@@ -332,11 +332,35 @@ export async function enqueuePostServiceMessage(appointmentId: string, businessI
   return !error;
 }
 
-function shouldSendPostService(preferences: Awaited<ReturnType<typeof loadPanel1Config>>["preferences"], customerId: string | null) {
+/**
+ * Um cliente escolhido na tela de Configurações é guardado por id: o UUID do cadastro
+ * manual ou `appointment:<telefone>` para quem só agendou. Agendamento público grava
+ * `customer_id` nulo, então comparar só o id fazia "somente para…" nunca enviar e
+ * "todos exceto…" enviar também para os excluídos. Por isso o telefone também conta.
+ */
+export function postServiceSelectionMatches(
+  selected: Set<string>,
+  customerId: string | null,
+  customerPhone: string | null,
+  selectedPhones: Set<string> = new Set(),
+) {
+  if (customerId && selected.has(customerId)) return true;
+  const digits = (customerPhone ?? "").replace(/\D/g, "");
+  if (!digits) return false;
+  return selected.has(`appointment:${digits}`) || selectedPhones.has(digits);
+}
+
+export function shouldSendPostService(
+  preferences: Awaited<ReturnType<typeof loadPanel1Config>>["preferences"],
+  customerId: string | null,
+  customerPhone: string | null = null,
+  selectedPhones: Set<string> = new Set(),
+) {
   if (!preferences.post_service_enabled) return false;
   const selected = new Set(preferences.post_service_clients.split(",").map((id) => id.trim()).filter(Boolean));
-  if (preferences.post_service_send_to === "somente_para") return !!customerId && selected.has(customerId);
-  if (preferences.post_service_send_to === "todos_exceto") return !customerId || !selected.has(customerId);
+  const isSelected = postServiceSelectionMatches(selected, customerId, customerPhone, selectedPhones);
+  if (preferences.post_service_send_to === "somente_para") return isSelected;
+  if (preferences.post_service_send_to === "todos_exceto") return !isSelected;
   return true;
 }
 
@@ -372,7 +396,33 @@ export async function processPostServiceMessages(limit = 50) {
     }
 
     const { preferences } = await loadPanel1Config(supabaseAdmin, appointment.business_id);
-    if (!shouldSendPostService(preferences, appointment.customer_id) || !appointment.customer_phone) {
+    // Cliente cadastrado à mão e escolhido por UUID, mas agendamento sem `customer_id`:
+    // resolve pelo telefone do cadastro.
+    const selectedPhones = new Set<string>();
+    const selectedUuids = preferences.post_service_clients
+      .split(",")
+      .map((id) => id.trim())
+      .filter((id) => id && !id.startsWith("appointment:"));
+    if (selectedUuids.length && !appointment.customer_id) {
+      try {
+        const { data: chosen } = await supabaseAdmin
+          .from("customers")
+          .select("phone")
+          .eq("business_id", appointment.business_id)
+          .in("id", selectedUuids);
+        for (const row of chosen ?? []) {
+          const digits = (row.phone ?? "").replace(/\D/g, "");
+          if (digits) selectedPhones.add(digits);
+        }
+      } catch {
+        // Sem a busca, vale só a comparação por id/telefone do agendamento.
+      }
+    }
+
+    if (
+      !shouldSendPostService(preferences, appointment.customer_id, appointment.customer_phone, selectedPhones) ||
+      !appointment.customer_phone
+    ) {
       await updateQueue(item.id, { processed_at: now, last_error: "envio desativado ou cliente sem telefone" });
       skipped += 1;
       continue;

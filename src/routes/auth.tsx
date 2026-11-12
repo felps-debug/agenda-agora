@@ -5,6 +5,7 @@ import { ChevronRight, Clock, Eye, EyeOff, Headset, UserRound } from "lucide-rea
 import { supabase } from "@/integrations/supabase/client";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import {
+  fallbackLoginPassword,
   loginInputMode,
   onlyDigits,
   postLoginDestination,
@@ -118,14 +119,11 @@ function AuthPage() {
       // de 4 dígitos dos donos (prefixo "agendaagora:"), mas entram pelo campo de e-mail.
       // Se a tentativa direta falhar e a senha digitada for um PIN de 4 dígitos, tenta de
       // novo com o prefixo antes de desistir.
-      if (
-        (error || !data.user) &&
-        ((credentials.kind === "admin" && /^\d{4}$/.test(password)) ||
-          (credentials.kind === "owner" && !/^\d{4}$/.test(password)))
-      ) {
+      const retryPassword = fallbackLoginPassword(credentials, password);
+      if ((error || !data.user) && retryPassword) {
         ({ data, error } = await supabase.auth.signInWithPassword({
           email: credentials.email,
-          password: `agendaagora:${password}`,
+          password: retryPassword,
         }));
       }
       if (error || !data.user) {

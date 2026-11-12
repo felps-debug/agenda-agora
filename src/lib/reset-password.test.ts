@@ -80,6 +80,25 @@ describe("redefinição de senha do dono (US3)", () => {
     expect(JSON.stringify(events[0]!.row)).not.toContain(result.temporaryPassword);
   });
 
+  it("a senha temporária (Master e SDR) é aceita pelo login do dono em uma das tentativas", async () => {
+    const { resolveLoginCredentials, fallbackLoginPassword } = await import("./auth/login-flow");
+    const master1 = await masterReset({ data: { businessId: BUSINESS_ID }, context: master });
+    const sdr1 = await sdrReset({
+      data: { token: signSdrToken("sdr-1", SECRET), businessId: BUSINESS_ID },
+    });
+    const stored = runtime.fake!.calls.authUpdates.map((u) => String(u.attrs["password"]));
+    expect(stored).toHaveLength(2);
+    [master1, sdr1].forEach(({ temporaryPassword }, index) => {
+      // Mesmo caminho do /auth: valida o formato digitado e tenta a 2ª senha se a 1ª falhar.
+      const credentials = resolveLoginCredentials("(11) 90000-0000", temporaryPassword);
+      const attempts = [
+        credentials.password,
+        fallbackLoginPassword(credentials, temporaryPassword),
+      ];
+      expect(attempts).toContain(stored[index]);
+    });
+  });
+
   it("duas redefinições geram senhas diferentes", async () => {
     const a = await masterReset({ data: { businessId: BUSINESS_ID }, context: master });
     const b = await masterReset({ data: { businessId: BUSINESS_ID }, context: master });
