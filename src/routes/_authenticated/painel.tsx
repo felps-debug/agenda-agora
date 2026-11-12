@@ -1374,11 +1374,7 @@ function PagamentosView({ business }: { business: Business | null }) {
               </ul>
             </div>
           </div>
-          {business && !checkoutOpen ? (
-            <div className="mt-5">
-              <SubscriptionPixPayment businessId={business.id} onPaid={() => cycle.refetch()} />
-            </div>
-          ) : null}
+          {/* Pagamento e CPF só dentro do pop-up "Confirmar assinatura" (botão Assinar). */}
           <div className="mt-4 space-y-2">
             {statusCardVisible && statusCard ? (
               <div
