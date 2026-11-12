@@ -1679,7 +1679,6 @@ function PagamentosView({ business }: { business: Business | null }) {
                     <>
                       {business ? (
                         <SubscriptionPixPayment
-                          mode="checkout"
                           businessId={business.id}
                           onPaid={() => {
                             closeCheckout();
