@@ -1,6 +1,6 @@
 # Relatório consolidado — auditoria Agenda Agora
 
-**Estado: PARCIAL — a auditoria não está concluída.** Este documento consolida a evidência local e os registros de inspeção somente leitura de produção disponíveis até o ciclo 169; o inventário contém 151 IDs únicos. Não atesta a configuração/saúde atual de todos os serviços e não afirma ausência de outros problemas.
+**Estado atual (16/11): implementacao publicada; homologacao manual pendente.** A auditoria ampla permanece parcial e nao atesta a ausencia de outros riscos. Este documento consolida a evidência local e os registros de inspeção somente leitura de produção disponíveis até o ciclo 169; o inventário contém 151 IDs únicos. Não atesta a configuração/saúde atual de todos os serviços e não afirma ausência de outros problemas.
 
 ## Adendo de fechamento atualizado — 2026-11-15
 

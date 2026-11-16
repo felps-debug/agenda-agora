@@ -2135,3 +2135,9 @@ SSH read-only ao host `srv2024818` confirmou `agenda-agora_app` 1/1 healthy (up 
 ### PAY-033 corrigido localmente com contrato oficial (2026-11-15)
 
 A pagina oficial `https://agpay.services/documentacao` responde HTTP 200 e lista 400 (Bad Request), 401 (nao autenticado), 403 (acesso negado), 404 (nao encontrado), 422 (erro de validacao) e 500 (erro interno). `pixExternalStep` agora preserva uma classificacao interna: 400/401/403/404/422 marcam a tentativa como `rejeitado`, permitindo retry controlado; 3xx, 5xx e falhas sem resposta permanecem `falhou`/`post_incerto`, sem novo POST imediato. RED: cinco casos documentados liberavam incorretamente como `falhou`; GREEN: `booking.functions.test.ts` 124/124, incluindo 302/500 ambiguos; `npx tsc --noEmit` passou. Nenhuma chamada autenticada ao gateway ou pagamento real. Sem validacao de runtime de producao.
+
+### Publicacao pronta para homologacao — 2026-11-16
+
+Commit `eb4856b` em `origin/main`; deploy ativo como `agenda-agora/app:codex-eb4856b` no Swarm (1/1, rollback configurado). A migration `20261116060100_secure_master_role_and_business_private_data.sql` foi aplicada no Supabase `qagotnmdqjoodoudcikd`. Uma transacao read-only com role `authenticated`, claims `aal1` e usuario Master real confirmou a policy sem MFA e acesso a lista de businesses; rollback da transacao executado. `/auth` nos tres hosts e uma pagina publica `/agendar/<slug>` retornaram 200.
+
+`npm test`: 1.125 aprovados e 8 ignorados; `npm run test:db`: 134/134; `npm run build` passou; `npm run lint`: 0 erros e 34 avisos. A validacao visual autenticada ainda nao ocorreu: o usuario vai testar o upload de logo e a homologacao. AgPay ponto 2 fica fora por enquanto; spec 006 nao foi incluida.

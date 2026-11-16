@@ -46,3 +46,9 @@ Reparei **somente o histórico** com `supabase migration repair --status applied
 As 22 migrations ainda **não foram aplicadas**. O próximo passo é revisar compatibilidade do app e publicar em fases; a correção AAL2/grants continua pendente na produção até a migration final. Nenhuma escrita em dados de negócio, deploy ou commit/push ocorreu.
 T036 da spec 005 foi fechado em 16/11: `npm run lint` passou (0 erros, 34 avisos) e `npx tsc --noEmit` passou. Formatei os arquivos reportados pelo ESLint e corrigi os dois erros restantes; `git diff --check` sem erros de whitespace. Não rodei suíte de testes nesta limpeza de lint.
 Build local pós-formatação — 16/11: `npm run build` passou; warnings do route generator sobre `*.test.tsx` e chunks acima do limite continuam, sem falha.
+
+## Fechamento para homologacao — 2026-11-16
+
+Commit `eb4856b` foi enviado a `origin/main`; a imagem `agenda-agora/app:codex-eb4856b` esta ativa no servico Swarm `agenda-agora_app` (1/1, rollback configurado). Migration `20261116060100_secure_master_role_and_business_private_data.sql` aplicada no projeto Supabase correto. O Master passa pelo controle da role vigente sem exigir MFA. Smokes: `/auth` nos tres dominios e booking publico retornaram 200.
+
+Validacao local: `npm test` 1.125 aprovados/8 ignorados; `npm run test:db` 134/134; build passou; lint sem erros (34 avisos). Ficam para o usuario o teste do upload de logo e a homologacao visual/operacional autenticada. AgPay ponto 2 permanece pausado e spec 006 esta fora do commit.
