@@ -28,7 +28,8 @@ export async function hasSuperAdminRole(userId: string): Promise<boolean> {
 /** Estado de autorização atual do painel Master. */
 export async function getSuperAdminStatus(session: SuperAdminSession) {
   const isMaster = await hasSuperAdminRole(session.userId);
-  return { isMaster, hasMaster: true as const };
+  const aal2 = session.claims?.aal === "aal2";
+  return { isMaster, hasMaster: true as const, aal2, needsMfa: false as const };
 }
 
 /**

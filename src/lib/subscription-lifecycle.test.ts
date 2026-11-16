@@ -50,14 +50,22 @@ describe("classifyLifecycle", () => {
   });
 
   it("1 a 3 dias apos o vencimento = pagamento pendente (tolerancia)", () => {
-    const result = classifyLifecycle({ ...base, accessUntil: "2026-10-26T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const result = classifyLifecycle({
+      ...base,
+      accessUntil: "2026-10-26T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(result.category).toBe("atencao");
     expect(result.reason).toBe("pagamento_pendente");
     expect(result.daysLate).toBe(2);
   });
 
   it("4 dia ou mais sem pagamento = assinatura vencida", () => {
-    const result = classifyLifecycle({ ...base, accessUntil: "2026-10-24T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const result = classifyLifecycle({
+      ...base,
+      accessUntil: "2026-10-24T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(result.category).toBe("atencao");
     expect(result.reason).toBe("assinatura_vencida");
     expect(result.daysLate).toBe(4);

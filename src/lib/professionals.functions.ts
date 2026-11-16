@@ -1,11 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { isProfessionalAvatarPathForBusiness } from "@/lib/professional-avatar-path";
 
 const permissionsSchema = z.record(z.string(), z.boolean());
 const inputSchema = z.object({
-  id: z.string().uuid().optional(),
-  businessId: z.string().uuid(),
+  id: z.string().guid().optional(),
+  businessId: z.string().guid(),
   name: z.string().min(2).max(80),
   role: z.string().max(80).optional(),
   phone: z.string().max(20).default(""),
@@ -19,9 +20,9 @@ const inputSchema = z.object({
   avatarPath: z.string().nullable().optional(),
   agendaName: z.string().trim().max(11).optional().default(""),
   publicName: z.string().trim().max(80).optional().default(""),
-  workingDays: z.array(z.number().int().min(0).max(6)),
+  workingDays: z.array(z.number().int().min(0).max(6)).max(7),
   permissions: permissionsSchema,
-  serviceIds: z.array(z.string().uuid()),
+  serviceIds: z.array(z.string().guid()).max(1000),
 });
 
 const digits = (value: string) => value.replace(/\D/g, "");
@@ -42,6 +43,12 @@ export const saveProfessional = createServerFn({ method: "POST" })
       .maybeSingle();
     if (businessError) throw new Error("Não foi possível validar o negócio.");
     if (!business) throw new Error("Somente o dono pode gerenciar acessos da equipe.");
+    if (
+      data.avatarPath != null &&
+      !isProfessionalAvatarPathForBusiness(data.avatarPath, data.businessId)
+    ) {
+      throw new Error("A foto do profissional deve pertencer a este negócio.");
+    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     if (data.serviceIds.length) {
@@ -62,16 +69,20 @@ export const saveProfessional = createServerFn({ method: "POST" })
     }
     // Limite de 10 profissionais por estabelecimento (criação de novos).
     if (!data.id) {
-      const { count } = await supabaseAdmin
+      const { count, error: countError } = await supabaseAdmin
         .from("professionals")
         .select("id", { count: "exact", head: true })
         .eq("business_id", data.businessId);
-      if ((count ?? 0) >= 10) {
+      if (countError || typeof count !== "number" || !Number.isFinite(count)) {
+        throw new Error("Não foi possível validar o limite de profissionais.");
+      }
+      if (count >= 10) {
         throw new Error("Limite de 10 profissionais atingido neste estabelecimento.");
       }
     }
     const loginEmail = data.email.trim().toLowerCase() || `${digits(data.phone)}@agenda.local`;
     let userId: string | null = null;
+    let createdAccess = false;
 
     if (data.id) {
       const { data: current, error: currentError } = await supabaseAdmin
@@ -110,7 +121,15 @@ export const saveProfessional = createServerFn({ method: "POST" })
       const { error: roleError } = await supabaseAdmin
         .from("user_roles")
         .upsert({ user_id: userId, role: "professional" }, { onConflict: "user_id,role" });
-      if (roleError) throw new Error(roleError.message);
+      if (roleError) {
+        const { error: authCleanupError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+        if (authCleanupError)
+          throw new Error(
+            "Professional role assignment failed and the Auth account could not be removed.",
+          );
+        throw new Error(roleError.message);
+      }
+      createdAccess = true;
     }
 
     const payload = {
@@ -136,7 +155,19 @@ export const saveProfessional = createServerFn({ method: "POST" })
           .single()
       : supabaseAdmin.from("professionals").insert(payload).select("id").single();
     const { data: professional, error: saveError } = await query;
-    if (saveError) throw new Error(saveError.message);
+    if (saveError) {
+      if (createdAccess && userId) {
+        const { error: roleCleanupError } = await supabaseAdmin
+          .from("user_roles")
+          .delete()
+          .eq("user_id", userId)
+          .eq("role", "professional");
+        const { error: authCleanupError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+        if (roleCleanupError || authCleanupError)
+          throw new Error("Professional creation failed and account cleanup was incomplete.");
+      }
+      throw new Error(saveError.message);
+    }
 
     // The generated types are from the pre-migration schema until the isolated DB
     // is available. Keep this narrow assertion next to the new SQL function.
@@ -149,14 +180,36 @@ export const saveProfessional = createServerFn({ method: "POST" })
       _professional_id: professional.id,
       _service_ids: data.serviceIds,
     });
-    if (linkError) throw new Error(linkError.message);
+    if (linkError) {
+      if (createdAccess && userId) {
+        const { error: profileCleanupError } = await supabaseAdmin
+          .from("professionals")
+          .delete()
+          .eq("id", professional.id)
+          .eq("business_id", data.businessId);
+        if (profileCleanupError)
+          throw new Error(
+            "Service links failed and the new professional profile could not be removed.",
+          );
+
+        const { error: roleCleanupError } = await supabaseAdmin
+          .from("user_roles")
+          .delete()
+          .eq("user_id", userId)
+          .eq("role", "professional");
+        const { error: authCleanupError } = await supabaseAdmin.auth.admin.deleteUser(userId);
+        if (roleCleanupError || authCleanupError)
+          throw new Error("Service links failed and professional account cleanup was incomplete.");
+      }
+      throw new Error(linkError.message);
+    }
     return { id: professional.id };
   });
 
 export const deleteProfessional = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ id: z.string().uuid(), businessId: z.string().uuid() }).parse(data),
+    z.object({ id: z.string().guid(), businessId: z.string().guid() }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const { data: business, error: businessError } = await context.supabase
@@ -181,6 +234,14 @@ export const deleteProfessional = createServerFn({ method: "POST" })
       .eq("id", data.id)
       .eq("business_id", data.businessId);
     if (error) throw new Error(error.message);
-    if (professional?.user_id) await supabaseAdmin.auth.admin.deleteUser(professional.user_id);
+    if (professional?.user_id) {
+      const { error: authDeleteError } = await supabaseAdmin.auth.admin.deleteUser(
+        professional.user_id,
+      );
+      if (authDeleteError)
+        throw new Error(
+          "Professional record was removed, but its Auth account could not be deleted.",
+        );
+    }
     return { ok: true };
   });

@@ -35,6 +35,13 @@ describe("preferências parciais do Painel 1", () => {
 
     expect(effective.minimum_notice_hours).toBe(12);
   });
+
+  it("rejeita timezone fora das opcoes suportadas pela configuracao", () => {
+    expect(() => preferencesPatch.parse({ timezone: "Not/AZone" })).toThrow();
+    expect(preferencesPatch.parse({ timezone: "America/Recife" })).toMatchObject({
+      timezone: "America/Recife",
+    });
+  });
 });
 
 describe("aparência parcial do Painel 1 (patch salvo pelo servidor)", () => {

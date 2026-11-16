@@ -133,7 +133,6 @@ function IntegracoesPage() {
         data: {
           businessId: businessId!,
           phone: testPhone,
-          template: "Mensagem de teste da Agenda Agora. Seu WhatsApp está conectado.",
         },
       }),
     onSuccess: () => toast.success("Mensagem de teste enviada."),

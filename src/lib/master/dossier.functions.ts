@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
+import { fetchAllPages } from "@/lib/fetch-all-pages.server";
 import {
   evaluateAccountHealth,
   summarizeClients,
@@ -22,7 +23,7 @@ import { trialInfo } from "@/lib/trial-store";
 const PERIOD_OPTIONS = [7, 30, 90] as const;
 
 const dossierInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   periodDays: z
     .number()
     .int()
@@ -32,13 +33,13 @@ const dossierInput = z.object({
 });
 
 const noteInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   body: z.string().min(1).max(4000),
   nextStep: z.string().max(500).optional(),
 });
 
 const commercialInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   leadSource: z.string().max(120).optional(),
   salesOwner: z.string().max(120).optional(),
   commercialNotes: z.string().max(4000).optional(),
@@ -50,7 +51,7 @@ export const updateBusinessContact = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         field: z.enum(["phone", "name", "responsavel"]),
         value: z.string().trim().min(1).max(120),
       })
@@ -189,10 +190,7 @@ function daysBetween(from: string, to: Date) {
   return Math.max(0, Math.floor(diff / 86_400_000));
 }
 
-/**
- * Grava um evento de auditoria da ficha do estabelecimento.
- * Falhas de auditoria não derrubam a ação principal — o log é acessório.
- */
+/** Grava evento obrigatório nas ações e leituras sensíveis do dossiê Master. */
 async function recordEvent(
   supabaseAdmin: Awaited<ReturnType<typeof assertSuperAdmin>>,
   input: {
@@ -201,18 +199,24 @@ async function recordEvent(
     type: string;
     title: string;
     description?: string | null;
+    failureMessage?: string;
   },
 ) {
   try {
-    await supabaseAdmin.from("master_business_events").insert({
+    const { error } = await supabaseAdmin.from("master_business_events").insert({
       business_id: input.businessId,
       actor_id: input.actorId,
       type: input.type,
       title: input.title,
       description: input.description ?? null,
     });
+    if (error) throw error;
   } catch (error) {
     console.error("Falha ao registrar evento de auditoria:", error);
+    throw new Error(
+      input.failureMessage ??
+        "A alteração foi aplicada, mas não foi possível registrar a auditoria.",
+    );
   }
 }
 
@@ -288,44 +292,77 @@ export const getBusinessDossier = createServerFn({ method: "POST" })
             .eq("id", business.owner_id)
             .maybeSingle()
         : Promise.resolve({ data: null, error: null }),
-      supabaseAdmin
-        .from("appointments")
-        .select(
-          "id, status, starts_at, created_at, service_id, professional_id, customer_id, customer_name, customer_phone",
-        )
-        .eq("business_id", business.id)
-        .order("starts_at", { ascending: false })
-        .limit(20000),
-      supabaseAdmin
-        .from("customers")
-        .select("id, name, phone, created_at")
-        .eq("business_id", business.id)
-        .limit(20000),
-      supabaseAdmin
-        .from("services")
-        .select("id, name, price_cents, active, created_at")
-        .eq("business_id", business.id),
-      supabaseAdmin
-        .from("professionals")
-        .select("id, name, active, user_id, created_at")
-        .eq("business_id", business.id),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("appointments")
+            .select(
+              "id, status, starts_at, created_at, service_id, professional_id, customer_id, customer_name, customer_phone",
+            )
+            .eq("business_id", business.id)
+            .order("starts_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        "Falha ao carregar agendamentos da ficha.",
+      ).then((data) => ({ data, error: null })),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("customers")
+            .select("id, name, phone, created_at")
+            .eq("business_id", business.id)
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar clientes da ficha.",
+      ).then((data) => ({ data, error: null })),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("services")
+            .select("id, name, price_cents, active, created_at")
+            .eq("business_id", business.id)
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar serviços da ficha.",
+      ).then((data) => ({ data, error: null })),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("professionals")
+            .select("id, name, active, user_id, created_at")
+            .eq("business_id", business.id)
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar profissionais da ficha.",
+      ).then((data) => ({ data, error: null })),
       supabaseAdmin
         .from("business_hours")
         .select("id", { count: "exact", head: true })
         .eq("business_id", business.id),
-      supabaseAdmin
-        .from("subscription_payments")
-        .select("reference_month, status, amount_cents, paid_at, created_at")
-        .eq("business_id", business.id)
-        .order("reference_month", { ascending: false }),
-      supabaseAdmin
-        .from("deposit_payments")
-        .select(
-          "id, status, amount_cents, net_amount_cents, gateway_fee_cents, platform_commission_cents, created_at, paid_at",
-        )
-        .eq("business_id", business.id)
-        .order("created_at", { ascending: false })
-        .limit(2000),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("subscription_payments")
+            .select("reference_month, status, amount_cents, paid_at, created_at")
+            .eq("business_id", business.id)
+            .order("reference_month", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        "Falha ao carregar cobranças da ficha.",
+      ).then((data) => ({ data, error: null })),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("deposit_payments")
+            .select(
+              "id, status, amount_cents, net_amount_cents, gateway_fee_cents, platform_commission_cents, created_at, paid_at",
+            )
+            .eq("business_id", business.id)
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: false })
+            .range(from, to),
+        "Falha ao carregar sinais Pix da ficha.",
+      ).then((data) => ({ data, error: null })),
       supabaseAdmin
         .from("wallets")
         .select("available_cents, pending_cents, locked_cents")
@@ -690,7 +727,7 @@ export const updateBusinessCommercial = createServerFn({ method: "POST" })
  */
 export const getBusinessSupportSnapshot = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { data: business } = await supabaseAdmin
@@ -717,6 +754,7 @@ export const getBusinessSupportSnapshot = createServerFn({ method: "POST" })
       type: "suporte",
       title: "Modo suporte consultado",
       description: "Visualização somente leitura do painel do estabelecimento.",
+      failureMessage: "Consulta não concluída: não foi possível registrar a auditoria.",
     });
     return {
       business,

@@ -41,7 +41,7 @@ const giveBack = returnToMasterSession as unknown as (arg: {
   context: unknown;
 }) => Promise<{ accessToken: string; refreshToken: string }>;
 
-const master = { userId: "master-1", claims: { aal: "aal1" } };
+const master = { userId: "master-1", claims: { aal: "aal2" } };
 const owner = { userId: "dono-1", claims: { aal: "aal1" } };
 const ORIGIN = "https://app.agendagora.test";
 
@@ -188,5 +188,50 @@ describe("retorno ao Painel Master", () => {
       accessToken: "at-123",
     });
     expect(runtime.fake!.tables["master_impersonation_sessions"]).toHaveLength(0);
+  });
+});
+
+describe("impersonation persistence failures", () => {
+  const failingToken = "f".repeat(64);
+
+  beforeEach(() => {
+    runtime.pinOk = false;
+    runtime.fake!.tables["master_impersonation_sessions"] = [
+      {
+        id: "sess-fail",
+        business_id: BUSINESS_ID,
+        master_user_id: "master-1",
+        token: failingToken,
+        expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+        attempts: 0,
+      },
+    ];
+  });
+
+  it("fails closed when recording a wrong PIN attempt fails", async () => {
+    runtime.fake!.failures["master_impersonation_sessions:update"] = {
+      code: "db_error",
+      message: "attempt write failed",
+    };
+
+    await expect(
+      giveBack({ data: { token: failingToken, pin: "000000", origin: ORIGIN }, context: owner }),
+    ).rejects.toThrow("Could not record the PIN attempt.");
+
+    expect(runtime.fake!.tables["master_impersonation_sessions"]?.[0]?.["attempts"]).toBe(0);
+  });
+
+  it("does not return a Master session when consuming the token fails", async () => {
+    runtime.pinOk = true;
+    runtime.fake!.failures["master_impersonation_sessions:delete"] = {
+      code: "db_error",
+      message: "consume failed",
+    };
+
+    await expect(
+      giveBack({ data: { token: failingToken, pin: "123456", origin: ORIGIN }, context: owner }),
+    ).rejects.toThrow("Could not consume the impersonation session.");
+
+    expect(runtime.generateLink).not.toHaveBeenCalled();
   });
 });

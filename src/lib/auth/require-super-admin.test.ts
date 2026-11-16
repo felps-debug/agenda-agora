@@ -47,10 +47,12 @@ beforeEach(() => {
 });
 
 describe("assertSuperAdmin: role atual no banco", () => {
-  it("autoriza super_admin por e-mail e senha e devolve o client admin", async () => {
+  it("autoriza super_admin com sessão aal2 e devolve o client admin", async () => {
     roleInDatabase({ role: "super_admin" });
 
-    await expect(assertSuperAdmin(session(adminId))).resolves.toHaveProperty("from");
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal2" }))).resolves.toHaveProperty(
+      "from",
+    );
     expect(db.from).toHaveBeenCalledWith("user_roles");
     expect(db.filters).toEqual(
       expect.arrayContaining([
@@ -60,12 +62,14 @@ describe("assertSuperAdmin: role atual no banco", () => {
     );
   });
 
-  it("exibe o acesso Master com role vigente mesmo que a sessão informe aal1", async () => {
+  it("não exige MFA para uma role Master vigente em aal1", async () => {
     roleInDatabase({ role: "super_admin" });
 
     await expect(getSuperAdminStatus(session(adminId, { aal: "aal1" }))).resolves.toEqual({
       isMaster: true,
       hasMaster: true,
+      aal2: false,
+      needsMfa: false,
     });
   });
 
@@ -75,6 +79,8 @@ describe("assertSuperAdmin: role atual no banco", () => {
     await expect(getSuperAdminStatus(session(adminId, { aal: "aal2" }))).resolves.toEqual({
       isMaster: false,
       hasMaster: true,
+      aal2: true,
+      needsMfa: false,
     });
     expect(db.from).toHaveBeenCalledWith("user_roles");
   });
@@ -87,12 +93,26 @@ describe("assertSuperAdmin: role atual no banco", () => {
     );
   });
 
+  it("autoriza AAL1 com role super_admin vigente", async () => {
+    roleInDatabase({ role: "super_admin" });
+
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal1" }))).resolves.toHaveProperty(
+      "from",
+    );
+  });
+
+  it("autoriza sessão sem assurance level com role super_admin vigente", async () => {
+    roleInDatabase({ role: "super_admin" });
+
+    await expect(assertSuperAdmin(session(adminId))).resolves.toHaveProperty("from");
+  });
+
   it("consulta a role em toda chamada e bloqueia imediatamente após revogação", async () => {
     roleInDatabase({ role: "super_admin" });
-    await expect(assertSuperAdmin(session(adminId))).resolves.toBeDefined();
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal2" }))).resolves.toBeDefined();
 
     roleInDatabase(null);
-    await expect(assertSuperAdmin(session(adminId))).rejects.toThrow(
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal2" }))).rejects.toThrow(
       "Acesso restrito ao painel master.",
     );
     expect(db.from).toHaveBeenCalledTimes(2);
@@ -102,8 +122,8 @@ describe("assertSuperAdmin: role atual no banco", () => {
     roleInDatabase({ role: "super_admin" });
     const secondAdminId = "44444444-4444-4444-8444-444444444444";
 
-    await expect(assertSuperAdmin(session(adminId))).resolves.toBeDefined();
-    await expect(assertSuperAdmin(session(secondAdminId))).resolves.toBeDefined();
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal2" }))).resolves.toBeDefined();
+    await expect(assertSuperAdmin(session(secondAdminId, { aal: "aal2" }))).resolves.toBeDefined();
     expect(db.filters).toContainEqual(["user_id", adminId]);
     expect(db.filters).toContainEqual(["user_id", secondAdminId]);
   });
@@ -111,12 +131,12 @@ describe("assertSuperAdmin: role atual no banco", () => {
   it("nega a donos comuns de negócios diferentes", async () => {
     roleInDatabase(null);
 
-    await expect(assertSuperAdmin(session(ownerId))).rejects.toThrow(
+    await expect(assertSuperAdmin(session(ownerId, { aal: "aal2" }))).rejects.toThrow(
       "Acesso restrito ao painel master.",
     );
-    await expect(assertSuperAdmin(session("33333333-3333-4333-8333-333333333333"))).rejects.toThrow(
-      "Acesso restrito ao painel master.",
-    );
+    await expect(
+      assertSuperAdmin(session("33333333-3333-4333-8333-333333333333", { aal: "aal2" })),
+    ).rejects.toThrow("Acesso restrito ao painel master.");
     expect(db.from).toHaveBeenCalledTimes(2);
   });
 
@@ -133,6 +153,8 @@ describe("assertSuperAdmin: role atual no banco", () => {
   it("falha fechada quando a consulta da role retorna erro", async () => {
     roleInDatabase(null, { message: "banco indisponível" });
 
-    await expect(assertSuperAdmin(session(adminId))).rejects.toThrow("banco indisponível");
+    await expect(assertSuperAdmin(session(adminId, { aal: "aal2" }))).rejects.toThrow(
+      "banco indisponível",
+    );
   });
 });

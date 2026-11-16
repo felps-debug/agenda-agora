@@ -20,6 +20,7 @@ import {
   isBroadcastExpired,
   type BroadcastAudience,
 } from "@/lib/broadcast";
+import { getBroadcastListState } from "@/lib/broadcast-list-state";
 import { BROADCAST_ICON_OPTIONS, broadcastIconOption } from "@/components/painel/BroadcastIcon";
 import { AvisoPop } from "@/components/painel/AvisoPop";
 import { toast } from "sonner";
@@ -90,9 +91,15 @@ function NotificacoesAlertasPage() {
     ? broadcastAudienceLabel.todos
     : audiences.map((a) => broadcastAudienceLabel[a as BroadcastAudience]).join(" + ");
 
-  const { data: list = [] } = useQuery({
+  const broadcastQuery = useQuery({
     queryKey: ["broadcasts"],
     queryFn: () => listFn(),
+  });
+  const list = broadcastQuery.data ?? [];
+  const listState = getBroadcastListState({
+    isLoading: broadcastQuery.isLoading,
+    isError: broadcastQuery.isError,
+    data: broadcastQuery.data,
   });
 
   const create = useMutation({
@@ -200,7 +207,32 @@ function NotificacoesAlertasPage() {
             </tr>
           </thead>
           <tbody>
-            {!list.length && (
+            {listState === "loading" && (
+              <tr>
+                <td colSpan={6} className="px-4 py-16 text-center">
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Carregando notificações...
+                  </p>
+                </td>
+              </tr>
+            )}
+            {listState === "error" && (
+              <tr>
+                <td colSpan={6} className="px-4 py-16 text-center">
+                  <p role="alert" className="text-sm font-semibold text-destructive">
+                    Não foi possível carregar as notificações.
+                  </p>
+                  <Button
+                    variant="outline"
+                    className="mt-4"
+                    onClick={() => void broadcastQuery.refetch()}
+                  >
+                    Tentar novamente
+                  </Button>
+                </td>
+              </tr>
+            )}
+            {listState === "empty" && (
               <tr>
                 <td colSpan={6} className="px-4 py-16 text-center">
                   <span className="mx-auto flex size-12 items-center justify-center rounded-xl border border-border bg-secondary text-muted-foreground">

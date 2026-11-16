@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import {
@@ -7,8 +9,9 @@ import {
   saveWithdrawalPinInput,
   saveWithdrawalPixKeyInput,
 } from "@/lib/withdrawal.functions";
-import { AgpayApiError, createCashoutPix } from "@/lib/agpay.server";
+import { AgpayAmbiguousResponseError, AgpayApiError, createCashoutPix } from "@/lib/agpay.server";
 import { requestWithdrawal, settleWithdrawal } from "@/lib/ledger.server";
+import { checkLock, registerFailure, registerSuccess } from "@/lib/login-attempts.server";
 
 /**
  * Taxa fixa de saque da plataforma: R$ 3,00, independente do valor (decisão comercial de
@@ -18,17 +21,79 @@ import { requestWithdrawal, settleWithdrawal } from "@/lib/ledger.server";
  */
 export { WITHDRAWAL_FEE_CENTS };
 
+const WITHDRAWAL_PIN_ATTEMPT_LIMIT = {
+  limit: 5,
+  windowMs: 15 * 60_000,
+  lockMs: 30 * 60_000,
+} as const;
+
+async function assertWithdrawalPin(
+  businessId: string,
+  userId: string,
+  pin: string,
+  storedHash: string | null | undefined,
+) {
+  const attemptKey = `withdrawal-pin:${userId}:${businessId}`;
+  const lock = await checkLock(attemptKey);
+  if (lock.locked) throw new Error(`TOO_MANY_ATTEMPTS:${lock.retryAfterSeconds}`);
+  if (!storedHash) throw new Error("Configure a senha de transferência na carteira Ag Pay.");
+
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${businessId}:${pin}`),
+  );
+  const pinHash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (pinHash !== storedHash) {
+    const failure = await registerFailure(attemptKey, WITHDRAWAL_PIN_ATTEMPT_LIMIT);
+    if (failure.locked) throw new Error(`TOO_MANY_ATTEMPTS:${failure.retryAfterSeconds}`);
+    throw new Error("Senha de transferência incorreta.");
+  }
+  await registerSuccess(attemptKey);
+}
+
+async function persistAmbiguousCashoutReview(
+  supabase: SupabaseClient<Database>,
+  input: { withdrawalId: string; businessId: string; amountCents: number; path: string },
+) {
+  const dedupeHash = createHash("sha256")
+    .update(`cashout.response_ambiguous:${input.withdrawalId}`, "utf8")
+    .digest("hex");
+  const lastError = "AgPay respondeu sem referência do saque; é necessária revisão manual.";
+  const { error } = await supabase.from("agpay_webhook_events").upsert(
+    {
+      dedupe_hash: dedupeHash,
+      event_type: "cashout.response_ambiguous",
+      transaction_uuid: null,
+      payload: {
+        source: "cashout_response",
+        withdrawal_id: input.withdrawalId,
+        business_id: input.businessId,
+        amount_cents: input.amountCents,
+        path: input.path,
+      },
+      status: "error",
+      attempts: 1,
+      locked_at: null,
+      processed_at: null,
+      last_error: lastError,
+    },
+    { onConflict: "dedupe_hash" },
+  );
+  if (error) throw new Error("Não foi possível registrar o saque ambíguo para revisão.");
+}
+
 export async function createWithdrawal(
   client: SupabaseClient<Database>,
   userId: string,
   businessId: string,
   amountCents: number,
   idempotencyKey: string,
+  pin: string,
 ) {
   const ownerDb = client;
   const { data: business, error } = await ownerDb
     .from("businesses")
-    .select("id, withdrawal_pix_key, agpay_withdrawal_blocked, agpay_access_blocked")
+    .select("id, agpay_withdrawal_blocked, agpay_access_blocked")
     .eq("id", businessId)
     .eq("owner_id", userId)
     .maybeSingle();
@@ -37,16 +102,43 @@ export async function createWithdrawal(
     throw new Error("Sua carteira Ag Pay está bloqueada pelo suporte.");
   if (business.agpay_withdrawal_blocked)
     throw new Error("Os saques da sua carteira estão bloqueados pelo suporte.");
-  if (!business.withdrawal_pix_key)
+  const { supabaseAdmin: supabase } = await import("@/integrations/supabase/client.server");
+  const { data: privateFields, error: privateFieldsError } = await supabase
+    .from("businesses")
+    .select("withdrawal_pix_key, withdrawal_pix_key_type, withdrawal_pin_hash")
+    .eq("id", business.id)
+    .maybeSingle();
+  if (privateFieldsError || !privateFields)
+    throw new Error("Não foi possível consultar a carteira.");
+  if (!privateFields.withdrawal_pix_key)
     throw new Error("Cadastre uma chave Pix antes de solicitar o saque.");
+  if (!privateFields.withdrawal_pix_key_type)
+    throw new Error("A chave Pix de saque não está aprovada para uso.");
   if (!Number.isInteger(amountCents) || amountCents < MIN_WITHDRAWAL_CENTS)
     throw new Error("O saque mínimo é R$ 13,00.");
-  const { supabaseAdmin: supabase } = await import("@/integrations/supabase/client.server");
+  if (!privateFields.withdrawal_pin_hash) {
+    throw new Error("Configure a senha de transferência na carteira Ag Pay.");
+  }
+  await assertWithdrawalPin(business.id, userId, pin, privateFields.withdrawal_pin_hash);
+  const { data: approvedKey, error: approvalError } = await supabase
+    .from("pix_key_approvals")
+    .select("id")
+    .eq("business_id", business.id)
+    .eq("key_type", privateFields.withdrawal_pix_key_type)
+    .eq("key", privateFields.withdrawal_pix_key)
+    .eq("status", "aprovado")
+    .limit(1)
+    .maybeSingle();
+  if (approvalError || !approvedKey) {
+    throw new Error("A chave Pix de saque não está aprovada para uso.");
+  }
   const { data: existing } = await supabase
     .from("withdrawals")
     .select("*")
     .eq("idempotency_key", idempotencyKey)
     .maybeSingle();
+  if (existing && existing.business_id !== business.id)
+    throw new Error("Esta chave de idempotencia ja esta vinculada a outro negocio.");
   if (existing) return { withdrawal: existing };
   const { data: inserted, error: insertError } = await supabase
     .from("withdrawals")
@@ -55,7 +147,7 @@ export async function createWithdrawal(
       amount_cents: amountCents,
       status: "requested",
       idempotency_key: idempotencyKey,
-      pix_key_snapshot: business.withdrawal_pix_key,
+      pix_key_snapshot: privateFields.withdrawal_pix_key,
       platform_fee_cents: WITHDRAWAL_FEE_CENTS,
     })
     .select("*")
@@ -67,6 +159,8 @@ export async function createWithdrawal(
         .select("*")
         .eq("idempotency_key", idempotencyKey)
         .single();
+      if (!duplicate || duplicate.business_id !== business.id)
+        throw new Error("Esta chave de idempotencia ja esta vinculada a outro negocio.");
       return { withdrawal: duplicate };
     }
     throw new Error("Não foi possível registrar o saque.");
@@ -100,7 +194,7 @@ export async function createWithdrawal(
   try {
     const payout = await createCashoutPix({
       amountCents: amountCents - WITHDRAWAL_FEE_CENTS,
-      pixKey: business.withdrawal_pix_key,
+      pixKey: privateFields.withdrawal_pix_key,
     });
     const { data: updated, error: updateError } = await supabase
       .from("withdrawals")
@@ -113,7 +207,44 @@ export async function createWithdrawal(
       .eq("id", inserted.id)
       .select("*")
       .single();
-    if (updateError) throw new Error("Saque registrado e aguardando confirmação.");
+    if (updateError) {
+      const reviewMessage = `Falha ao persistir a referência do cashout do saque ${inserted.id}: ${updateError.message}`;
+      const dedupeHash = createHash("sha256")
+        .update(`cashout.reference_persist_failed:${inserted.id}:${payout.providerRef}`, "utf8")
+        .digest("hex");
+      try {
+        const { error: reviewError } = await supabase.from("agpay_webhook_events").upsert(
+          {
+            dedupe_hash: dedupeHash,
+            event_type: "cashout.reference_persist_failed",
+            transaction_uuid: payout.providerRef,
+            payload: {
+              source: "cashout_reference_persist",
+              withdrawal_id: inserted.id,
+              business_id: business.id,
+              amount_cents: amountCents,
+              provider_fee_cents: payout.providerFeeCents,
+              provider_ref: payout.providerRef,
+            },
+            status: "error",
+            attempts: 1,
+            locked_at: null,
+            processed_at: null,
+            last_error: reviewMessage.slice(0, 1000),
+          },
+          { onConflict: "dedupe_hash" },
+        );
+        if (reviewError) throw reviewError;
+      } catch (reviewError) {
+        console.error("Falha ao registrar cashout para revisão manual", {
+          withdrawalId: inserted.id,
+          businessId: business.id,
+          providerRef: payout.providerRef,
+          message: reviewError instanceof Error ? reviewError.message : String(reviewError),
+        });
+      }
+      throw new Error("Saque registrado em processamento e encaminhado para revisão manual.");
+    }
     const providerStatus = payout.status?.trim().toLowerCase();
     // Em contas configuradas para saída automática, o provedor pode confirmar o
     // Pix na própria resposta. Não deixe o ledger local preso esperando um
@@ -140,12 +271,13 @@ export async function createWithdrawal(
     return { withdrawal: updated };
   } catch (cause) {
     // A chamada pode ter sido aceita antes do timeout. Nunca repetir automaticamente.
-    if (
-      cause instanceof AgpayApiError ||
-      (cause instanceof Error && cause.message.includes("mínimo"))
-    ) {
+    // Only HTTP 422 or the adapter's explicit success=false mapping is currently
+    // treated as a definitive rejection. Other statuses keep the reservation locked.
+    const definitiveProviderRejection = cause instanceof AgpayApiError && cause.status === 422;
+    const locallyRejectedAmount = cause instanceof Error && cause.message.includes("mínimo");
+    if (definitiveProviderRejection || locallyRejectedAmount) {
       await settleWithdrawal(supabase, { withdrawalId: inserted.id, outcome: "failed" });
-      if (cause instanceof AgpayApiError) {
+      if (definitiveProviderRejection && cause instanceof AgpayApiError) {
         // Uma rejeição HTTP do provedor não é sucesso de saque. Propagar a falha
         // evita que a UI mostre o toast verde enquanto o saldo já foi estornado.
         throw new Error(
@@ -153,6 +285,22 @@ export async function createWithdrawal(
         );
       }
       throw cause;
+    }
+    if (cause instanceof AgpayAmbiguousResponseError) {
+      try {
+        await persistAmbiguousCashoutReview(supabase, {
+          withdrawalId: inserted.id,
+          businessId: business.id,
+          amountCents,
+          path: cause.path,
+        });
+      } catch (reviewError) {
+        console.error("Falha ao registrar cashout ambíguo para revisão manual", {
+          withdrawalId: inserted.id,
+          businessId: business.id,
+          message: reviewError instanceof Error ? reviewError.message : String(reviewError),
+        });
+      }
     }
     await supabase.from("withdrawals").update({ status: "processing" }).eq("id", inserted.id);
     return { withdrawal: { ...inserted, status: "processing" } };
@@ -176,7 +324,8 @@ export async function saveWithdrawalPixKeyForOwner(
     .maybeSingle();
   if (!business) throw new Error("Somente o dono pode cadastrar a chave PIX de saque.");
 
-  const { error } = await supabase
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { error } = await supabaseAdmin
     .from("businesses")
     .update({ withdrawal_pix_key: validData.pixKey, withdrawal_pix_key_type: validData.pixKeyType })
     .eq("id", validData.businessId);
@@ -186,6 +335,35 @@ export async function saveWithdrawalPixKeyForOwner(
     businessId: validData.businessId,
     pixKey: validData.pixKey,
     pixKeyType: validData.pixKeyType,
+  };
+}
+
+export async function getWithdrawalPixKeyForOwner(
+  supabase: SupabaseClient<Database>,
+  userId: string,
+  data: unknown,
+) {
+  const validData = z.object({ businessId: z.string().guid() }).parse(data);
+  const { data: business, error: businessError } = await supabase
+    .from("businesses")
+    .select("id")
+    .eq("id", validData.businessId)
+    .eq("owner_id", userId)
+    .maybeSingle();
+  if (businessError) throw new Error(businessError.message);
+  if (!business) throw new Error("Negócio não encontrado.");
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: privateFields, error } = await supabaseAdmin
+    .from("businesses")
+    .select("withdrawal_pix_key, withdrawal_pix_key_type")
+    .eq("id", validData.businessId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return {
+    businessId: validData.businessId,
+    withdrawal_pix_key: privateFields?.withdrawal_pix_key ?? null,
+    withdrawal_pix_key_type: privateFields?.withdrawal_pix_key_type ?? null,
   };
 }
 
@@ -212,10 +390,14 @@ export async function saveWithdrawalPinForOwner(
   );
   const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-  const { error } = await supabase
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: savedPin, error } = await supabaseAdmin
     .from("businesses")
     .update({ withdrawal_pin_hash: hash })
-    .eq("id", validData.businessId);
+    .eq("id", validData.businessId)
+    .is("withdrawal_pin_hash", null)
+    .select("id")
+    .maybeSingle();
   if (error) {
     if ((error as { code?: string }).code === "42703") {
       throw new Error(
@@ -224,7 +406,7 @@ export async function saveWithdrawalPinForOwner(
     }
     throw new Error(error.message);
   }
-
+  if (!savedPin) throw new Error("A senha de transferência já foi cadastrada.");
   return { businessId: validData.businessId };
 }
 
@@ -237,22 +419,24 @@ export async function verifyWithdrawalPinForOwner(
   const validData = saveWithdrawalPinInput.parse(data);
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, withdrawal_pin_hash")
+    .select("id")
     .eq("id", validData.businessId)
     .eq("owner_id", userId)
     .maybeSingle();
   if (!business) throw new Error("Negócio não encontrado.");
-  if (!business.withdrawal_pin_hash) {
-    throw new Error("Configure a senha de transferência na carteira Ag Pay.");
-  }
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(`${validData.businessId}:${validData.pin}`),
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: privateFields, error } = await supabaseAdmin
+    .from("businesses")
+    .select("withdrawal_pin_hash")
+    .eq("id", validData.businessId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  await assertWithdrawalPin(
+    validData.businessId,
+    userId,
+    validData.pin,
+    privateFields?.withdrawal_pin_hash,
   );
-  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  if (hash !== business.withdrawal_pin_hash) {
-    throw new Error("Senha de transferência incorreta.");
-  }
   return { ok: true };
 }
 
@@ -267,7 +451,7 @@ export async function getWithdrawalPinStatusForOwner(
   };
   const { data: business, error } = await supabase
     .from("businesses")
-    .select("id, withdrawal_pin_hash")
+    .select("id")
     .eq("id", validData.businessId)
     .eq("owner_id", userId)
     .maybeSingle();
@@ -280,7 +464,14 @@ export async function getWithdrawalPinStatusForOwner(
     throw new Error(error.message);
   }
   if (!business) throw new Error("Negócio não encontrado.");
-  return { pinSet: !!business.withdrawal_pin_hash };
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: privateFields, error: privateError } = await supabaseAdmin
+    .from("businesses")
+    .select("withdrawal_pin_hash")
+    .eq("id", validData.businessId)
+    .maybeSingle();
+  if (privateError) throw new Error(privateError.message);
+  return { pinSet: !!privateFields?.withdrawal_pin_hash };
 }
 
 /** Persists the AgPay wallet payment rules (Pix mode + exempt clients). */
@@ -313,7 +504,6 @@ export async function savePaymentRulesForOwner(
     }
     throw new Error(error.message);
   }
-
   return { businessId: validData.businessId };
 }
 

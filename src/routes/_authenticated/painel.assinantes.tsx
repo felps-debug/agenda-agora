@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { BadgeCheck } from "lucide-react";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { getSubscriptionLifecycle } from "@/lib/lifecycle.functions";
+import { LifecycleQueryNotice } from "@/components/master/LifecycleQueryNotice";
 import { BusinessDossier } from "@/components/master/BusinessDossier";
 import { TONE_GREEN } from "@/components/master/PlatformOverview";
 import { formatPrice } from "@/lib/format";
@@ -62,13 +63,26 @@ function AssinantesPage() {
         </div>
         <div className="ml-auto flex items-center gap-2">
           <span className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-400">
-            MRR contabilizado: {formatPrice(mrrTotal)}
+            MRR contabilizado:{" "}
+            {lifecycle.isError
+              ? "Indisponível"
+              : lifecycle.isLoading
+                ? "Carregando…"
+                : formatPrice(mrrTotal)}
           </span>
           <Link to="/painel/master">
             <Button variant="secondary">Voltar</Button>
           </Link>
         </div>
       </div>
+
+      <LifecycleQueryNotice
+        isLoading={lifecycle.isLoading}
+        isError={lifecycle.isError}
+        isFetching={lifecycle.isFetching}
+        hasData={lifecycle.data !== undefined}
+        onRetry={() => void lifecycle.refetch()}
+      />
 
       <div className="mt-6 overflow-x-auto report-x-scroll rounded-xl border border-border bg-card report-luminous-card report-effect-strong">
         <table className="w-full min-w-[1080px] text-sm">
@@ -136,13 +150,18 @@ function AssinantesPage() {
                   {item.status !== "suspenso" ? formatPrice(item.monthlyFeeCents) : "—"}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setDetailsId(item.id)}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setDetailsId(item.id)}
+                  >
                     Detalhes da conta
                   </Button>
                 </td>
               </tr>
             ))}
-            {!lifecycle.isPending && !rows.length && (
+            {!lifecycle.isPending && !lifecycle.isError && !rows.length && (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   Nenhum assinante com a fatura vigente no momento.

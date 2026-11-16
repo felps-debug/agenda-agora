@@ -1,0 +1,1 @@
+export const RECEIVABLES_HISTORY_LIMIT_DAYS = 120;

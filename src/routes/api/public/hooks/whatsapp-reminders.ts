@@ -6,7 +6,10 @@ import {
 } from "@/lib/whatsapp-notify.server";
 import { loadPanel1Config } from "@/lib/panel1-config.storage";
 import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
-import { processPostServiceMessages } from "@/lib/whatsapp-greeting.server";
+import {
+  processPendingIncomingWhatsappGreetings,
+  processPostServiceMessages,
+} from "@/lib/whatsapp-greeting.server";
 
 // Agendador de lembretes de WhatsApp: chamado pelo cron da infraestrutura a cada hora.
 // Envia o lembrete para agendamentos confirmados cuja janela de aviso abriu
@@ -18,7 +21,21 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
         const authError = await authenticateCronRequest(request);
         if (authError) return authError;
 
+        let incomingGreetings = { processed: 0, sent: 0, skipped: 0, failed: 0 };
+        try {
+          incomingGreetings = await processPendingIncomingWhatsappGreetings({ limit: 50 });
+        } catch {
+          console.error("Falha ao processar fila de saudações recebidas.");
+          incomingGreetings.failed++;
+        }
+
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        const reminderRpc = supabaseAdmin as unknown as {
+          rpc: (
+            name: string,
+            args: Record<string, unknown>,
+          ) => Promise<{ data: unknown; error: { message: string } | null }>;
+        };
 
         const now = new Date();
         const { data: businesses, error: bizErr } = await supabaseAdmin
@@ -41,22 +58,17 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
             now.getTime() + Math.max(hoursBefore * 60, extraMinutes) * 60_000,
           );
 
-          const { data: appts } = await supabaseAdmin
+          const { data: appts, error: apptsError } = await supabaseAdmin
             .from("appointments")
             .select("id, starts_at")
             .eq("business_id", biz.id)
             .in("status", ["agendado", "confirmado"])
             .gt("starts_at", now.toISOString())
             .lte("starts_at", windowEnd.toISOString());
+          if (apptsError) {
+            return Response.json({ error: apptsError.message }, { status: 500 });
+          }
           if (!appts?.length) continue;
-
-          const ids = appts.map((a) => a.id);
-          const { data: logs } = await supabaseAdmin
-            .from("reminder_logs")
-            .select("appointment_id, channel")
-            .in("channel", ["whatsapp", "whatsapp-extra"])
-            .in("appointment_id", ids);
-          const alreadySent = new Set((logs ?? []).map((l) => `${l.appointment_id}:${l.channel}`));
 
           for (const appt of appts) {
             const appointment = appt as { id: string; starts_at: string };
@@ -74,27 +86,62 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
               },
             ];
             for (const reminder of due) {
-              if (!reminder.shouldSend || alreadySent.has(`${appt.id}:${reminder.channel}`))
-                continue;
+              if (!reminder.shouldSend) continue;
+              const { data: claimToken, error: claimError } = await reminderRpc.rpc(
+                "claim_whatsapp_reminder",
+                {
+                  p_business_id: biz.id,
+                  p_appointment_id: appt.id,
+                  p_channel: reminder.channel,
+                },
+              );
+              if (claimError) {
+                return Response.json({ error: "Falha ao reservar o lembrete." }, { status: 500 });
+              }
+              if (typeof claimToken !== "string") continue;
+
               try {
                 await reminder.send();
-                await supabaseAdmin.from("reminder_logs").insert({
-                  business_id: biz.id,
-                  appointment_id: appt.id,
-                  channel: reminder.channel,
-                  status: "enviado",
-                });
-                sent++;
               } catch (err) {
+                const { data: finished, error: finishError } = await reminderRpc.rpc(
+                  "finish_whatsapp_reminder",
+                  {
+                    p_business_id: biz.id,
+                    p_appointment_id: appt.id,
+                    p_channel: reminder.channel,
+                    p_claim_token: claimToken,
+                    p_sent: false,
+                    p_error: err instanceof Error ? err.message : String(err),
+                  },
+                );
+                if (finishError || finished !== true) {
+                  return Response.json(
+                    { error: "Falha ao registrar o erro do lembrete." },
+                    { status: 500 },
+                  );
+                }
                 failed++;
-                await supabaseAdmin.from("reminder_logs").insert({
-                  business_id: biz.id,
-                  appointment_id: appt.id,
-                  channel: reminder.channel,
-                  status: "erro",
-                  error: err instanceof Error ? err.message : String(err),
-                });
+                continue;
               }
+
+              const { data: finished, error: finishError } = await reminderRpc.rpc(
+                "finish_whatsapp_reminder",
+                {
+                  p_business_id: biz.id,
+                  p_appointment_id: appt.id,
+                  p_channel: reminder.channel,
+                  p_claim_token: claimToken,
+                  p_sent: true,
+                  p_error: null,
+                },
+              );
+              if (finishError || finished !== true) {
+                return Response.json(
+                  { error: "Falha ao registrar o envio do lembrete." },
+                  { status: 500 },
+                );
+              }
+              sent++;
             }
           }
         }
@@ -107,6 +154,7 @@ export const Route = createFileRoute("/api/public/hooks/whatsapp-reminders")({
           failed,
           businesses: businesses?.length ?? 0,
           postService,
+          incomingGreetings,
           ranAt: now.toISOString(),
         });
       },

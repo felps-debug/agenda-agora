@@ -41,7 +41,7 @@ const verify = verifySecurityPin as unknown as (arg: {
   context: unknown;
 }) => Promise<{ ok: true; validUntil: number }>;
 
-const master = { userId: "master-1", claims: { aal: "aal1" } };
+const master = { userId: "master-1", claims: { aal: "aal2" } };
 const owner = { userId: "dono-1", claims: { aal: "aal1" } };
 
 beforeEach(() => {

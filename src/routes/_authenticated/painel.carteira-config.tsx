@@ -6,6 +6,7 @@ import { Info, Save, Settings } from "lucide-react";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { getAgpayFees, saveAgpayFees } from "@/lib/agpay-fees.functions";
 import { toast } from "sonner";
+import { isPlatformFeesSaveDisabled } from "@/lib/platform-fees-save-state";
 
 export const Route = createFileRoute("/_authenticated/painel/carteira-config")({
   loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
@@ -95,7 +96,11 @@ function PlatformFeesPage() {
             custos realizados são calculados com os valores gravados no ledger.
           </div>
           <button
-            disabled={mutation.isPending || fees.isLoading}
+            disabled={isPlatformFeesSaveDisabled({
+              isPending: mutation.isPending,
+              isLoading: fees.isLoading,
+              isError: fees.isError,
+            })}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-600 px-6 py-3.5 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-purple-500 disabled:opacity-50"
           >
             <Save className="size-4" />

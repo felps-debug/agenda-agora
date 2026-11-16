@@ -3,17 +3,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import type { Database } from "@/integrations/supabase/types";
+import { consumeRateLimit } from "./rate-limit.server";
 import {
   assertSuperAdmin,
   hasSuperAdminRole,
   type SuperAdminSession,
 } from "@/lib/auth/require-super-admin";
 
-const bizSchema = z.object({ businessId: z.string().uuid() });
+const bizSchema = z.object({ businessId: z.string().guid() });
 
 const connectSchema = z
   .object({
-    businessId: z.string().uuid(),
+    businessId: z.string().guid(),
     method: z.enum(["qr", "pairing_code"]).default("qr"),
     phone: z.string().max(24).optional(),
   })
@@ -29,12 +30,7 @@ const connectSchema = z
 
 type BizRow = Pick<
   Database["public"]["Tables"]["businesses"]["Row"],
-  | "id"
-  | "name"
-  | "whatsapp_instance"
-  | "whatsapp_status"
-  | "whatsapp_instance_id"
-  | "whatsapp_instance_token"
+  "id" | "name" | "whatsapp_instance" | "whatsapp_status"
 >;
 
 async function loadOwnedBusiness(
@@ -59,9 +55,7 @@ async function loadOwnedBusiness(
 
   const { data, error } = await supabase
     .from("businesses")
-    .select(
-      "id, name, whatsapp_instance, whatsapp_status, whatsapp_instance_id, whatsapp_instance_token",
-    )
+    .select("id, name, whatsapp_instance, whatsapp_status")
     .eq("id", businessId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -88,8 +82,16 @@ async function resolveWhatsappCredential(business: BizRow) {
   } catch (error) {
     if (!isWhatsappCredentialStoreUnavailable(error)) throw error;
   }
-  return business.whatsapp_instance_id && business.whatsapp_instance_token
-    ? { instanceId: business.whatsapp_instance_id, instanceToken: business.whatsapp_instance_token }
+  // Compatibilidade de rollout: o fallback usa a chave de servidor e nunca expõe
+  // as colunas legadas ao client autenticado.
+  const { data: legacy, error } = await supabaseAdmin
+    .from("businesses")
+    .select("whatsapp_instance_id, whatsapp_instance_token")
+    .eq("id", business.id)
+    .maybeSingle();
+  if (error) throw new Error("Não foi possível consultar a credencial do WhatsApp.");
+  return legacy?.whatsapp_instance_id && legacy.whatsapp_instance_token
+    ? { instanceId: legacy.whatsapp_instance_id, instanceToken: legacy.whatsapp_instance_token }
     : null;
 }
 
@@ -120,8 +122,6 @@ export const connectWhatsapp = createServerFn({ method: "POST" })
       instance = await uazapi.createBusinessInstance(business.name);
       await persistWhatsappCredential(business.id, instance);
       await updateBusinessWhatsapp(business.id, {
-        whatsapp_instance_id: instance.instanceId,
-        whatsapp_instance_token: instance.instanceToken,
         whatsapp_instance: instance.instanceId,
         whatsapp_status: "conectando",
       });
@@ -219,9 +219,8 @@ export const disconnectWhatsapp = createServerFn({ method: "POST" })
   });
 
 const testMessageSchema = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   phone: z.string().min(10).max(20),
-  template: z.string().min(1).max(2000),
 });
 
 const TEST_SAMPLE_VARS = {
@@ -231,19 +230,47 @@ const TEST_SAMPLE_VARS = {
   hora: "14:00",
 };
 
+const TEST_MESSAGE_TEMPLATE = "Mensagem de teste da Agenda Agora. Seu WhatsApp está conectado.";
+
+function normalizeTestPhone(phone: string): string {
+  if (!/^\+?[\d\s().-]+$/.test(phone)) {
+    throw new Error("Informe um telefone brasileiro válido.");
+  }
+  const digits = phone.replace(/\D/g, "");
+  const national =
+    digits.startsWith("55") && [12, 13].includes(digits.length) ? digits.slice(2) : digits;
+  const areaCode = Number(national.slice(0, 2));
+  if (![10, 11].includes(national.length) || areaCode < 11 || areaCode > 99) {
+    throw new Error("Informe um telefone brasileiro válido com DDD.");
+  }
+  return `55${national}`;
+}
+
 /** Envia uma mensagem de teste com dados fictícios pro número informado. */
 export const sendTestMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => testMessageSchema.parse(d))
   .handler(async ({ context, data }) => {
+    const phone = normalizeTestPhone(data.phone);
     const business = await loadOwnedBusiness(context.supabase, context, data.businessId);
+    const limit = consumeRateLimit({
+      key: `whatsapp-test:${business.id}`,
+      limit: 3,
+      windowMs: 10 * 60_000,
+    });
+    if (!limit.ok) {
+      throw new Error("Muitas tentativas. Aguarde dez minutos antes de enviar outro teste.");
+    }
     const credential = await resolveWhatsappCredential(business);
     if (!business.whatsapp_instance || !credential) {
       throw new Error("Conecte o WhatsApp em Integrações antes de testar.");
     }
     const { renderMessage } = await import("./whatsapp-notify.server");
     const uazapi = await (await import("./whatsapp-provider.server")).loadWhatsappProvider();
-    const message = renderMessage(data.template, { ...TEST_SAMPLE_VARS, negocio: business.name });
-    await uazapi.sendTextMessage(credential.instanceToken, data.phone, message);
+    const message = renderMessage(TEST_MESSAGE_TEMPLATE, {
+      ...TEST_SAMPLE_VARS,
+      negocio: business.name,
+    });
+    await uazapi.sendTextMessage(credential.instanceToken, phone, message);
     return { ok: true };
   });

@@ -1,13 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
-  createWithdrawal,
+  createWithdrawal as createWithdrawalWithPin,
+  getWithdrawalPixKeyForOwner,
   saveWithdrawalPinForOwner,
   saveWithdrawalPixKeyForOwner,
   verifyWithdrawalPinForOwner,
 } from "./withdrawal.server";
 import { saveWithdrawalPixKeyInput } from "./withdrawal.functions";
-import { AgpayApiError } from "./agpay.server";
+import { AgpayAmbiguousResponseError, AgpayApiError } from "./agpay.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
@@ -15,6 +16,12 @@ const financeRuntime = vi.hoisted(() => ({
   createCashoutPix: vi.fn(),
   requestWithdrawal: vi.fn(),
   settleWithdrawal: vi.fn(),
+  failProviderRefWrite: false,
+  loginAttempts: {
+    checkLock: vi.fn(),
+    registerFailure: vi.fn(),
+    registerSuccess: vi.fn(),
+  },
   adminDb: null as unknown,
 }));
 vi.mock("@/lib/agpay.server", async (importOriginal) => ({
@@ -30,9 +37,24 @@ vi.mock("@/lib/ledger.server", () => ({
   requestWithdrawal: financeRuntime.requestWithdrawal,
   settleWithdrawal: financeRuntime.settleWithdrawal,
 }));
+vi.mock("@/lib/login-attempts.server", () => financeRuntime.loginAttempts);
+
+function resetLoginAttemptMocks() {
+  financeRuntime.loginAttempts.checkLock.mockResolvedValue({
+    locked: false,
+    retryAfterSeconds: 0,
+  });
+  financeRuntime.loginAttempts.registerFailure.mockResolvedValue({
+    locked: false,
+    retryAfterSeconds: 0,
+  });
+  financeRuntime.loginAttempts.registerSuccess.mockResolvedValue(undefined);
+}
+
+beforeEach(() => resetLoginAttemptMocks());
 
 class FinanceQuery {
-  action: "select" | "insert" | "update" = "select";
+  action: "select" | "insert" | "update" | "upsert" = "select";
   payload: Record<string, unknown> = {};
   filters: Array<{ key: string; value: unknown }> = [];
   constructor(
@@ -46,8 +68,17 @@ class FinanceQuery {
     this.filters.push({ key, value });
     return this;
   }
+  is(key: string, value: unknown) {
+    this.filters.push({ key, value });
+    return this;
+  }
   insert(row: Record<string, unknown>) {
     this.action = "insert";
+    this.payload = row;
+    return this;
+  }
+  upsert(row: Record<string, unknown>) {
+    this.action = "upsert";
     this.payload = row;
     return this;
   }
@@ -63,6 +94,9 @@ class FinanceQuery {
   async maybeSingle() {
     return this.single();
   }
+  limit() {
+    return this;
+  }
   then(
     resolve: (result: {
       data: Record<string, unknown>[];
@@ -73,6 +107,21 @@ class FinanceQuery {
   }
   private async exec() {
     const rows = this.state[this.table] ?? (this.state[this.table] = []);
+    if (
+      this.table === "withdrawals" &&
+      this.action === "update" &&
+      this.payload["provider_ref"] &&
+      financeRuntime.failProviderRefWrite
+    ) {
+      financeRuntime.failProviderRefWrite = false;
+      return { data: [], error: { message: "provider reference write failed" } };
+    }
+    if (this.action === "upsert") {
+      const existing = rows.find((row) => row["dedupe_hash"] === this.payload["dedupe_hash"]);
+      if (existing) Object.assign(existing, this.payload);
+      else rows.push({ id: `${this.table}-${rows.length + 1}`, ...this.payload });
+      return { data: rows, error: null };
+    }
     if (this.action === "insert") {
       const inserted = {
         id: `wd-${rows.length + 1}`,
@@ -83,7 +132,9 @@ class FinanceQuery {
       return { data: [{ ...inserted }], error: null };
     }
     const matched = rows.filter((row) =>
-      this.filters.every(({ key, value }) => row[key] === value),
+      this.filters.every(({ key, value }) =>
+        value === null ? row[key] == null : row[key] === value,
+      ),
     );
     if (this.action === "update") matched.forEach((row) => Object.assign(row, this.payload));
     return { data: matched.map((row) => ({ ...row })), error: null };
@@ -97,17 +148,36 @@ function makeFinanceDb() {
         id: "biz-1",
         owner_id: "user-dono",
         withdrawal_pix_key: "pix@example.com",
+        withdrawal_pix_key_type: "email",
+        withdrawal_pin_hash: createHash("sha256").update("biz-1:4821").digest("hex"),
+      },
+    ],
+    pix_key_approvals: [
+      {
+        id: "approval-1",
+        business_id: "biz-1",
+        key_type: "email",
+        key: "pix@example.com",
+        status: "aprovado",
       },
     ],
     withdrawals: [],
   };
-  return {
-    state,
-    client: {
-      from: (table: string) => new FinanceQuery(table, state),
-    } as unknown as SupabaseClient<Database>,
-  };
+  const client = {
+    from: (table: string) => new FinanceQuery(table, state),
+  } as unknown as SupabaseClient<Database>;
+  financeRuntime.adminDb = client;
+  return { state, client };
 }
+
+const createWithdrawal = (
+  client: SupabaseClient<Database>,
+  userId: string,
+  businessId: string,
+  amountCents: number,
+  idempotencyKey: string,
+  pin = "4821",
+) => createWithdrawalWithPin(client, userId, businessId, amountCents, idempotencyKey, pin);
 
 function makeSupabaseMock({
   businessFound,
@@ -135,6 +205,22 @@ function makeSupabaseMock({
 }
 
 describe("saveWithdrawalPixKey (chave PIX de saque)", () => {
+  it("devolve a chave somente ao dono, via leitura de servidor", async () => {
+    const { client, state } = makeFinanceDb();
+    const businessId = "11111111-1111-4111-8111-111111111111";
+    state["businesses"]![0]!["id"] = businessId;
+    await expect(
+      getWithdrawalPixKeyForOwner(client, "user-dono", { businessId }),
+    ).resolves.toMatchObject({
+      businessId,
+      withdrawal_pix_key: "pix@example.com",
+      withdrawal_pix_key_type: "email",
+    });
+    await expect(
+      getWithdrawalPixKeyForOwner(client, "user-nao-dono", { businessId }),
+    ).rejects.toThrow("Negócio não encontrado.");
+  });
+
   it("rejeita usuário que não é owner_id do businessId", async () => {
     const supabase = makeSupabaseMock({ businessFound: false });
     await expect(
@@ -228,6 +314,8 @@ describe("saveWithdrawalPixKey (chave PIX de saque)", () => {
 describe("solicitação de saque", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    resetLoginAttemptMocks();
+    financeRuntime.failProviderRefWrite = false;
     financeRuntime.requestWithdrawal.mockResolvedValue({
       entryId: "entry-1",
       accepted: true,
@@ -256,6 +344,57 @@ describe("solicitação de saque", () => {
     expect(state["withdrawals"]).toHaveLength(1);
     expect(financeRuntime.requestWithdrawal).toHaveBeenCalledOnce();
     expect(financeRuntime.createCashoutPix).toHaveBeenCalledOnce();
+  });
+
+  it("preserva a referência do AgPay na fila Master se o update do cashout falhar", async () => {
+    const { client, state } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    financeRuntime.failProviderRefWrite = true;
+    financeRuntime.createCashoutPix.mockResolvedValue({
+      providerRef: "provider-persist-failure",
+      status: "pending",
+      providerFeeCents: 125,
+    });
+    const idempotencyKey = "abababab-abab-4bab-8bab-abababababab";
+
+    await expect(
+      createWithdrawal(client, "user-dono", "biz-1", 2500, idempotencyKey),
+    ).resolves.toMatchObject({ withdrawal: { status: "processing" } });
+
+    expect(state["withdrawals"]?.[0]).not.toHaveProperty("provider_ref");
+    expect(state["agpay_webhook_events"]).toMatchObject([
+      {
+        event_type: "cashout.reference_persist_failed",
+        transaction_uuid: "provider-persist-failure",
+        status: "error",
+        payload: expect.objectContaining({
+          withdrawal_id: "wd-1",
+          business_id: "biz-1",
+          provider_ref: "provider-persist-failure",
+        }),
+      },
+    ]);
+
+    await createWithdrawal(client, "user-dono", "biz-1", 2500, idempotencyKey);
+    expect(financeRuntime.createCashoutPix).toHaveBeenCalledOnce();
+  });
+
+  it("nao retorna saque de outro negocio quando a chave de idempotencia colide", async () => {
+    const { client, state } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    const key = "12121212-1212-4121-8121-121212121212";
+    state["withdrawals"]!.push({
+      id: "wd-other-business",
+      business_id: "biz-other",
+      idempotency_key: key,
+      status: "processing",
+    });
+
+    await expect(createWithdrawal(client, "user-dono", "biz-1", 2500, key)).rejects.toThrow(
+      "Esta chave de idempotencia ja esta vinculada a outro negocio.",
+    );
+    expect(financeRuntime.requestWithdrawal).not.toHaveBeenCalled();
+    expect(financeRuntime.createCashoutPix).not.toHaveBeenCalled();
   });
 
   it("desconta a taxa fixa de R$ 3,00 do Pix enviado e registra a taxa, qualquer que seja o valor", async () => {
@@ -496,6 +635,11 @@ describe("solicitação de saque", () => {
 });
 
 describe("senha de transferência: só o hash existe (US3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetLoginAttemptMocks();
+  });
+
   const BID = "7b1b0e0e-5b7a-4c1f-8a53-0e9d2f6c1a11";
   const makeDb = () => {
     const db = makeFinanceDb();
@@ -507,11 +651,24 @@ describe("senha de transferência: só o hash existe (US3)", () => {
 
   it("definir o PIN grava somente withdrawal_pin_hash, sem nenhuma coluna em texto puro", async () => {
     const { state, client } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = null;
     await saveWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" });
     const business = state["businesses"]![0]!;
     expect(business["withdrawal_pin_hash"]).toBe(sha(BID, "4821"));
     expect(Object.keys(business).filter((key) => /plain|password|senha/i.test(key))).toEqual([]);
     expect(JSON.stringify(business)).not.toContain("4821");
+  });
+
+  it("não permite ao dono substituir o PIN já cadastrado sem redefinição Master", async () => {
+    const { state, client } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = sha(BID, "4821");
+    const existingHash = state["businesses"]![0]!["withdrawal_pin_hash"];
+
+    await expect(
+      saveWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "9073" }),
+    ).rejects.toThrow("A senha de transferência já foi cadastrada.");
+
+    expect(state["businesses"]![0]!["withdrawal_pin_hash"]).toBe(existingHash);
   });
 
   it("a validação do saque continua funcionando com o hash já existente", async () => {
@@ -520,9 +677,16 @@ describe("senha de transferência: só o hash existe (US3)", () => {
     await expect(
       verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" }),
     ).resolves.toEqual({ ok: true });
+    expect(financeRuntime.loginAttempts.registerSuccess).toHaveBeenCalledWith(
+      `withdrawal-pin:user-dono:${BID}`,
+    );
     await expect(
       verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "0000" }),
     ).rejects.toThrow("Senha de transferência incorreta.");
+    expect(financeRuntime.loginAttempts.registerFailure).toHaveBeenCalledWith(
+      `withdrawal-pin:user-dono:${BID}`,
+      { limit: 5, windowMs: 15 * 60_000, lockMs: 30 * 60_000 },
+    );
   });
 
   it("só o dono cadastra ou valida o PIN", async () => {
@@ -541,4 +705,149 @@ describe("senha de transferência: só o hash existe (US3)", () => {
       verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" }),
     ).rejects.toThrow("Configure a senha de transferência");
   });
+
+  it("bloqueia uma conta/negócio enquanto a janela de lock está ativa", async () => {
+    const { client, state } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = sha(BID, "4821");
+    financeRuntime.loginAttempts.checkLock.mockResolvedValue({
+      locked: true,
+      retryAfterSeconds: 120,
+    });
+
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "4821" }),
+    ).rejects.toThrow("TOO_MANY_ATTEMPTS:120");
+    expect(financeRuntime.loginAttempts.registerFailure).not.toHaveBeenCalled();
+    expect(financeRuntime.loginAttempts.registerSuccess).not.toHaveBeenCalled();
+  });
+
+  it("responde com bloqueio quando esta tentativa alcança o limite persistente", async () => {
+    const { client, state } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = sha(BID, "4821");
+    financeRuntime.loginAttempts.registerFailure.mockResolvedValue({
+      locked: true,
+      retryAfterSeconds: 1800,
+    });
+
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "0000" }),
+    ).rejects.toThrow("TOO_MANY_ATTEMPTS:1800");
+  });
+
+  it("falha fechado quando o contador persistente não pode registrar tentativa incorreta", async () => {
+    const { client, state } = makeDb();
+    state["businesses"]![0]!["withdrawal_pin_hash"] = sha(BID, "4821");
+    financeRuntime.loginAttempts.registerFailure.mockRejectedValue(
+      new Error("attempt store unavailable"),
+    );
+
+    await expect(
+      verifyWithdrawalPinForOwner(client, "user-dono", { businessId: BID, pin: "0000" }),
+    ).rejects.toThrow("attempt store unavailable");
+  });
+});
+
+describe("controles server-side do saque", () => {
+  it("recusa PIN incorreto antes de reservar saldo ou chamar o provedor", async () => {
+    const { client, state } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    await expect(
+      createWithdrawal(
+        client,
+        "user-dono",
+        "biz-1",
+        1300,
+        "90909090-9090-4090-8090-909090909090",
+        "0000",
+      ),
+    ).rejects.toThrow("Senha de transferência incorreta.");
+    expect(state["withdrawals"]).toHaveLength(0);
+    expect(financeRuntime.requestWithdrawal).not.toHaveBeenCalled();
+    expect(financeRuntime.createCashoutPix).not.toHaveBeenCalled();
+  });
+
+  it("recusa chave sem aprovação vigente correspondente antes de reservar saldo", async () => {
+    const { client, state } = makeFinanceDb();
+    financeRuntime.adminDb = client;
+    state["pix_key_approvals"]![0]!["key"] = "outra@example.com";
+    await expect(
+      createWithdrawal(client, "user-dono", "biz-1", 1300, "91919191-9191-4191-8191-919191919191"),
+    ).rejects.toThrow("A chave Pix de saque não está aprovada para uso.");
+    expect(state["withdrawals"]).toHaveLength(0);
+    expect(financeRuntime.requestWithdrawal).not.toHaveBeenCalled();
+    expect(financeRuntime.createCashoutPix).not.toHaveBeenCalled();
+  });
+});
+
+it("mantém a reserva em processamento após HTTP 5xx sem liberar saldo", async () => {
+  const { client, state } = makeFinanceDb();
+  financeRuntime.adminDb = client;
+  financeRuntime.createCashoutPix.mockRejectedValue(new AgpayApiError(500, "/cashout/pix"));
+
+  await expect(
+    createWithdrawal(client, "user-dono", "biz-1", 2500, "92929292-9292-4292-8292-929292929292"),
+  ).resolves.toMatchObject({ withdrawal: { status: "processing" } });
+  expect(state["withdrawals"]![0]!["status"]).toBe("processing");
+  expect(financeRuntime.settleWithdrawal).not.toHaveBeenCalled();
+});
+
+it("mantém a reserva conciliável se o HTTP 2xx não trouxer referência", async () => {
+  const { client, state } = makeFinanceDb();
+  financeRuntime.adminDb = client;
+  financeRuntime.requestWithdrawal.mockResolvedValue({
+    entryId: "entry-1",
+    accepted: true,
+    availableCents: 2000,
+  });
+  financeRuntime.settleWithdrawal.mockResolvedValue({ changed: true, finalStatus: "failed" });
+  financeRuntime.createCashoutPix.mockRejectedValue(
+    new AgpayAmbiguousResponseError("/cashout/pix"),
+  );
+
+  await expect(
+    createWithdrawal(client, "user-dono", "biz-1", 2500, "93939393-9393-4393-8393-939393939393"),
+  ).resolves.toMatchObject({ withdrawal: { status: "processing" } });
+  expect(state["withdrawals"]![0]!["status"]).toBe("processing");
+  expect(state["agpay_webhook_events"]).toMatchObject([
+    {
+      event_type: "cashout.response_ambiguous",
+      transaction_uuid: null,
+      status: "error",
+      payload: expect.objectContaining({
+        source: "cashout_response",
+        withdrawal_id: "wd-1",
+        business_id: "biz-1",
+        amount_cents: 2500,
+      }),
+    },
+  ]);
+  expect(financeRuntime.settleWithdrawal).not.toHaveBeenCalled();
+});
+
+it("aplica limite persistente ao PIN errado informado diretamente no saque", async () => {
+  const { client, state } = makeFinanceDb();
+  financeRuntime.adminDb = client;
+  resetLoginAttemptMocks();
+
+  await expect(
+    createWithdrawal(
+      client,
+      "user-dono",
+      "biz-1",
+      1300,
+      "94949494-9494-4494-8494-949494949494",
+      "0000",
+    ),
+  ).rejects.toThrow("Senha de transferência incorreta.");
+
+  expect(financeRuntime.loginAttempts.checkLock).toHaveBeenCalledWith(
+    "withdrawal-pin:user-dono:biz-1",
+  );
+  expect(financeRuntime.loginAttempts.registerFailure).toHaveBeenCalledWith(
+    "withdrawal-pin:user-dono:biz-1",
+    { limit: 5, windowMs: 15 * 60_000, lockMs: 30 * 60_000 },
+  );
+  expect(state["withdrawals"]).toHaveLength(0);
+  expect(financeRuntime.requestWithdrawal).not.toHaveBeenCalled();
+  expect(financeRuntime.createCashoutPix).not.toHaveBeenCalled();
 });

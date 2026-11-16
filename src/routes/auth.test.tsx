@@ -82,8 +82,16 @@ describe("destino após o login", () => {
     expect(postLoginDestination({ roles: ["owner"] })).toBe("/painel");
   });
 
-  it("super_admin vai direto para o Master", () => {
+  it("super_admin em AAL1 segue direto para o Master", () => {
+    expect(postLoginDestination({ roles: ["super_admin"], aal: "aal1" })).toBe("/painel/master");
+  });
+
+  it("super_admin sem assurance level também segue para o Master", () => {
     expect(postLoginDestination({ roles: ["super_admin"] })).toBe("/painel/master");
+  });
+
+  it("super_admin em AAL2 segue para o Master", () => {
+    expect(postLoginDestination({ roles: ["super_admin"], aal: "aal2" })).toBe("/painel/master");
   });
 
   it("funcionário (professional) também vai para o painel", () => {

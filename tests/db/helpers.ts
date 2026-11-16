@@ -37,7 +37,11 @@ export function migrationSql(fileName: string): string {
   return readFileSync(path.resolve(process.cwd(), "supabase/migrations", fileName), "utf8");
 }
 
-export type Actor = { role: "anon" | "authenticated" | "service_role"; userId?: string };
+export type Actor = {
+  role: "anon" | "authenticated" | "service_role";
+  userId?: string;
+  aal?: "aal1" | "aal2";
+};
 
 /** Executa `fn` como o papel indicado (com claims do JWT) e sempre desfaz a transação. */
 export async function as<T>(client: PgClient, actor: Actor, fn: () => Promise<T>): Promise<T> {
@@ -46,6 +50,7 @@ export async function as<T>(client: PgClient, actor: Actor, fn: () => Promise<T>
     await client.query(`SET LOCAL ROLE ${actor.role}`);
     const claims = JSON.stringify({
       role: actor.role,
+      ...(actor.role === "authenticated" ? { aal: actor.aal ?? "aal1" } : {}),
       ...(actor.userId ? { sub: actor.userId } : {}),
     });
     await client.query("SELECT set_config('request.jwt.claims', $1, true)", [claims]);
@@ -80,6 +85,13 @@ export type Seed = {
   businessB: string;
 };
 
+export type ValidationDataset = Seed & {
+  adminA: string;
+  adminB: string;
+  professionalWithLogin: string;
+  professionalWithoutLogin: string;
+};
+
 /** Cria dois donos, um master e um negócio para cada dono (dados comprometidos, ids únicos). */
 export async function seedBasics(client: PgClient): Promise<Seed> {
   const seed: Seed = {
@@ -112,4 +124,38 @@ export async function seedBasics(client: PgClient): Promise<Seed> {
     );
   }
   return seed;
+}
+
+/** Prepara dados descartáveis para validar dois negócios, equipe e admins Master. */
+export async function seedValidationDataset(client: PgClient): Promise<ValidationDataset> {
+  const seed = await seedBasics(client);
+  const adminB = uuid();
+  const professionalWithLogin = uuid();
+  const professionalWithoutLogin = uuid();
+  const professionalUser = uuid();
+
+  await client.query("INSERT INTO auth.users (id, email) VALUES ($1, $2)", [
+    adminB,
+    `admin-b-${adminB}@agenda.local`,
+  ]);
+  await client.query("INSERT INTO public.user_roles (user_id, role) VALUES ($1, 'super_admin')", [
+    adminB,
+  ]);
+  await client.query("INSERT INTO auth.users (id, email) VALUES ($1, $2)", [
+    professionalUser,
+    `professional-${professionalUser}@agenda.local`,
+  ]);
+  await client.query(
+    `INSERT INTO public.professionals (id, business_id, user_id, name)
+     VALUES ($1, $2, $3, 'Profissional com login'), ($4, $2, NULL, 'Profissional sem login')`,
+    [professionalWithLogin, seed.businessA, professionalUser, professionalWithoutLogin],
+  );
+
+  return {
+    ...seed,
+    adminA: seed.master,
+    adminB,
+    professionalWithLogin,
+    professionalWithoutLogin,
+  };
 }

@@ -25,6 +25,10 @@ describe("permissionForStatusChange", () => {
 
   it("transições neutras (ex.: agendado -> confirmado) não exigem permissão específica", () => {
     expect(permissionForStatusChange("agendado", "confirmado")).toBeNull();
-    expect(permissionForStatusChange("agendado", "bloqueado")).toBeNull();
+    expect(permissionForStatusChange("agendado", "bloqueado")).toBe("block_schedule");
+  });
+
+  it("requires the blocking permission when reopening a blocked appointment", () => {
+    expect(permissionForStatusChange("bloqueado", "agendado")).toBe("block_schedule");
   });
 });

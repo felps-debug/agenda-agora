@@ -63,8 +63,14 @@ export async function navegacao(browser) {
         [],
         "Fresh cached navigation repeated data queries: " + route,
       );
-      const currentImages=await page.locator("img").evaluateAll((images) => images.map((image) => image.currentSrc));
-      assert(currentImages.length===images.length && currentImages.every((url,index)=>url===images[index]),"Cached image URLs changed on navigation: " + route);
+      const currentImages = await page
+        .locator("img")
+        .evaluateAll((images) => images.map((image) => image.currentSrc));
+      assert(
+        currentImages.length === images.length &&
+          currentImages.every((url, index) => url === images[index]),
+        "Cached image URLs changed on navigation: " + route,
+      );
       console.log("PASS cached route " + route);
     }
     await page.locator(".owner-assinatura-nav").click();

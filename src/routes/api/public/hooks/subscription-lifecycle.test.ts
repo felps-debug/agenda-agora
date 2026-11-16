@@ -85,6 +85,8 @@ beforeEach(() => {
         cancelled_at: null,
       },
     ],
+    subscription_payments: [],
+    subscription_charges: [],
     master_business_events: [],
     auth_attempts: [
       { key: "velha", updated_at: iso(-10) },
@@ -132,6 +134,36 @@ describe("rota do ciclo de assinatura (US6)", () => {
     expect(businesses.find((b) => b["id"] === "dia4")!["cancelled_at"]).toBeNull();
   });
 
+  it("conta que começou em trial mas já pagou segue o ciclo de assinante", async () => {
+    runtime.autoCancel = true;
+    runtime.fake!.tables["businesses"]!.push({
+      id: "trial-pago",
+      status: "ativo",
+      trial_days: 7,
+      access_until: iso(-16),
+      cancel_requested_at: null,
+      cancelled_at: null,
+    });
+    runtime.fake!.tables["businesses"]!.push({
+      id: "trial-sem-pagamento",
+      status: "ativo",
+      trial_days: 7,
+      access_until: iso(-16),
+      cancel_requested_at: null,
+      cancelled_at: null,
+    });
+    runtime.fake!.tables["subscription_payments"]!.push({
+      business_id: "trial-pago",
+      status: "pago",
+    });
+
+    const response = await post({ request: request(`Bearer ${SECRET}`) });
+    const businesses = runtime.fake!.tables["businesses"]!;
+    expect((await response.json()).cancellationsCreated).toBe(2);
+    expect(businesses.find((b) => b["id"] === "trial-pago")!["cancelled_at"]).toBeTruthy();
+    expect(businesses.find((b) => b["id"] === "trial-sem-pagamento")!["cancelled_at"]).toBeNull();
+  });
+
   it("duas execuções seguidas: a segunda não repete avisos nem cancelamentos", async () => {
     runtime.autoCancel = true;
     const first = await (await post({ request: request(`Bearer ${SECRET}`) })).json();
@@ -150,5 +182,66 @@ describe("rota do ciclo de assinatura (US6)", () => {
     expect(runtime.fake!.tables["auth_attempts"]!.map((r) => r["key"])).toEqual(["recente"]);
     const run = runtime.fake!.calls.inserts.find((i) => i.table === "subscription_lifecycle_runs");
     expect(run?.row).toMatchObject({ businesses_scanned: 3, cancellations_created: 0 });
+  });
+
+  it("emite o mesmo aviso no ciclo de vencimento mensal seguinte", async () => {
+    runtime.fake!.tables["businesses"] = [
+      {
+        id: "recorrente",
+        status: "ativo",
+        trial_days: null,
+        access_until: iso(7),
+        cancel_requested_at: null,
+        cancelled_at: null,
+      },
+    ];
+    runtime.fake!.tables["subscription_payments"] = [{ business_id: "recorrente", status: "pago" }];
+
+    const first = await post({ request: request(`Bearer ${SECRET}`) });
+    expect((await first.json()).created).toBe(1);
+    vi.setSystemTime(new Date(Date.now() + 30 * DAY));
+    runtime.fake!.tables["businesses"]![0]!["access_until"] = iso(7);
+
+    const second = await post({ request: request(`Bearer ${SECRET}`) });
+
+    expect((await second.json()).created).toBe(1);
+    expect(runtime.fake!.tables["master_business_events"]).toHaveLength(2);
+    expect(runtime.fake!.tables["master_business_events"]).toMatchObject([
+      { business_id: "recorrente", title: "Fatura vence em 7 dias" },
+      { business_id: "recorrente", title: "Fatura vence em 7 dias" },
+    ]);
+  });
+
+  it("paginates all businesses and records the complete total", async () => {
+    runtime.fake!.tables["businesses"] = Array.from({ length: 1001 }, (_, index) => ({
+      id: `business-${String(index).padStart(4, "0")}`,
+      status: "ativo",
+      trial_days: null,
+      access_until: iso(20),
+      cancel_requested_at: null,
+      cancelled_at: null,
+    }));
+
+    const response = await post({ request: request(`Bearer ${SECRET}`) });
+    expect(response.status).toBe(200);
+    const run = runtime.fake!.calls.inserts.find(
+      (insert) => insert.table === "subscription_lifecycle_runs",
+    );
+    expect(run?.row).toMatchObject({ businesses_scanned: 1001 });
+    expect(runtime.fake!.calls.ranges.filter((range) => range.table === "businesses")).toEqual([
+      { table: "businesses", from: 0, to: 999 },
+      { table: "businesses", from: 1000, to: 1999 },
+    ]);
+  });
+
+  it("returns an error and skips the run record if a business page fails", async () => {
+    runtime.fake!.failures["businesses:select"] = { message: "database unavailable" };
+
+    const response = await post({ request: request(`Bearer ${SECRET}`) });
+
+    expect(response.status).toBe(500);
+    expect(
+      runtime.fake!.calls.inserts.some((insert) => insert.table === "subscription_lifecycle_runs"),
+    ).toBe(false);
   });
 });

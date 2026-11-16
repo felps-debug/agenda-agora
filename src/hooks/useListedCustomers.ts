@@ -22,7 +22,7 @@ export function useListedCustomers(businessId: string | null | undefined) {
           .order("name"),
         supabase
           .from("appointments")
-          .select("customer_id, customer_name, customer_phone, starts_at")
+          .select("customer_id, customer_name, customer_phone, starts_at, status")
           .eq("business_id", businessId!)
           .neq("status", "bloqueado")
           .order("starts_at", { ascending: false }),

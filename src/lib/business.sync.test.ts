@@ -7,6 +7,7 @@ import type { Business } from "./business";
 // ["businesses", userId]; depois de updateBusinessProfile ele precisa mudar sem reload.
 
 const USER = "user-dono";
+const CREATED_AT = "2026-01-01T00:00:00.000Z";
 
 const business = (id: string, slug: string): Business => ({
   id,
@@ -17,7 +18,7 @@ const business = (id: string, slug: string): Business => ({
   address: null,
   status: "ativo",
   monthly_fee_cents: 0,
-  created_at: new Date().toISOString(),
+  created_at: CREATED_AT,
   trial_days: null,
   trial_created_at: null,
 });

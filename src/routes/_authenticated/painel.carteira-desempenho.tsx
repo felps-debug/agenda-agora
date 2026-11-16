@@ -46,6 +46,7 @@ import {
   Settings,
 } from "lucide-react";
 import { format } from "date-fns";
+import { parseCivilDate } from "@/lib/civil-date";
 import { ptBR } from "date-fns/locale";
 
 export const Route = createFileRoute("/_authenticated/painel/carteira-desempenho")({
@@ -174,9 +175,9 @@ function AgpayPerformancePage() {
           {/* KPI cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard
-              label="Volume transacionado"
+              label="Volume bruto pago"
               value={money(kpi.signalVolumeCents)}
-              hint={`${kpi.signalCount} sinais pagos`}
+              hint={`${kpi.signalCount} sinais · ${kpi.refundedSignalCount} estorno(s) (${money(kpi.refundedSignalVolumeCents)})`}
               tone={TONE_BLUE}
               icon={<Activity className="size-[1.05rem]" strokeWidth={1.8} />}
             />
@@ -230,6 +231,10 @@ function AgpayPerformancePage() {
               icon={<DollarSign className="size-[1.05rem]" strokeWidth={1.8} />}
             />
           </div>
+          <p className="text-sm text-muted-foreground">
+            Volume líquido após estornos: {money(kpi.netSignalVolumeCents)}. Receita e comissão
+            refletem os valores registrados no ledger.
+          </p>
 
           {/* Chart */}
           <section className="report-luminous-card report-effect-medium p-4">
@@ -258,12 +263,16 @@ function AgpayPerformancePage() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis
                     dataKey="date"
-                    tickFormatter={(v) => format(new Date(v), "dd/MM", { locale: ptBR })}
+                    tickFormatter={(v) =>
+                      format(parseCivilDate(String(v)), "dd/MM", { locale: ptBR })
+                    }
                   />
                   <YAxis tickFormatter={(v) => (v / 100).toLocaleString("pt-BR")} />
                   <Tooltip
                     formatter={(v: number) => money(v)}
-                    labelFormatter={(v) => format(new Date(v), "dd/MM/yyyy", { locale: ptBR })}
+                    labelFormatter={(v) =>
+                      format(parseCivilDate(String(v)), "dd/MM/yyyy", { locale: ptBR })
+                    }
                   />
                   <Legend />
                   <Line type="monotone" dataKey="volumeCents" name="Volume" stroke="#3b82f6" />

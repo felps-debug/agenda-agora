@@ -3,20 +3,29 @@ import { z } from "zod";
 import { loadPanel1Config } from "@/lib/panel1-config.storage";
 import { DEFAULT_PANEL1_APPEARANCE, type Panel1Appearance } from "@/lib/panel1-config";
 import { isBusinessImagePath } from "@/lib/business-image-path";
+import { isProfessionalAvatarPathForBusiness } from "@/lib/professional-avatar-path";
 import { effectiveDepositCents, type ServiceDepositConfig } from "@/lib/deposit-amount";
 import { enforceRateLimit, PUBLIC_RATE_LIMITS } from "@/lib/rate-limit.server";
 
+function isValidCivilDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+export const civilDateSchema = z.string().refine(isValidCivilDate, "Data civil inválida.");
+
 const slugSchema = z.object({
   slug: z.string().min(1),
-  serviceId: z.string().uuid(),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  professionalId: z.string().uuid().nullable().optional(),
+  serviceId: z.string().guid(),
+  date: civilDateSchema,
+  professionalId: z.string().guid().nullable().optional(),
 });
 
 const publicCatalogSchema = z.object({ slug: z.string().min(1) });
 const publicProfessionalsSchema = z.object({
   slug: z.string().min(1),
-  serviceId: z.string().uuid(),
+  serviceId: z.string().guid(),
 });
 
 type Ctx = {
@@ -101,9 +110,54 @@ function weekdayInTimezone(date: string, timezone: string): number {
 }
 
 export function toIso(date: string, time: string, timezone = "America/Sao_Paulo") {
+  if (!isValidCivilDate(date)) throw new Error("Data civil inválida.");
   const localAsUtc = new Date(`${date}T${time}:00Z`);
-  const offset = timezoneOffsetMinutes(localAsUtc, timezone);
-  return new Date(localAsUtc.getTime() - offset * 60_000).toISOString();
+  if (!Number.isFinite(localAsUtc.getTime())) throw new Error("Data ou horário inválido.");
+
+  const expectedLocal = `${date}T${time}:00`;
+  const offsets = new Set(
+    [-36, 0, 36].map((hours) =>
+      timezoneOffsetMinutes(new Date(localAsUtc.getTime() + hours * 60 * 60_000), timezone),
+    ),
+  );
+  const candidates = [...offsets]
+    .map((offset) => localAsUtc.getTime() - offset * 60_000)
+    .filter((candidate) => localDateTimeKey(new Date(candidate), timezone) === expectedLocal);
+
+  if (candidates.length !== 1)
+    throw new Error("Horário local inexistente ou ambíguo neste fuso horário.");
+  return new Date(candidates[0]!).toISOString();
+}
+
+function localDateTimeKey(instant: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(instant);
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values["year"]}-${values["month"]}-${values["day"]}T${values["hour"]}:${values["minute"]}:${values["second"]}`;
+}
+
+export function filterPossibleLocalTimes(date: string, times: string[], timezone: string) {
+  return times.filter((time) => {
+    try {
+      toIso(date, time, timezone);
+      return true;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("Horário local inexistente ou ambíguo")
+      )
+        return false;
+      throw error;
+    }
+  });
 }
 
 /**
@@ -194,6 +248,13 @@ async function signedPublicAssetUrl(
   return error ? null : (data?.signedUrl ?? null);
 }
 
+export function isPublicBookingEnabled(business: {
+  status: string | null;
+  cancelled_at?: string | null;
+}) {
+  return business.status === "ativo" && !business.cancelled_at;
+}
+
 /** Dados públicos iniciais do agendamento, sem enviar o SDK do Supabase ao navegador. */
 export const getPublicBookingCatalog = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicCatalogSchema.parse(d))
@@ -203,12 +264,13 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
     const { data: business, error: businessError } = await supabase
       .from("businesses")
       .select(
-        "id, name, category, phone, address, status, brand_primary, brand_background, brand_background_image, logo_url",
+        "id, name, category, phone, address, status, cancelled_at, brand_primary, brand_background, brand_background_image, logo_url",
       )
       .eq("slug", data.slug)
       .maybeSingle();
     if (businessError) throw new Error(businessError.message);
     if (!business) return { business: null, services: [] };
+    if (!isPublicBookingEnabled(business)) return { business: null, services: [] };
 
     const { data: serviceRows, error: servicesError } = await supabase
       .from("services")
@@ -304,6 +366,11 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       signedPublicAssetUrl(backgroundPath, business.id, "background"),
     ]);
 
+    const publicPreferences = {
+      timezone: config.preferences.timezone,
+      cancellations_enabled: config.preferences.cancellations_enabled,
+      reschedule_enabled: config.preferences.reschedule_enabled,
+    };
     const { logo_url: _logoPath, brand_background_image: _bgPath, ...publicBusiness } = business;
     return {
       business: {
@@ -314,8 +381,8 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       services: publicServices,
       categories,
       appearance: config.appearance ?? DEFAULT_PANEL1_APPEARANCE,
-      preferences: config.preferences,
-      visual: config.visual,
+      preferences: publicPreferences,
+      visual: { layout_key: config.visual.layout_key },
     };
   });
 
@@ -327,9 +394,11 @@ export const getPublicBookingProfessionals = createServerFn({ method: "POST" })
     const supabase = await admin();
     const { data: service, error: serviceError } = await supabase
       .from("services")
-      .select("id, business_id, businesses!inner(slug)")
+      .select("id, business_id, businesses!inner(slug, status, cancelled_at)")
       .eq("id", data.serviceId)
       .eq("businesses.slug", data.slug)
+      .eq("businesses.status", "ativo")
+      .is("businesses.cancelled_at", null)
       .eq("active", true)
       .eq("show_service", true)
       .maybeSingle();
@@ -366,7 +435,12 @@ export const getPublicBookingProfessionals = createServerFn({ method: "POST" })
           name: displayName,
           role: professional.role,
         };
-        if (!professional.avatar_path) return { ...base, avatar_url: null };
+        if (
+          !professional.avatar_path ||
+          !isProfessionalAvatarPathForBusiness(professional.avatar_path, service.business_id)
+        ) {
+          return { ...base, avatar_url: null };
+        }
         const { data: signed, error: signError } = await supabase.storage
           .from("business-logos")
           .createSignedUrl(professional.avatar_path, 7 * 24 * 60 * 60);
@@ -419,11 +493,11 @@ async function loadContext(slug: string, serviceId: string): Promise<Ctx> {
   const db = await admin();
   const { data: business } = await db
     .from("businesses")
-    .select("id, status")
+    .select("id, status, cancelled_at")
     .eq("slug", slug)
     .maybeSingle();
   if (!business) throw new Error("Negócio não encontrado.");
-  if (business.status === "suspenso")
+  if (!isPublicBookingEnabled(business))
     throw new Error("Os agendamentos deste estabelecimento estão temporariamente indisponíveis.");
   let { data: serviceRow } = await db
     .from("services")
@@ -521,7 +595,7 @@ function hasNoticeElapsed(startsAt: string, noticeMinutes: number, now = Date.no
   return Date.parse(startsAt) - now >= noticeMinutes * 60_000;
 }
 
-const publicCodeInput = z.object({ publicCode: z.string().uuid() });
+const publicCodeInput = z.object({ publicCode: z.string().guid() });
 
 export const cancelAppointmentPublic = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicCodeInput.parse(d))
@@ -560,7 +634,7 @@ export const rescheduleAppointmentPublic = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     publicCodeInput
       .extend({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        date: civilDateSchema,
         time: z.string().regex(/^\d{2}:\d{2}$/),
       })
       .parse(d),
@@ -624,20 +698,25 @@ async function validateProfessional(
   professionalId?: string | null,
 ) {
   const db = await admin();
-  const { data: links } = await db
+  const { data: links, error: linksError } = await db
     .from("service_professionals")
     .select("professional_id")
     .eq("business_id", businessId)
     .eq("service_id", serviceId);
-  if (!links?.length) return null;
+  if (linksError) throw new Error("Não foi possível validar o profissional.");
+  if (!links?.length) {
+    if (professionalId) throw new Error("Selecione um profissional disponível.");
+    return null;
+  }
   if (!professionalId || !links.some((link) => link.professional_id === professionalId))
     throw new Error("Selecione um profissional disponível.");
-  const { data: professional } = await db
+  const { data: professional, error: professionalError } = await db
     .from("professionals")
     .select("id, name, active, working_days")
     .eq("id", professionalId)
     .eq("business_id", businessId)
     .maybeSingle();
+  if (professionalError) throw new Error("Não foi possível validar o profissional.");
   if (!professional?.active) throw new Error("Esse profissional não está disponível.");
   return professional;
 }
@@ -676,19 +755,21 @@ async function computeAvailableSlots(params: {
     .eq("weekday", weekday);
   if (!hours?.length) return [];
 
-  const { data: blocks } = await db
+  const { data: blocks, error: blocksError } = await db
     .from("time_blocks")
     .select("starts_at, ends_at, recurring, weekday, block_date, professional_id")
     .eq("business_id", params.businessId);
+  if (blocksError) throw new Error("Não foi possível consultar a disponibilidade.");
 
   const dayStart = toIso(params.date, "00:00", params.timezone);
   const dayEnd = toIso(params.date, "23:59", params.timezone);
-  const { data: appts } = await db
+  const { data: appts, error: appointmentsError } = await db
     .from("appointments")
     .select("starts_at, ends_at, status, professional_id")
     .eq("business_id", params.businessId)
     .gte("starts_at", dayStart)
     .lte("starts_at", dayEnd);
+  if (appointmentsError) throw new Error("Não foi possível consultar a disponibilidade.");
 
   const busy: [number, number][] = [];
   for (const b of blocks ?? []) {
@@ -698,7 +779,7 @@ async function computeAvailableSlots(params: {
       busy.push([minutesOf(b.starts_at.slice(0, 5)), minutesOf(b.ends_at.slice(0, 5))]);
   }
   for (const a of appts ?? []) {
-    if (a.status === "cancelado" || a.status === "aguardando_sinal") continue;
+    if (a.status === "cancelado") continue;
     if (params.professionalId && a.professional_id && a.professional_id !== params.professionalId)
       continue;
     const off = (d: Date) =>
@@ -728,13 +809,14 @@ async function computeAvailableSlots(params: {
 
   const nowMin = computeNowMin(params.date, params.timezone, params.minimumNoticeHours);
 
-  return computeSlots({
+  const slots = computeSlots({
     hours,
     busy,
     durationMinutes: params.durationMinutes,
     nowMin,
     listingIntervalMinutes: params.listingIntervalMinutes,
   });
+  return filterPossibleLocalTimes(params.date, slots, params.timezone);
 }
 
 export const getAvailability = createServerFn({ method: "POST" })
@@ -763,18 +845,20 @@ export const getOpenDays = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.openDays);
     const db = await admin();
-    const { data: business } = await db
+    const { data: business, error: businessError } = await db
       .from("businesses")
-      .select("id, status")
+      .select("id, status, cancelled_at")
       .eq("slug", data.slug)
       .maybeSingle();
-    if (!business || business.status === "suspenso")
+    if (businessError) throw new Error("Não foi possível consultar os dias de atendimento.");
+    if (!business || !isPublicBookingEnabled(business))
       return { days: [] as { date: string; weekday: number }[] };
     const preferences = await loadPreferences(business.id);
-    const { data: hours } = await db
+    const { data: hours, error: hoursError } = await db
       .from("business_hours")
       .select("weekday")
       .eq("business_id", business.id);
+    if (hoursError) throw new Error("Não foi possível consultar os dias de atendimento.");
     const open = new Set((hours ?? []).map((h) => h.weekday));
     const days = computeOpenDays({
       openWeekdays: open,
@@ -853,9 +937,10 @@ export const reserveBooking = createServerFn({ method: "POST" })
       .eq("business_id", businessId)
       .lt("starts_at", endsAt)
       .gt("ends_at", startsAt)
-      .not("status", "in", '("cancelado","aguardando_sinal")');
+      .neq("status", "cancelado");
     if (data.professionalId) clashQuery = clashQuery.eq("professional_id", data.professionalId);
-    const { data: clash } = await clashQuery.limit(1);
+    const { data: clash, error: clashError } = await clashQuery.limit(1);
+    if (clashError) throw new Error("Não foi possível confirmar a disponibilidade.");
     if (clash?.length) throw new Error("Esse horário acabou de ser ocupado. Escolha outro.");
 
     const publicCode = globalThis.crypto.randomUUID();
@@ -885,7 +970,9 @@ export const reserveBooking = createServerFn({ method: "POST" })
     if (!chargesDeposit) {
       // Sem sinal não há pagamento para confirmar: avisa o cliente já na reserva. Não bloqueia a
       // resposta (a Evolution pode demorar) e nunca derruba a reserva (a função não lança).
-      void import("./whatsapp-notify.server").then((m) => m.sendBookingConfirmation(appointment.id));
+      void import("./whatsapp-notify.server").then((m) =>
+        m.sendBookingConfirmation(appointment.id),
+      );
       return {
         chargeId: null,
         amountCents: 0,
@@ -912,7 +999,21 @@ export const reserveBooking = createServerFn({ method: "POST" })
       })
       .select("id")
       .single();
-    if (chargeError || !charge) throw new Error(chargeError?.message ?? "Falha ao criar cobrança.");
+    if (chargeError || !charge) {
+      const { data: cancelled, error: cancellationError } = await db
+        .from("appointments")
+        .update({ status: "cancelado" })
+        .eq("id", appointment.id)
+        .eq("status", "aguardando_sinal")
+        .select("id")
+        .maybeSingle();
+      if (cancellationError || !cancelled) {
+        throw new Error(
+          "A cobrança não foi criada e não foi possível cancelar a reserva pendente. Entre em contato com o estabelecimento.",
+        );
+      }
+      throw new Error(chargeError?.message ?? "Falha ao criar cobrança.");
+    }
 
     return {
       chargeId: charge.id,
@@ -946,12 +1047,25 @@ async function pixExternalStep<T>(
   try {
     return await action();
   } catch (error) {
+    const status =
+      error instanceof Error &&
+      "status" in error &&
+      typeof (error as Error & { status?: unknown }).status === "number"
+        ? (error as Error & { status: number }).status
+        : null;
+    const pixAttemptOutcome = [400, 401, 403, 404, 422].includes(status as number)
+      ? "rejeitado"
+      : "falhou";
     console.error("Falha ao gerar Pix", {
       chargeId,
       stage,
       errorType: error instanceof Error ? error.name : typeof error,
     });
-    throw new Error("Não foi possível gerar o Pix agora. Tente novamente em instantes.");
+    const safeError = new Error(
+      "Não foi possível gerar o Pix agora. Tente novamente em instantes.",
+    );
+    Object.assign(safeError, { pixAttemptOutcome });
+    throw safeError;
   }
 }
 
@@ -964,7 +1078,7 @@ const isChargeExpired = (expiresAt: string | null) => {
 };
 
 export const generateDepositPix = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
+  .inputValidator((d: unknown) => z.object({ chargeId: z.string().guid() }).parse(d))
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.depositPix);
     const running = inFlightPix.get(data.chargeId);
@@ -1161,7 +1275,7 @@ export const generateDepositPix = createServerFn({ method: "POST" })
   });
 
 export const cancelDepositBooking = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
+  .inputValidator((d: unknown) => z.object({ chargeId: z.string().guid() }).parse(d))
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.cancelDeposit);
     const { cancelPendingDeposit } = await import("./agpay-events.server");
@@ -1178,8 +1292,8 @@ export const getMyBookings = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
       .object({
-        chargeIds: z.array(z.string().uuid()).max(50).default([]),
-        publicCodes: z.array(z.string().uuid()).max(50).default([]),
+        chargeIds: z.array(z.string().guid()).max(50).default([]),
+        publicCodes: z.array(z.string().guid()).max(50).default([]),
       })
       .parse(d),
   )
@@ -1187,22 +1301,25 @@ export const getMyBookings = createServerFn({ method: "POST" })
     enforceRateLimit(PUBLIC_RATE_LIMITS.myBookings);
     if (!data.chargeIds.length && !data.publicCodes.length) return { bookings: [] };
     const db = await admin();
-    const { data: chargeRows } = data.chargeIds.length
+    const { data: chargeRows, error: chargeRowsError } = data.chargeIds.length
       ? await db
           .from("deposit_payments")
           .select("id, status, amount_cents, payer_name, expires_at, created_at, appointment_id")
           .in("id", data.chargeIds)
           .order("created_at", { ascending: false })
-      : { data: [] };
+      : { data: [], error: null };
+    if (chargeRowsError) throw new Error("Não foi possível consultar os agendamentos.");
     const chargedAppointmentIds = (chargeRows ?? [])
       .map((charge) => charge.appointment_id)
       .filter(Boolean) as string[];
-    const { data: chargedAppointments } = chargedAppointmentIds.length
-      ? await db
-          .from("appointments")
-          .select("id, starts_at, status, service_id, professional_id")
-          .in("id", chargedAppointmentIds)
-      : { data: [] as never[] };
+    const { data: chargedAppointments, error: chargedAppointmentsError } =
+      chargedAppointmentIds.length
+        ? await db
+            .from("appointments")
+            .select("id, starts_at, status, service_id, professional_id")
+            .in("id", chargedAppointmentIds)
+        : { data: [] as never[], error: null };
+    if (chargedAppointmentsError) throw new Error("Não foi possível consultar os agendamentos.");
     const codedAppointments = data.publicCodes.length
       ? await findAppointmentsByPublicCodes(db, data.publicCodes)
       : [];
@@ -1216,7 +1333,8 @@ export const getMyBookings = createServerFn({ method: "POST" })
           .from("deposit_payments")
           .select("id, status, amount_cents, payer_name, expires_at, created_at, appointment_id")
           .in("appointment_id", appointmentIds)
-      : { data: [] as never[] };
+      : { data: [] as never[], error: null };
+    if (additionalCharges.error) throw new Error("Não foi possível consultar os agendamentos.");
     const charges = [
       ...(chargeRows ?? []),
       ...(additionalCharges.data ?? []).filter(
@@ -1224,19 +1342,21 @@ export const getMyBookings = createServerFn({ method: "POST" })
       ),
     ];
     const serviceIds = [...new Set(appointments.map((a) => a.service_id).filter(Boolean))];
-    const { data: servicesRows } = serviceIds.length
+    const { data: servicesRows, error: servicesError } = serviceIds.length
       ? await db
           .from("services")
           .select("id, name")
           .in("id", serviceIds as string[])
-      : { data: [] as never[] };
+      : { data: [] as never[], error: null };
+    if (servicesError) throw new Error("Não foi possível consultar os agendamentos.");
     const profIds = [...new Set(appointments.map((a) => a.professional_id).filter(Boolean))];
-    const { data: profs } = profIds.length
+    const { data: profs, error: professionalsError } = profIds.length
       ? await db
           .from("professionals")
           .select("id, name")
           .in("id", profIds as string[])
-      : { data: [] as never[] };
+      : { data: [] as never[], error: null };
+    if (professionalsError) throw new Error("Não foi possível consultar os agendamentos.");
 
     const bookings = appointments.map((a) => {
       const c = charges.find((charge) => charge.appointment_id === a.id);
@@ -1263,7 +1383,7 @@ export const getMyBookings = createServerFn({ method: "POST" })
   });
 
 export const getDepositStatus = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
+  .inputValidator((d: unknown) => z.object({ chargeId: z.string().guid() }).parse(d))
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.depositStatus);
     const { synchronizeDepositPayment } = await import("./agpay-events.server");

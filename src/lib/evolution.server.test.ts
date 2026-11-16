@@ -74,7 +74,9 @@ describe("cliente Evolution API", () => {
       "fetch",
       vi
         .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ base64: "data:image/png;base64,BB" }))),
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ base64: "data:image/png;base64,BB" })),
+        ),
     );
     await expect(startWhatsappConnection("inst", { method: "qr" })).resolves.toEqual({
       method: "qr",
@@ -183,7 +185,11 @@ describe("webhook de mensagens recebidas na Evolution (T073)", () => {
     configure();
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response("{}")));
     vi.stubGlobal("fetch", fetchMock);
-    await setInstanceWebhook("barbearia-a-1a2b3c4d", "https://app.agendagora.test/api/public/whatsapp-incoming", "segredo-do-webhook");
+    await setInstanceWebhook(
+      "barbearia-a-1a2b3c4d",
+      "https://app.agendagora.test/api/public/whatsapp-incoming",
+      "segredo-do-webhook",
+    );
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://evolution.test/webhook/set/barbearia-a-1a2b3c4d");
     expect(init.method).toBe("POST");
@@ -192,9 +198,13 @@ describe("webhook de mensagens recebidas na Evolution (T073)", () => {
     expect(body.webhook).toMatchObject({
       enabled: true,
       url: "https://app.agendagora.test/api/public/whatsapp-incoming",
+      byEvents: false,
+      base64: false,
       events: ["MESSAGES_UPSERT"],
       headers: { "X-Webhook-Secret": "segredo-do-webhook" },
     });
+    expect(body.webhook).not.toHaveProperty("webhook_by_events");
+    expect(body.webhook).not.toHaveProperty("webhook_base64");
     expect(new Headers(init.headers).get("apikey")).toBe("chave-global");
     // o segredo nunca vai na URL
     expect(String(url)).not.toContain("segredo-do-webhook");
@@ -211,10 +221,14 @@ describe("webhook de mensagens recebidas na Evolution (T073)", () => {
 
   it("erro da Evolution não vaza o corpo da resposta", async () => {
     configure();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("chave-global vazou", { status: 400 })));
-    const error = await setInstanceWebhook("inst", "https://app.agendagora.test/hook", "s").catch((e: Error) => e);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("chave-global vazou", { status: 400 })),
+    );
+    const error = await setInstanceWebhook("inst", "https://app.agendagora.test/hook", "s").catch(
+      (e: Error) => e,
+    );
     expect(error).toBeInstanceOf(Error);
     expect(String((error as Error).message)).not.toContain("chave-global");
   });
 });
-

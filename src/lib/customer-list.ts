@@ -11,6 +11,7 @@ export type AppointmentCustomer = {
   customer_name: string;
   customer_phone: string | null;
   starts_at: string;
+  status: string;
 };
 
 export type ListedCustomer = CustomerRecord & {
@@ -27,9 +28,10 @@ export function mergeAppointmentCustomers(
   appointments: AppointmentCustomer[],
 ): ListedCustomer[] {
   const latestByPhone = new Map<string, AppointmentCustomer>();
+  const latestCompletedByPhone = new Map<string, AppointmentCustomer>();
   const latestById = new Map<string, string>();
   for (const appointment of appointments) {
-    if (appointment.customer_id) {
+    if (appointment.status === "concluido" && appointment.customer_id) {
       const previous = latestById.get(appointment.customer_id);
       if (!previous || appointment.starts_at > previous)
         latestById.set(appointment.customer_id, appointment.starts_at);
@@ -39,6 +41,11 @@ export function mergeAppointmentCustomers(
     const previous = latestByPhone.get(phone);
     if (!previous || appointment.starts_at > previous.starts_at)
       latestByPhone.set(phone, appointment);
+    if (appointment.status === "concluido") {
+      const previousCompleted = latestCompletedByPhone.get(phone);
+      if (!previousCompleted || appointment.starts_at > previousCompleted.starts_at)
+        latestCompletedByPhone.set(phone, appointment);
+    }
   }
 
   const manualPhones = new Set(
@@ -50,10 +57,11 @@ export function mergeAppointmentCustomers(
     manual: true,
   }));
   for (const [phone, appointment] of latestByPhone) {
+    const completed = latestCompletedByPhone.get(phone);
     if (manualPhones.has(phone)) {
       const existing = rows.find((row) => normalizeCustomerPhone(row.phone) === phone);
-      if (existing && appointment.starts_at > (existing.lastAppointmentAt ?? ""))
-        existing.lastAppointmentAt = appointment.starts_at;
+      if (existing && completed && completed.starts_at > (existing.lastAppointmentAt ?? ""))
+        existing.lastAppointmentAt = completed.starts_at;
       continue;
     }
     rows.push({
@@ -62,7 +70,7 @@ export function mergeAppointmentCustomers(
       phone: appointment.customer_phone,
       email: null,
       notes: null,
-      lastAppointmentAt: appointment.starts_at,
+      lastAppointmentAt: completed?.starts_at ?? null,
       manual: false,
     });
   }

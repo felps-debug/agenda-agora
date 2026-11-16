@@ -99,9 +99,11 @@ function EquipeGeralPage() {
   const [editing, setEditing] = useState<SdrTeamRow | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [active, setActive] = useState(true);
-  const [credentials, setCredentials] = useState<{ link: string; email: string; pin: string } | null>(
-    null,
-  );
+  const [credentials, setCredentials] = useState<{
+    link: string;
+    email: string;
+    pin: string;
+  } | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "cadastros", dir: -1 });
   const [calcOpen, setCalcOpen] = useState(false);
   const [preset, setPreset] = useState("");
@@ -123,7 +125,11 @@ function EquipeGeralPage() {
     }) => createFn({ data: input }),
     onSuccess: (_result, input) => {
       toast.success("SDR cadastrado! Guarde os dados de acesso.");
-      setCredentials({ link: `${window.location.origin}${SDR_LOGIN_PATH}`, email: input.email, pin: input.pin });
+      setCredentials({
+        link: `${window.location.origin}${SDR_LOGIN_PATH}`,
+        email: input.email,
+        pin: input.pin,
+      });
       invalidate();
     },
     onError: (error: Error) => toast.error(error.message),
@@ -233,6 +239,10 @@ function EquipeGeralPage() {
       toast.error("A nova senha deve ter exatamente 4 dígitos.");
       return;
     }
+    if (editing && form.email.trim().toLowerCase() !== editing.email.trim().toLowerCase() && !pin) {
+      toast.error("Defina um novo PIN de 4 dígitos para alterar o e-mail de login.");
+      return;
+    }
     const payload = {
       name: form.name.trim(),
       email: form.email.trim(),
@@ -278,7 +288,10 @@ function EquipeGeralPage() {
       </div>
 
       {team.isError ? (
-        <p role="alert" className="mt-6 rounded-xl border border-destructive/40 p-4 text-sm text-destructive">
+        <p
+          role="alert"
+          className="mt-6 rounded-xl border border-destructive/40 p-4 text-sm text-destructive"
+        >
           Não foi possível carregar a equipe. Atualize a página e tente novamente.
         </p>
       ) : null}
@@ -323,7 +336,10 @@ function EquipeGeralPage() {
               <ChartEmpty text="Sem SDRs cadastrados ainda." />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={team.data.barData} margin={{ top: 24, right: 8, left: -16, bottom: 0 }}>
+                <BarChart
+                  data={team.data.barData}
+                  margin={{ top: 24, right: 8, left: -16, bottom: 0 }}
+                >
                   <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.06)" />
                   <XAxis
                     dataKey="name"
@@ -367,7 +383,10 @@ function EquipeGeralPage() {
               <ChartEmpty text="Carregando…" />
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={team.data.weekData} margin={{ top: 24, right: 12, left: -16, bottom: 0 }}>
+                <AreaChart
+                  data={team.data.weekData}
+                  margin={{ top: 24, right: 12, left: -16, bottom: 0 }}
+                >
                   <defs>
                     <linearGradient id="sdr-area" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#1677ff" stopOpacity={0.28} />
@@ -432,19 +451,44 @@ function EquipeGeralPage() {
             <thead className="text-left text-xs uppercase text-[#777d87]">
               <tr>
                 <th className="pb-2 pr-4">
-                  <SortButton label="SDR" active={sort.key === "name"} dir={sort.dir} onClick={() => toggleSort("name")} />
+                  <SortButton
+                    label="SDR"
+                    active={sort.key === "name"}
+                    dir={sort.dir}
+                    onClick={() => toggleSort("name")}
+                  />
                 </th>
                 <th className="pb-2 pr-4">
-                  <SortButton label="Cadastros" active={sort.key === "cadastros"} dir={sort.dir} onClick={() => toggleSort("cadastros")} />
+                  <SortButton
+                    label="Cadastros"
+                    active={sort.key === "cadastros"}
+                    dir={sort.dir}
+                    onClick={() => toggleSort("cadastros")}
+                  />
                 </th>
                 <th className="pb-2 pr-4">
-                  <SortButton label="Vendas" active={sort.key === "vendas"} dir={sort.dir} onClick={() => toggleSort("vendas")} />
+                  <SortButton
+                    label="Vendas"
+                    active={sort.key === "vendas"}
+                    dir={sort.dir}
+                    onClick={() => toggleSort("vendas")}
+                  />
                 </th>
                 <th className="pb-2 pr-4">
-                  <SortButton label="Conversão" active={sort.key === "conversao"} dir={sort.dir} onClick={() => toggleSort("conversao")} />
+                  <SortButton
+                    label="Conversão"
+                    active={sort.key === "conversao"}
+                    dir={sort.dir}
+                    onClick={() => toggleSort("conversao")}
+                  />
                 </th>
                 <th className="pb-2 pr-4">
-                  <SortButton label="Comissão estimada" active={sort.key === "comissao"} dir={sort.dir} onClick={() => toggleSort("comissao")} />
+                  <SortButton
+                    label="Comissão estimada"
+                    active={sort.key === "comissao"}
+                    dir={sort.dir}
+                    onClick={() => toggleSort("comissao")}
+                  />
                 </th>
                 <th className="pb-2 pr-4">Status</th>
                 <th className="pb-2 text-right">Ações</th>
@@ -459,7 +503,9 @@ function EquipeGeralPage() {
                         {initials(row.name)}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-[var(--c-e6e9ee)]">{row.name}</span>
+                        <span className="block truncate font-medium text-[var(--c-e6e9ee)]">
+                          {row.name}
+                        </span>
                         <span className="block truncate text-xs text-[#777d87]">{row.email}</span>
                       </span>
                     </div>
@@ -467,11 +513,15 @@ function EquipeGeralPage() {
                   <td className="py-3 pr-4 font-medium text-[var(--c-dfe3ea)]">{row.cadastros}</td>
                   <td className="py-3 pr-4 font-medium text-[var(--c-dfe3ea)]">{row.vendas}</td>
                   <td className="py-3 pr-4 text-[var(--c-dfe3ea)]">{row.conversao}%</td>
-                  <td className="py-3 pr-4 text-[var(--c-dfe3ea)]">{formatPrice(row.comissaoCents)}</td>
+                  <td className="py-3 pr-4 text-[var(--c-dfe3ea)]">
+                    {formatPrice(row.comissaoCents)}
+                  </td>
                   <td className="py-3 pr-4">
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                        row.active ? "bg-emerald-500/15 text-emerald-400" : "bg-white/5 text-[#9aa1ab]"
+                        row.active
+                          ? "bg-emerald-500/15 text-emerald-400"
+                          : "bg-white/5 text-[#9aa1ab]"
                       }`}
                     >
                       <span className="size-1.5 rounded-full bg-current" />
@@ -495,8 +545,8 @@ function EquipeGeralPage() {
               {!sorted.length && !pending ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-[#777d87]">
-                    Nenhum SDR cadastrado. Clique em <strong className="text-white">Novo SDR</strong> para
-                    criar o primeiro painel.
+                    Nenhum SDR cadastrado. Clique em{" "}
+                    <strong className="text-white">Novo SDR</strong> para criar o primeiro painel.
                   </td>
                 </tr>
               ) : null}
@@ -566,9 +616,21 @@ function EquipeGeralPage() {
                 <p className="text-sm text-[#9aa1ab]">
                   Cadastro criado! Envie estes dados para o SDR entrar no painel exclusivo dele.
                 </p>
-                <CredentialRow label="Link de login" value={credentials.link} onCopy={() => void copy(credentials.link, "Link")} />
-                <CredentialRow label="E-mail" value={credentials.email} onCopy={() => void copy(credentials.email, "E-mail")} />
-                <CredentialRow label="Senha (4 dígitos)" value={credentials.pin} onCopy={() => void copy(credentials.pin, "Senha")} />
+                <CredentialRow
+                  label="Link de login"
+                  value={credentials.link}
+                  onCopy={() => void copy(credentials.link, "Link")}
+                />
+                <CredentialRow
+                  label="E-mail"
+                  value={credentials.email}
+                  onCopy={() => void copy(credentials.email, "E-mail")}
+                />
+                <CredentialRow
+                  label="Senha (4 dígitos)"
+                  value={credentials.pin}
+                  onCopy={() => void copy(credentials.pin, "Senha")}
+                />
                 <Button
                   type="button"
                   className="mt-2 w-full rounded-xl bg-[var(--c-1677ff)] font-bold text-white hover:bg-[var(--c-3b82f6)]"
@@ -607,7 +669,9 @@ function EquipeGeralPage() {
                     inputMode="numeric"
                     maxLength={4}
                     value={form.pin}
-                    onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                    onChange={(e) =>
+                      setForm({ ...form, pin: e.target.value.replace(/\D/g, "").slice(0, 4) })
+                    }
                     placeholder="••••"
                     className="border-white/10 bg-black/40 tracking-[0.4em] text-[var(--c-e6e9ee)]"
                   />
@@ -658,7 +722,8 @@ function EquipeGeralPage() {
                         Scripts pré-definidos
                       </Label>
                       <p className="text-[0.68rem] text-[#6f757f]">
-                        Roteiros enviados ao painel deste SDR (menu Scripts — bloco somente leitura).
+                        Roteiros enviados ao painel deste SDR (menu Scripts — bloco somente
+                        leitura).
                       </p>
                       <Textarea
                         value={preset}
@@ -786,7 +851,9 @@ function KpiCard({
       <p className="relative z-10 mt-3 text-[0.68rem] font-medium uppercase tracking-[0.14em] text-[#8a919c]">
         {label}
       </p>
-      <p className="relative z-10 mt-1 text-3xl font-extrabold tracking-tight text-white">{value}</p>
+      <p className="relative z-10 mt-1 text-3xl font-extrabold tracking-tight text-white">
+        {value}
+      </p>
       <p className="relative z-10 mt-1 flex items-center gap-1.5 text-xs">
         {delta != null ? (
           <span className={`font-semibold ${delta >= 0 ? "text-emerald-400" : "text-destructive"}`}>
@@ -844,7 +911,9 @@ function CredentialRow({
 }) {
   return (
     <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#70757f]">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#70757f]">
+        {label}
+      </p>
       <div className="mt-1 flex items-center gap-2">
         <p className="min-w-0 flex-1 truncate font-mono text-sm text-[var(--c-e6e9ee)]">{value}</p>
         <Button

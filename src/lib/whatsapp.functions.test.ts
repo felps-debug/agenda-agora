@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { serverFnMock } from "@/test-support/fake-admin";
+import { resetRateLimits } from "./rate-limit.server";
 
 /**
  * US6 — Envio de mensagem de teste do WhatsApp em Integrações.
@@ -15,7 +16,15 @@ const runtime = vi.hoisted(() => ({
 
 vi.mock("@tanstack/react-start", () => serverFnMock());
 vi.mock("@/integrations/supabase/auth-middleware", () => ({ requireSupabaseAuth: {} }));
-vi.mock("@/integrations/supabase/client.server", () => ({ supabaseAdmin: {} }));
+vi.mock("@/integrations/supabase/client.server", () => ({
+  supabaseAdmin: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+      }),
+    }),
+  },
+}));
 vi.mock("@/lib/auth/require-super-admin", () => ({
   assertSuperAdmin: vi.fn(),
   hasSuperAdminRole: vi.fn().mockResolvedValue(false),
@@ -53,6 +62,7 @@ const context = {
 };
 
 beforeEach(() => {
+  resetRateLimits();
   runtime.sendTextMessage.mockReset();
   runtime.credential = { instanceId: "inst-1", instanceToken: "tok-1" };
   runtime.biz = {
@@ -60,8 +70,6 @@ beforeEach(() => {
     name: "Barbearia X",
     whatsapp_instance: "inst-1",
     whatsapp_status: "connected",
-    whatsapp_instance_id: "inst-1",
-    whatsapp_instance_token: "tok-1",
   };
   context.supabase.rpc.mockResolvedValue({ data: true, error: null });
 });
@@ -70,14 +78,14 @@ describe("sendTestMessage (US6)", () => {
   it("envia a mensagem de teste pelo provedor quando conectado", async () => {
     await expect(
       send({
-        data: { businessId, phone: "5511999999999", template: "Teste {{negocio}}" },
+        data: { businessId, phone: "(11) 99999-9999", template: "conteúdo arbitrário" },
         context,
       }),
     ).resolves.toEqual({ ok: true });
     expect(runtime.sendTextMessage).toHaveBeenCalledWith(
       "tok-1",
       "5511999999999",
-      expect.any(String),
+      "Mensagem de teste da Agenda Agora. Seu WhatsApp está conectado.",
     );
   });
 
@@ -92,8 +100,19 @@ describe("sendTestMessage (US6)", () => {
 
   it("recusa número inválido na validação de entrada (Zod)", async () => {
     await expect(
-      send({ data: { businessId, phone: "123", template: "Teste" }, context }),
+      send({ data: { businessId, phone: "!!!!!!!!!!", template: "Teste" }, context }),
     ).rejects.toThrow();
     expect(runtime.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it("limits test sends to three per business every ten minutes", async () => {
+    for (let i = 0; i < 3; i++) {
+      await send({ data: { businessId, phone: "5511999999999" }, context });
+    }
+
+    await expect(send({ data: { businessId, phone: "5511999999999" }, context })).rejects.toThrow(
+      /Muitas tentativas/i,
+    );
+    expect(runtime.sendTextMessage).toHaveBeenCalledTimes(3);
   });
 });

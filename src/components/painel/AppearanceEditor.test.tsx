@@ -108,6 +108,8 @@ describe("AppearanceEditor contraste", () => {
     );
 
     expect(markup).toContain("Barbearia felipe");
+    expect(markup).toContain("Modelo Elegance disponível para o painel público.");
+    expect(markup).not.toContain("alterne quando quiser");
     expect(markup).toContain("Corte masculino de verdade");
     expect(markup).not.toContain("Nome do negócio");
     expect(markup).not.toContain("Corte de cabelo");

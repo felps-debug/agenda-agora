@@ -8,33 +8,58 @@ import {
 
 describe("computeAccessCycle", () => {
   it("acesso vigente = ok", () => {
-    const cycle = computeAccessCycle({ accessUntil: "2026-11-10T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const cycle = computeAccessCycle({
+      accessUntil: "2026-11-10T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(cycle.stage).toBe("ok");
     expect(cycle.daysLeft).toBe(13);
   });
 
   it("1 dia antes = amanha", () => {
-    const cycle = computeAccessCycle({ accessUntil: "2026-10-29T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const cycle = computeAccessCycle({
+      accessUntil: "2026-10-29T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(cycle.stage).toBe("amanha");
   });
 
   it("no dia = venceu_hoje", () => {
-    const cycle = computeAccessCycle({ accessUntil: "2026-10-28T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const cycle = computeAccessCycle({
+      accessUntil: "2026-10-28T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(cycle.stage).toBe("venceu_hoje");
   });
 
   it("1 dia apos = atrasado", () => {
-    const cycle = computeAccessCycle({ accessUntil: "2026-10-27T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const cycle = computeAccessCycle({
+      accessUntil: "2026-10-27T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(cycle.stage).toBe("atrasado");
   });
 
   it("2 e 3 dias apos = urgente", () => {
-    expect(computeAccessCycle({ accessUntil: "2026-10-26T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" }).stage).toBe("urgente");
-    expect(computeAccessCycle({ accessUntil: "2026-10-25T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" }).stage).toBe("urgente");
+    expect(
+      computeAccessCycle({
+        accessUntil: "2026-10-26T03:00:00.000Z",
+        now: "2026-10-28T12:00:00.000Z",
+      }).stage,
+    ).toBe("urgente");
+    expect(
+      computeAccessCycle({
+        accessUntil: "2026-10-25T03:00:00.000Z",
+        now: "2026-10-28T12:00:00.000Z",
+      }).stage,
+    ).toBe("urgente");
   });
 
   it("4 dia apos = bloqueado (painel travado)", () => {
-    const cycle = computeAccessCycle({ accessUntil: "2026-10-24T03:00:00.000Z", now: "2026-10-28T12:00:00.000Z" });
+    const cycle = computeAccessCycle({
+      accessUntil: "2026-10-24T03:00:00.000Z",
+      now: "2026-10-28T12:00:00.000Z",
+    });
     expect(cycle.stage).toBe("bloqueado");
   });
 });

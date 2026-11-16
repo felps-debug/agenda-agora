@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 import { getAllowedAppOrigins } from "@/lib/env-security.server";
+import { clientIp } from "@/lib/rate-limit.server";
 import {
   safeErrorText,
   safeErrorSource,
@@ -38,7 +39,7 @@ export const logClientError = createServerFn({ method: "POST" })
         kind: kinds,
         message: z.string().max(10000),
         source: z.string().max(4000),
-        detail: z.record(z.unknown()).optional(),
+        detail: z.record(z.string(), z.unknown()).optional(),
       })
       .parse(input),
   )
@@ -49,10 +50,7 @@ export const logClientError = createServerFn({ method: "POST" })
       const request = getRequest();
       const origin = request.headers.get("origin") ?? new URL(request.url).origin;
       if (!getAllowedAppOrigins().has(origin)) return { ok: true as const };
-      const clientKey = (request.headers.get("x-forwarded-for")?.split(",")[0] ?? "local").slice(
-        0,
-        120,
-      );
+      const clientKey = clientIp().slice(0, 120);
       if (!canRecord(clientKey)) return { ok: true as const };
       const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
       const token = request.headers.get("authorization")?.replace(/^Bearer /, "");
@@ -100,7 +98,7 @@ export const listClientErrors = createServerFn({ method: "GET" })
     if (data.cursor) {
       const [at, id] = data.cursor.split("|");
       const cursor = z
-        .object({ at: z.string().datetime({ offset: true }), id: z.string().uuid() })
+        .object({ at: z.string().datetime({ offset: true }), id: z.string().guid() })
         .parse({ at, id });
       query = query.or(
         `occurred_at.lt.${cursor.at},and(occurred_at.eq.${cursor.at},id.lt.${cursor.id})`,
@@ -116,4 +114,21 @@ export const listClientErrors = createServerFn({ method: "GET" })
       items,
       cursor: (rows?.length ?? 0) > data.limit && last ? `${last.occurred_at}|${last.id}` : null,
     };
+  });
+
+export const listAgpayWebhookReviews = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ limit: z.number().int().min(1).max(100).default(30) }).parse(input ?? {}),
+  )
+  .handler(async ({ context, data }) => {
+    const admin = await assertSuperAdmin(context);
+    const { data: rows, error } = await admin
+      .from("agpay_webhook_events")
+      .select("id, event_type, transaction_uuid, last_error, received_at, attempts")
+      .eq("status", "error")
+      .order("received_at", { ascending: false })
+      .limit(data.limit);
+    if (error) throw new Error("Não foi possível consultar os eventos AgPay para revisão.");
+    return { items: rows ?? [] };
   });

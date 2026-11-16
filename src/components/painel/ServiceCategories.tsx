@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { EmptyList } from "@/components/painel/PageHeader";
+import { ServiceCategoriesQueryNotice } from "@/components/painel/ServiceCategoriesQueryNotice";
 
 type CategoryRow = {
   id: string;
@@ -49,25 +50,20 @@ export function ServiceCategories({
   const [active, setActive] = useState(true);
   const [linkedIds, setLinkedIds] = useState<string[]>([]);
 
-  const { data: categories } = useQuery({
+  const categoriesQuery = useQuery({
     queryKey: ["service-categories", businessId],
     queryFn: async () => {
-      // Degradê seguro: se a migration ainda não foi aplicada, segue sem
-      // categorias em vez de exibir erro.
-      try {
-        const { data, error } = await supabase
-          .from("service_categories")
-          .select("*")
-          .eq("business_id", businessId)
-          .order("position")
-          .order("created_at");
-        if (error) throw error;
-        return data as CategoryRow[];
-      } catch {
-        return [] as CategoryRow[];
-      }
+      const { data, error } = await supabase
+        .from("service_categories")
+        .select("*")
+        .eq("business_id", businessId)
+        .order("position")
+        .order("created_at");
+      if (error) throw error;
+      return data as CategoryRow[];
     },
   });
+  const categories = categoriesQuery.data;
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["service-categories", businessId] });
@@ -99,43 +95,16 @@ export function ServiceCategories({
     mutationFn: async () => {
       const trimmed = name.trim();
       if (!trimmed) throw new Error("Informe o nome da categoria.");
-      let categoryId: string;
-      if (editing) {
-        const { error } = await supabase
-          .from("service_categories")
-          .update({ name: trimmed, active })
-          .eq("id", editing.id);
-        if (error) throw error;
-        categoryId = editing.id;
-      } else {
-        const { data, error } = await supabase
-          .from("service_categories")
-          .insert({ business_id: businessId, name: trimmed, active })
-          .select("id")
-          .single();
-        if (error) throw error;
-        categoryId = data.id;
-      }
-      const prevIds = new Set(
-        services.filter((s) => s.category_id === categoryId).map((s) => s.id),
-      );
-      const nextIds = new Set(linkedIds);
-      const toLink = [...nextIds].filter((id) => !prevIds.has(id));
-      const toUnlink = [...prevIds].filter((id) => !nextIds.has(id));
-      if (toLink.length > 0) {
-        const { error } = await supabase
-          .from("services")
-          .update({ category_id: categoryId })
-          .in("id", toLink);
-        if (error) throw error;
-      }
-      if (toUnlink.length > 0) {
-        const { error } = await supabase
-          .from("services")
-          .update({ category_id: null })
-          .in("id", toUnlink);
-        if (error) throw error;
-      }
+      const { data, error } = await supabase.rpc("save_service_category_with_services", {
+        _category_id: editing?.id ?? null,
+        _business_id: businessId,
+        _name: trimmed,
+        _active: active,
+        _service_ids: linkedIds,
+      });
+      if (error) throw error;
+      if (!data) throw new Error("Não foi possível salvar a categoria.");
+      return { id: data };
     },
     onSuccess: () => {
       toast.success("Categoria salva.");
@@ -191,17 +160,24 @@ export function ServiceCategories({
           <Button
             className="rounded-xl border border-[var(--c-rgba-51-125-255-a0d29)] bg-[var(--c-rgba-22-119-255-a0d09)] text-[var(--c-69a2ff)] shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_0_18px_var(--c-rgba-22-119-255-a0d08)] hover:border-[var(--c-rgba-51-125-255-a0d5)] hover:bg-[var(--c-rgba-22-119-255-a0d14)] hover:text-[var(--c-8fb5ff)]"
             onClick={openNew}
+            disabled={categoriesQuery.isError}
           >
             <Plus className="size-4" strokeWidth={2.2} /> Nova categoria
           </Button>
         </div>
       </div>
 
-      {!categories?.length ? (
+      <ServiceCategoriesQueryNotice
+        isLoading={categoriesQuery.isPending}
+        isError={categoriesQuery.isError}
+        isFetching={categoriesQuery.isFetching}
+        onRetry={() => void categoriesQuery.refetch()}
+      />
+      {categoriesQuery.isSuccess && (categories?.length ?? 0) === 0 ? (
         <div className="p-4">
           <EmptyList text="Nenhuma categoria cadastrada." />
         </div>
-      ) : (
+      ) : categories && categories.length > 0 ? (
         <div className="relative z-10 divide-y divide-[var(--c-22252b)]">
           {categories.map((c) => {
             const count = services.filter((s) => s.category_id === c.id).length;
@@ -212,12 +188,12 @@ export function ServiceCategories({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">{c.name}</p>
+                    <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">
+                      {c.name}
+                    </p>
                     {!c.active && <span className="professional-badge">Inativa</span>}
                   </div>
-                  <p className="mt-1 text-xs text-[#686b74]">
-                    {count} serviço(s) vinculado(s)
-                  </p>
+                  <p className="mt-1 text-xs text-[#686b74]">{count} serviço(s) vinculado(s)</p>
                 </div>
                 <label className="flex items-center gap-2 text-xs font-medium text-[#70737b]">
                   Ativa{" "}
@@ -248,7 +224,7 @@ export function ServiceCategories({
             );
           })}
         </div>
-      )}
+      ) : null}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="professional-dialog max-h-[92vh] max-w-lg overflow-y-auto p-0">
@@ -282,9 +258,7 @@ export function ServiceCategories({
             <div className="space-y-2">
               <Label>Serviços de categoria:</Label>
               {services.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Nenhum serviço cadastrado ainda.
-                </p>
+                <p className="text-sm text-muted-foreground">Nenhum serviço cadastrado ainda.</p>
               ) : (
                 <ul className="space-y-1">
                   {services.map((s) => {

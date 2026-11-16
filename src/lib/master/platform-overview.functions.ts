@@ -13,6 +13,8 @@ import {
   type LifecycleCategory,
 } from "@/lib/subscription-lifecycle";
 import { subscriptionTotalCents } from "@/lib/billing-cycle";
+import { isBusinessActive } from "@/lib/master/business-status";
+import { fetchAllPages } from "@/lib/fetch-all-pages.server";
 
 /**
  * Visão geral da plataforma (Painel 3 Master).
@@ -82,53 +84,119 @@ export const getPlatformOverview = createServerFn({ method: "GET" })
     const periodStart = new Date(now.getTime() - 60 * DAY_MS).toISOString();
 
     const [
-      businessesRes,
-      profilesRes,
-      appointmentsRes,
-      paymentsRes,
-      servicesRes,
-      prosRes,
-      hoursRes,
-      customersRes,
-      depositsRes,
+      businessesRows,
+      profilesRows,
+      appointmentsRows,
+      paymentsRows,
+      servicesRows,
+      prosRows,
+      hoursRows,
+      customersRows,
+      depositsRows,
       eventsRes,
       notesRes,
     ] = await Promise.all([
-      supabaseAdmin
-        .from("businesses")
-        .select(
-          "id, name, slug, category, phone, status, created_at, owner_id, monthly_fee_cents, trial_days, trial_created_at, access_until, cancel_requested_at, cancelled_at",
-        )
-        .order("created_at", { ascending: false }),
-      supabaseAdmin.from("profiles").select("id, full_name, email"),
-      supabaseAdmin
-        .from("appointments")
-        .select("id, business_id, status, starts_at, created_at")
-        .gte("starts_at", periodStart)
-        .limit(20000),
-      supabaseAdmin
-        .from("subscription_payments")
-        .select("business_id, reference_month, status, amount_cents, paid_at, created_at")
-        .limit(5000),
-      supabaseAdmin.from("services").select("id, business_id").limit(20000),
-      supabaseAdmin.from("professionals").select("id, business_id").limit(20000),
-      supabaseAdmin.from("business_hours").select("id, business_id").limit(20000),
-      supabaseAdmin.from("customers").select("id, business_id, created_at").limit(20000),
-      supabaseAdmin
-        .from("deposit_payments")
-        .select("business_id, status, amount_cents, platform_commission_cents, paid_at, created_at")
-        .limit(5000),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("businesses")
+            .select(
+              "id, name, slug, category, phone, status, created_at, owner_id, monthly_fee_cents, trial_days, trial_created_at, access_until, cancel_requested_at, cancelled_at",
+            )
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar estabelecimentos da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("profiles").select("id, full_name, email").order("id").range(from, to),
+        "Falha ao carregar proprietários da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("appointments")
+            .select("id, business_id, status, starts_at, created_at")
+            .gte("starts_at", periodStart)
+            .order("starts_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar agendamentos da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("subscription_payments")
+            .select("business_id, reference_month, status, amount_cents, paid_at, created_at")
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar cobranças da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("services").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar serviços da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("professionals").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar profissionais da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("business_hours")
+            .select("id, business_id")
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar horários da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("customers")
+            .select("id, business_id, created_at")
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar clientes da visão geral.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("deposit_payments")
+            .select(
+              "business_id, status, amount_cents, platform_commission_cents, paid_at, created_at",
+            )
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar sinais Pix da visão geral.",
+      ),
       supabaseAdmin
         .from("master_business_events")
         .select("id, business_id, type, title, description, created_at")
         .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(60),
       supabaseAdmin
         .from("master_business_notes")
         .select("id, business_id, body, next_step, created_at")
         .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
         .limit(60),
     ]);
+
+    const businessesRes = { data: businessesRows, error: null };
+    const profilesRes = { data: profilesRows, error: null };
+    const appointmentsRes = { data: appointmentsRows, error: null };
+    const paymentsRes = { data: paymentsRows, error: null };
+    const servicesRes = { data: servicesRows, error: null };
+    const prosRes = { data: prosRows, error: null };
+    const hoursRes = { data: hoursRows, error: null };
+    const customersRes = { data: customersRows, error: null };
+    const depositsRes = { data: depositsRows, error: null };
 
     for (const [label, result] of [
       ["estabelecimentos", businessesRes],
@@ -205,7 +273,7 @@ export const getPlatformOverview = createServerFn({ method: "GET" })
     for (const business of businesses) {
       const suspended = business.status === "suspenso";
       if (suspended) suspendedBusinesses += 1;
-      else activeBusinesses += 1;
+      if (isBusinessActive(business.status)) activeBusinesses += 1;
 
       const payments = paymentsByBusiness.get(business.id) ?? [];
       const monthPayments = payments.filter((p) => p.reference_month.slice(0, 7) === currentMonth);

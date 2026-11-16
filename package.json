@@ -15,6 +15,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:db": "vitest run -c vitest.db.config.ts",
+    "test:dependency:typescript-eslint-minimatch": "node scripts/test-typescript-eslint-minimatch.mjs",
     "db:ensaio": "node scripts/ensaio/db.mjs up",
     "db:ensaio:check": "node scripts/ensaio/db.mjs check",
     "qa": "node scripts/qa/run.mjs"
@@ -23,6 +24,9 @@
     "rolldown": "1.2.1",
     "js-yaml": "4.3.2",
     "nanoid": "3.3.18",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.1"
+    },
     "@tanstack/router-core": "1.171.34"
   },
   "dependencies": {
@@ -80,7 +84,7 @@
     "tailwindcss": "^4.2.1",
     "tw-animate-css": "^1.3.4",
     "vaul": "^1.1.2",
-    "zod": "^3.24.2"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
@@ -100,7 +104,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "8.1.5",
+    "vite": "^8.1.7",
     "vitest": "^5.0.0"
   },
   "resolutions": {

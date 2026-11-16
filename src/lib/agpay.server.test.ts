@@ -1,6 +1,7 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AgpayAmbiguousResponseError,
   AgpayApiError,
   agpayFetch,
   createPixCharge,
@@ -26,8 +27,9 @@ afterEach(() => {
 });
 
 describe("cliente HTTP AgPay", () => {
-  it("envia somente os headers aceitos pela API", async () => {
+  it("encaminha X-Client-ID quando a credencial está configurada", async () => {
     process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    process.env["AGPAY_CLIENT_ID"] = "cliente-plataforma";
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -38,8 +40,21 @@ describe("cliente HTTP AgPay", () => {
     const headers = new Headers(init.headers);
     expect(headers.get("Authorization")).toBe("Bearer token-plataforma");
     expect(headers.get("Accept")).toBe("application/json");
-    expect(headers.get("X-Client-ID")).toBeNull();
+    expect(headers.get("X-Client-ID")).toBe("cliente-plataforma");
     expect(init.redirect).toBe("manual");
+  });
+
+  it("mantém compatibilidade Bearer quando o Client ID não está configurado", async () => {
+    process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    delete process.env["AGPAY_CLIENT_ID"];
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ success: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await agpayFetch("/transactions/tx-1");
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token-plataforma");
+    expect(new Headers(init.headers).get("X-Client-ID")).toBeNull();
   });
 
   it("trata resposta 3xx como erro explícito", async () => {
@@ -83,6 +98,10 @@ describe("cliente HTTP AgPay", () => {
     expect(JSON.parse(init.body)).toMatchObject({
       url: "https://agpay.services/api/v1/transactions/tx-1",
       method: "GET",
+      headers: {
+        authorization: "Bearer token-plataforma",
+        "x-client-id": "cliente-plataforma",
+      },
     });
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
@@ -250,6 +269,24 @@ describe("cobranças Pix AgPay", () => {
     expect(url).toBe("https://agpay.services/api/v1/cashout/pix");
     expect(JSON.parse(init.body)).toEqual({ amount: 25, pix_key: "chave-pix" });
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer token-plataforma");
-    expect(new Headers(init.headers).get("X-Client-ID")).toBeNull();
+    expect(new Headers(init.headers).get("X-Client-ID")).toBe("cliente-plataforma");
+  });
+
+  it("trata resposta 2xx sem referência de saque como resultado ambíguo", async () => {
+    process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ success: true })));
+
+    await expect(
+      createCashoutPix({ amountCents: 2500, pixKey: "chave-pix" }),
+    ).rejects.toBeInstanceOf(AgpayAmbiguousResponseError);
+  });
+
+  it("trata success=false como rejeição explícita", async () => {
+    process.env["AGPAY_API_TOKEN"] = "token-plataforma";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({ success: false })));
+
+    await expect(
+      createCashoutPix({ amountCents: 2500, pixKey: "chave-pix" }),
+    ).rejects.toMatchObject({ name: "AgpayApiError", status: 422 });
   });
 });

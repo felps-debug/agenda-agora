@@ -40,6 +40,7 @@ vi.mock("@/integrations/supabase/client.server", () => {
     from: (table: string) => {
       let patch: Record<string, unknown> | null = null;
       let operation: string | null = null;
+      let limitValue: number | null = null;
       const filters: unknown[][] = [];
       const queryOrders: unknown[][] = [];
       const query = {
@@ -73,7 +74,10 @@ vi.mock("@/integrations/supabase/client.server", () => {
           queryOrders.push([column, options]);
           return query;
         },
-        limit: () => query,
+        limit: (count: number) => {
+          limitValue = count;
+          return query;
+        },
         maybeSingle: async () => ({
           data: table === "deposit_payments" ? runtime.diagnosticCharge : runtime.superAdminRow,
           error: null,
@@ -98,7 +102,10 @@ vi.mock("@/integrations/supabase/client.server", () => {
               return true;
             }),
           );
-          return Promise.resolve({ data: rows ?? null, error: null }).then(resolve);
+          return Promise.resolve({
+            data: rows ? rows.slice(0, limitValue ?? rows.length) : null,
+            error: null,
+          }).then(resolve);
         },
       };
       return query;
@@ -189,7 +196,9 @@ describe("status Master preservado para a sessão normal", () => {
 
   it("getMasterStatus reconhece a role super_admin da conta autenticada", async () => {
     runtime.superAdminRow = { user_id: "admin-1" };
-    await expect(getMasterStatus({ context: { userId: "admin-1" } })).resolves.toMatchObject({
+    await expect(
+      getMasterStatus({ context: { userId: "admin-1", claims: { aal: "aal2" } } }),
+    ).resolves.toMatchObject({
       isMaster: true,
     });
   });
@@ -223,49 +232,49 @@ describe("status Master preservado para a sessão normal", () => {
   });
 });
 
-describe("configuração do split AgPay", () => {
-  const setBusinessAgpaySplit = adminFunctions.setBusinessAgpaySplit as unknown as (arg: {
-    data: { businessId: string; splitEmail: string; commissionPercent: number };
-    context: unknown;
-  }) => Promise<{ ok: boolean }>;
-  const setAgpaySplitStatus = adminFunctions.setAgpaySplitStatus as unknown as (arg: {
-    data: { businessId: string; status: "pendente" | "aprovada" | "bloqueada" };
-    context: unknown;
-  }) => Promise<{ ok: boolean }>;
+describe("comissão da plataforma", () => {
+  const setBusinessPlatformCommission =
+    adminFunctions.setBusinessPlatformCommission as unknown as (arg: {
+      data: { businessId: string; commissionPercent: number };
+      context: unknown;
+    }) => Promise<{ ok: boolean }>;
 
   beforeEach(() => {
     runtime.superAdminRow = { user_id: "admin-1" };
     runtime.businessUpdates = [];
   });
 
-  it("rejeita e-mail inválido", async () => {
+  it("atualiza somente a comissão da plataforma, sem alterar campos de split legados", async () => {
+    const data = {
+      businessId: "11111111-1111-4111-8111-111111111111",
+      commissionPercent: 3.5,
+    };
+
     await expect(
-      Promise.resolve().then(() =>
-        setBusinessAgpaySplit({
-          data: {
-            businessId: "11111111-1111-4111-8111-111111111111",
-            splitEmail: "nao-e-email",
-            commissionPercent: 3,
-          },
-          context: { userId: "admin-1" },
-        }),
-      ),
-    ).rejects.toThrow();
-    expect(runtime.businessUpdates).toEqual([]);
+      setBusinessPlatformCommission({
+        data,
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(runtime.businessUpdates).toEqual([
+      {
+        patch: { agpay_commission_percent: data.commissionPercent },
+        filters: [["eq", "id", data.businessId]],
+      },
+    ]);
   });
 
   it.each([-0.01, 100, 100.01])(
-    "rejeita comissão fora de [0, 100): %s",
+    "rejeita comissão fora de [0, 99.99]: %s",
     async (commissionPercent) => {
       await expect(
         Promise.resolve().then(() =>
-          setBusinessAgpaySplit({
+          setBusinessPlatformCommission({
             data: {
               businessId: "11111111-1111-4111-8111-111111111111",
-              splitEmail: "conta@example.com",
               commissionPercent,
             },
-            context: { userId: "admin-1" },
+            context: { userId: "admin-1", claims: { aal: "aal2" } },
           }),
         ),
       ).rejects.toThrow();
@@ -273,86 +282,20 @@ describe("configuração do split AgPay", () => {
     },
   );
 
-  it("salva e-mail e comissão quando chamado por super admin", async () => {
-    const data = {
-      businessId: "11111111-1111-4111-8111-111111111111",
-      splitEmail: "conta@example.com",
-      commissionPercent: 3.5,
-    };
-
-    await expect(setBusinessAgpaySplit({ data, context: { userId: "admin-1" } })).resolves.toEqual({
-      ok: true,
-    });
-    expect(runtime.businessUpdates).toEqual([
-      {
-        patch: {
-          agpay_split_email: data.splitEmail,
-          agpay_commission_percent: data.commissionPercent,
-        },
-        filters: [["eq", "id", data.businessId]],
-      },
-    ]);
-  });
-
   it("nega acesso de dono comum à função Master sem role", async () => {
     runtime.superAdminRow = null;
-    const data = {
-      businessId: "11111111-1111-4111-8111-111111111111",
-      splitEmail: "conta@example.com",
-      commissionPercent: 3,
-    };
-
     await expect(
-      setBusinessAgpaySplit({
-        data,
+      setBusinessPlatformCommission({
+        data: {
+          businessId: "11111111-1111-4111-8111-111111111111",
+          commissionPercent: 3,
+        },
         context: { userId: "dono-1" },
       }),
     ).rejects.toThrow("Acesso restrito ao painel master.");
     expect(runtime.businessUpdates).toEqual([]);
   });
-
-  it("salva status permitido somente quando o e-mail do split está configurado", async () => {
-    await expect(
-      setAgpaySplitStatus({
-        data: {
-          businessId: "11111111-1111-4111-8111-111111111111",
-          status: "aprovada",
-        },
-        context: { userId: "admin-1" },
-      }),
-    ).resolves.toEqual({ ok: true });
-    expect(runtime.businessUpdates).toEqual([
-      {
-        patch: { agpay_split_status: "aprovada" },
-        filters: [
-          ["eq", "id", "11111111-1111-4111-8111-111111111111"],
-          ["not", "agpay_split_email", "is", null],
-        ],
-      },
-    ]);
-  });
-
-  it("recusa estado externo incompatível para o split", async () => {
-    await expect(
-      Promise.resolve().then(() =>
-        (
-          setAgpaySplitStatus as unknown as (arg: {
-            data: { businessId: string; status: string };
-            context: unknown;
-          }) => Promise<unknown>
-        )({
-          data: {
-            businessId: "11111111-1111-4111-8111-111111111111",
-            status: "em_analise",
-          },
-          context: { userId: "admin-1" },
-        }),
-      ),
-    ).rejects.toThrow();
-    expect(runtime.businessUpdates).toEqual([]);
-  });
 });
-
 describe("diagnóstico de cobrança AgPay", () => {
   const getDepositPaymentDiagnostics =
     adminFunctions.getDepositPaymentDiagnostics as unknown as (arg: {
@@ -393,7 +336,7 @@ describe("diagnóstico de cobrança AgPay", () => {
     await expect(
       getDepositPaymentDiagnostics({
         data: { chargeId: "11111111-1111-4111-8111-111111111111" },
-        context: { userId: "admin-1" },
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
       }),
     ).resolves.toEqual({
       charge: runtime.diagnosticCharge,
@@ -419,6 +362,9 @@ describe("conciliação financeira agregada", () => {
   const listStuckWithdrawals = adminFunctions.listStuckWithdrawals as unknown as (arg: {
     context: unknown;
   }) => Promise<Array<{ id: string; business_id: string; amount_cents: number }>>;
+  const listAdminWithdrawals = adminFunctions.listAdminWithdrawals as unknown as (arg: {
+    context: unknown;
+  }) => Promise<Array<Record<string, unknown>>>;
   const listNegativeBalanceBusinesses =
     adminFunctions.listNegativeBalanceBusinesses as unknown as (arg: {
       context: unknown;
@@ -434,6 +380,7 @@ describe("conciliação financeira agregada", () => {
   beforeEach(() => {
     runtime.superAdminRow = { user_id: "admin-1" };
     runtime.tableRows = {};
+    runtime.diagnosticEvents = [];
     runtime.deleteError = null;
   });
 
@@ -456,7 +403,9 @@ describe("conciliação financeira agregada", () => {
       deposit_payments: [],
     };
 
-    await expect(getLedgerReconciliation({ context: { userId: "admin-1" } })).resolves.toEqual({
+    await expect(
+      getLedgerReconciliation({ context: { userId: "admin-1", claims: { aal: "aal2" } } }),
+    ).resolves.toEqual({
       availableCents: 13_500,
       pendingCents: 500,
       lockedCents: 3_500,
@@ -476,12 +425,20 @@ describe("conciliação financeira agregada", () => {
         { status: "pendente", paid_at: "2026-09-21T12:00:00.000Z", platform_commission_cents: 400 },
         { status: "pendente", paid_at: null, platform_commission_cents: 900 },
         { status: "pendente", paid_at: null, platform_commission_cents: null },
+        // O estorno debita apenas o líquido do negócio; a comissão do SaaS permanece no ledger.
+        {
+          status: "estornado",
+          paid_at: "2026-09-22T12:00:00.000Z",
+          platform_commission_cents: 999,
+        },
       ],
     };
 
-    const totals = await getLedgerReconciliation({ context: { userId: "admin-1" } });
+    const totals = await getLedgerReconciliation({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
     expect(totals.availableCents).toBe(-1_200);
-    expect(totals.platformRevenueCents).toBe(1_650);
+    expect(totals.platformRevenueCents).toBe(2_649);
   });
 
   it("lista saques presos acima de 24h e esconde os recentes", async () => {
@@ -512,9 +469,165 @@ describe("conciliação financeira agregada", () => {
       ],
     };
 
-    const stuck = await listStuckWithdrawals({ context: { userId: "admin-1" } });
+    const stuck = await listStuckWithdrawals({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
     expect(stuck.map((row) => row.id)).toEqual(["saque-25h"]);
     expect(stuck[0]?.amount_cents).toBe(5_000);
+  });
+
+  it("expõe alerta de revisão manual no Master para cashout ambíguo recente", async () => {
+    runtime.tableRows = {
+      withdrawals: [
+        {
+          id: "wd-ambiguous",
+          business_id: BUSINESS_ID,
+          amount_cents: 2_500,
+          status: "processing",
+          pix_key_snapshot: "chave@exemplo.com",
+          provider_ref: null,
+          created_at: "2026-11-16T02:00:00.000Z",
+          updated_at: "2026-11-16T02:00:00.000Z",
+        },
+      ],
+      businesses: [{ id: BUSINESS_ID, name: "Negócio de teste" }],
+    };
+    runtime.diagnosticEvents = [
+      {
+        event_type: "cashout.response_ambiguous",
+        transaction_uuid: null,
+        status: "error",
+        payload: { withdrawal_id: "wd-ambiguous" },
+        last_error: "Confirme o status no painel do provedor.",
+        received_at: "2026-11-16T02:00:00.000Z",
+      },
+    ];
+
+    const rows = await listAdminWithdrawals({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
+
+    expect(rows[0]).toMatchObject({
+      id: "wd-ambiguous",
+      status: "processing",
+      manual_review: {
+        event_type: "cashout.response_ambiguous",
+        last_error: "Confirme o status no painel do provedor.",
+      },
+    });
+  });
+
+  it("mantém alerta para saque em processamento sem referência mesmo se o evento não existir", async () => {
+    runtime.tableRows = {
+      withdrawals: [
+        {
+          id: "wd-no-reference",
+          business_id: BUSINESS_ID,
+          amount_cents: 2_500,
+          status: "processing",
+          pix_key_snapshot: "chave@exemplo.com",
+          provider_ref: null,
+          created_at: "2026-11-16T02:00:00.000Z",
+          updated_at: "2026-11-16T02:00:00.000Z",
+        },
+      ],
+      businesses: [{ id: BUSINESS_ID, name: "Negócio de teste" }],
+    };
+    runtime.diagnosticEvents = [];
+
+    const rows = await listAdminWithdrawals({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
+
+    expect(rows[0]).toMatchObject({
+      id: "wd-no-reference",
+      manual_review: {
+        event_type: "cashout.response_ambiguous",
+        last_error: expect.stringContaining("sem referência confirmada"),
+      },
+    });
+  });
+
+  it("expõe alerta manual para saque solicitado cuja referência do cashout não foi persistida", async () => {
+    runtime.tableRows = {
+      withdrawals: [
+        {
+          id: "wd-reference-persist-failed",
+          business_id: BUSINESS_ID,
+          amount_cents: 2_500,
+          status: "requested",
+          pix_key_snapshot: "chave@exemplo.com",
+          provider_ref: null,
+          created_at: "2026-11-16T02:00:00.000Z",
+          updated_at: "2026-11-16T02:00:00.000Z",
+        },
+      ],
+      businesses: [{ id: BUSINESS_ID, name: "Negócio de teste" }],
+    };
+    runtime.diagnosticEvents = [
+      {
+        event_type: "cashout.reference_persist_failed",
+        transaction_uuid: null,
+        status: "error",
+        payload: { withdrawal_id: "wd-reference-persist-failed" },
+        last_error: "Cashout aceito; confira manualmente antes de tentar novamente.",
+        received_at: "2026-11-16T02:00:00.000Z",
+      },
+    ];
+
+    const rows = await listAdminWithdrawals({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
+
+    expect(rows[0]).toMatchObject({
+      id: "wd-reference-persist-failed",
+      status: "requested",
+      manual_review: {
+        event_type: "cashout.reference_persist_failed",
+        last_error: "Cashout aceito; confira manualmente antes de tentar novamente.",
+      },
+    });
+    expect(runtime.diagnosticEventFilters).toContainEqual([
+      "in",
+      "payload->>withdrawal_id",
+      ["wd-reference-persist-failed"],
+    ]);
+  });
+
+  it("prioriza todos os saques ativos além dos 200 saques recentes encerrados", async () => {
+    const closedWithdrawals = Array.from({ length: 200 }, (_, index) => ({
+      id: `wd-paid-${index}`,
+      business_id: BUSINESS_ID,
+      amount_cents: 2_500,
+      status: "paid",
+      pix_key_snapshot: "chave@exemplo.com",
+      provider_ref: `provider-${index}`,
+      created_at: "2026-11-16T03:00:00.000Z",
+      updated_at: "2026-11-16T03:00:00.000Z",
+    }));
+    runtime.tableRows = {
+      withdrawals: [
+        ...closedWithdrawals,
+        {
+          id: "wd-active-old",
+          business_id: BUSINESS_ID,
+          amount_cents: 2_500,
+          status: "processing",
+          pix_key_snapshot: "chave@exemplo.com",
+          provider_ref: null,
+          created_at: "2026-11-01T03:00:00.000Z",
+          updated_at: "2026-11-01T03:00:00.000Z",
+        },
+      ],
+      businesses: [{ id: BUSINESS_ID, name: "Negócio de teste" }],
+    };
+    runtime.diagnosticEvents = [];
+
+    const rows = await listAdminWithdrawals({
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
+    });
+
+    expect(rows.some((row) => row["id"] === "wd-active-old")).toBe(true);
   });
 
   it("lista apenas negócios com saldo disponível negativo", async () => {
@@ -530,7 +643,7 @@ describe("conciliação financeira agregada", () => {
     };
 
     await expect(
-      listNegativeBalanceBusinesses({ context: { userId: "admin-1" } }),
+      listNegativeBalanceBusinesses({ context: { userId: "admin-1", claims: { aal: "aal2" } } }),
     ).resolves.toEqual([{ id: BUSINESS_ID, name: "Bar do Zé", available_cents: -2_000 }]);
   });
 
@@ -542,7 +655,10 @@ describe("conciliação financeira agregada", () => {
     };
 
     await expect(
-      deleteBusiness({ data: { id: BUSINESS_ID }, context: { userId: "admin-1" } }),
+      deleteBusiness({
+        data: { id: BUSINESS_ID },
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
+      }),
     ).rejects.toThrow("Este negócio tem histórico financeiro e não pode ser excluído.");
   });
 
@@ -553,7 +669,10 @@ describe("conciliação financeira agregada", () => {
     };
 
     await expect(
-      deleteBusiness({ data: { id: BUSINESS_ID }, context: { userId: "admin-1" } }),
+      deleteBusiness({
+        data: { id: BUSINESS_ID },
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
+      }),
     ).rejects.toThrow(/appointment_services_business_id_fkey/);
   });
 

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
+import { getProfessionalCountState } from "@/lib/professional-count-state";
 import { deleteProfessional, saveProfessional } from "@/lib/professionals.functions";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { ProfessionalAvatar } from "@/components/painel/ProfessionalBubbles";
@@ -140,7 +141,17 @@ function WeekdayLinks({
   );
 }
 
-function StatCard({ icon: Icon, label, value, tone }: { icon: LucideIcon; label: string; value: number; tone?: "green" | "yellow" }) {
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+  tone?: "green" | "yellow";
+}) {
   return (
     <div className="professional-stat-card">
       <div
@@ -189,8 +200,13 @@ function ProfissionaisPage() {
   });
   const people = peopleQuery.data ?? [];
   // O 1º profissional (agenda principal do dono) é grátis; a partir do 2º, +R$ 10/mês.
-  const firstProfessionalFree = people.length === 0;
-  const atLimit = people.length >= 10;
+  const creationState = getProfessionalCountState({
+    isLoading: peopleQuery.isPending,
+    isError: peopleQuery.isError,
+    count: people.length,
+  });
+  const firstProfessionalFree = creationState.firstProfessionalFree;
+  const atLimit = creationState.atLimit;
   const peopleList = people;
 
   const servicesQuery = useQuery({
@@ -236,10 +252,7 @@ function ProfissionaisPage() {
       saveFn({
         data: {
           ...form,
-          name:
-            form.publicName.trim() ||
-            form.agendaName.trim() ||
-            "Profissional",
+          name: form.publicName.trim() || form.agendaName.trim() || "Profissional",
           businessId: businessId!,
         },
       }),
@@ -334,8 +347,8 @@ function ProfissionaisPage() {
                   <span className="professional-badge">Equipe e permissões</span>
                 </div>
                 <p className="mt-1 max-w-xl text-xs leading-relaxed text-[#6d7079]">
-                  Cadastre sua equipe, controle os serviços vinculados e defina exatamente o
-                  que cada profissional pode acessar.
+                  Cadastre sua equipe, controle os serviços vinculados e defina exatamente o que
+                  cada profissional pode acessar.
                 </p>
               </div>
             </div>
@@ -379,218 +392,213 @@ function ProfissionaisPage() {
           setForm(empty);
         }}
       >
-            <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
-              <DialogHeader className="professional-dialog-header">
-                <div className="flex items-start gap-3 text-left">
-                  <div className="professional-dialog-icon">
-                    <UserRound className="size-[1.05rem]" strokeWidth={1.8} />
-                  </div>
-                  <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
-                    {form.id ? "Editar profissional" : "Cadastrar profissional"}
-                  </DialogTitle>
-                </div>
-              </DialogHeader>
-              <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
-                <TabsList className="professional-tabs grid w-full grid-cols-3">
-                  <TabsTrigger value="dados">Dados</TabsTrigger>
-                  <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
-                  <TabsTrigger value="permissoes">Permissões</TabsTrigger>
-                </TabsList>
+        <DialogContent className="professional-dialog max-h-[92vh] max-w-2xl overflow-y-auto p-0">
+          <DialogHeader className="professional-dialog-header">
+            <div className="flex items-start gap-3 text-left">
+              <div className="professional-dialog-icon">
+                <UserRound className="size-[1.05rem]" strokeWidth={1.8} />
+              </div>
+              <DialogTitle className="text-lg font-semibold tracking-[-0.025em] text-[var(--c-f1f2f4)]">
+                {form.id ? "Editar profissional" : "Cadastrar profissional"}
+              </DialogTitle>
+            </div>
+          </DialogHeader>
+          <Tabs defaultValue="dados" className="px-4 pb-4 sm:px-5 sm:pb-5">
+            <TabsList className="professional-tabs grid w-full grid-cols-3">
+              <TabsTrigger value="dados">Dados</TabsTrigger>
+              <TabsTrigger value="vinculos">Vínculos</TabsTrigger>
+              <TabsTrigger value="permissoes">Permissões</TabsTrigger>
+            </TabsList>
 
-                <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
-                  {businessId ? (
-                    <ProfessionalPhotoField
-                      businessId={businessId}
-                      name={form.publicName || form.agendaName || "Profissional"}
-                      avatarPath={form.avatarPath}
-                      onChange={(avatarPath) => setForm({ ...form, avatarPath })}
-                    />
-                  ) : null}
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <Field
-                      label="Nome agenda"
-                      value={form.agendaName}
-                      maxLength={11}
-                      hint="Nome curto exibido ao lado dos dias na agenda (máx. 11)."
-                      onChange={(agendaName) =>
-                        setForm({ ...form, agendaName: agendaName.slice(0, 11) })
+            <TabsContent value="dados" className="professional-form-section space-y-5 pt-5">
+              {businessId ? (
+                <ProfessionalPhotoField
+                  businessId={businessId}
+                  name={form.publicName || form.agendaName || "Profissional"}
+                  avatarPath={form.avatarPath}
+                  onChange={(avatarPath) => setForm({ ...form, avatarPath })}
+                />
+              ) : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="Nome agenda"
+                  value={form.agendaName}
+                  maxLength={11}
+                  hint="Nome curto exibido ao lado dos dias na agenda (máx. 11)."
+                  onChange={(agendaName) =>
+                    setForm({ ...form, agendaName: agendaName.slice(0, 11) })
+                  }
+                />
+                <Field
+                  label="Nome cliente verá"
+                  value={form.publicName}
+                  hint="Nome exibido para o cliente ao selecionar o profissional no agendamento."
+                  onChange={(publicName) => setForm({ ...form, publicName })}
+                />
+                <Field
+                  label="Cargo / especialidade"
+                  value={form.role}
+                  onChange={(role) => setForm({ ...form, role })}
+                />
+                <Field
+                  label="Telefone de acesso"
+                  value={form.phone}
+                  onChange={(phone) => setForm({ ...form, phone })}
+                />
+                <Field
+                  label="E-mail (opcional)"
+                  value={form.email}
+                  type="email"
+                  onChange={(email) => setForm({ ...form, email })}
+                />
+                {!form.hasAccess && (
+                  <label className="professional-choice-row sm:col-span-2">
+                    <Switch
+                      checked={form.createAccess}
+                      onCheckedChange={(createAccess) =>
+                        setForm({ ...form, createAccess, password: "" })
                       }
                     />
-                    <Field
-                      label="Nome cliente verá"
-                      value={form.publicName}
-                      hint="Nome exibido para o cliente ao selecionar o profissional no agendamento."
-                      onChange={(publicName) => setForm({ ...form, publicName })}
-                    />
-                    <Field
-                      label="Cargo / especialidade"
-                      value={form.role}
-                      onChange={(role) => setForm({ ...form, role })}
-                    />
-                    <Field
-                      label="Telefone de acesso"
-                      value={form.phone}
-                      onChange={(phone) => setForm({ ...form, phone })}
-                    />
-                    <Field
-                      label="E-mail (opcional)"
-                      value={form.email}
-                      type="email"
-                      onChange={(email) => setForm({ ...form, email })}
-                    />
-                    {!form.hasAccess && (
-                      <label className="professional-choice-row sm:col-span-2">
-                        <Switch
-                          checked={form.createAccess}
-                          onCheckedChange={(createAccess) =>
-                            setForm({ ...form, createAccess, password: "" })
-                          }
-                        />
-                        <span className="text-sm">
-                          Criar acesso de login para este profissional
-                        </span>
-                      </label>
-                    )}
-                    {(form.hasAccess || form.createAccess) && (
-                      <Field
-                        label={
-                          form.hasAccess
-                            ? "Nova senha de 4 dígitos (opcional)"
-                            : "Senha de 4 dígitos para criar acesso"
-                        }
-                        value={form.password}
-                        type="password"
-                        maxLength={4}
-                        onChange={(password) =>
-                          setForm({ ...form, password: password.replace(/\D/g, "").slice(0, 4) })
-                        }
-                      />
-                    )}
-                  </div>
-                  <div>
-                    <Label className="professional-section-label mb-2">Dias de trabalho</Label>
-                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
-                      {DAYS.map((day, i) => (
-                        <label
-                          key={day}
-                          className={`professional-day-option cursor-pointer focus-within:ring-2 focus-within:ring-ring ${
-                            form.workingDays.includes(i) ? "is-selected" : ""
-                          }`}
-                        >
-                          <Checkbox
-                            className="sr-only"
-                            checked={form.workingDays.includes(i)}
-                            onCheckedChange={(v) =>
-                              setForm({
-                                ...form,
-                                workingDays: v
-                                  ? [...form.workingDays, i]
-                                  : form.workingDays.filter((d) => d !== i),
-                              })
-                            }
-                          />
-                          {day}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="vinculos" className="professional-form-section space-y-5 pt-5">
-                  <WeekdayLinks
-                    workingDays={form.workingDays}
-                    onToggleDay={(d) =>
-                      setForm({
-                        ...form,
-                        workingDays: form.workingDays.includes(d)
-                          ? form.workingDays.filter((x) => x !== d)
-                          : [...form.workingDays, d].sort((a, b) => a - b),
-                      })
+                    <span className="text-sm">Criar acesso de login para este profissional</span>
+                  </label>
+                )}
+                {(form.hasAccess || form.createAccess) && (
+                  <Field
+                    label={
+                      form.hasAccess
+                        ? "Nova senha de 4 dígitos (opcional)"
+                        : "Senha de 4 dígitos para criar acesso"
                     }
-                    onToggleAll={(on) =>
-                      setForm({ ...form, workingDays: on ? [1, 2, 3, 4, 5, 6] : [] })
+                    value={form.password}
+                    type="password"
+                    maxLength={4}
+                    onChange={(password) =>
+                      setForm({ ...form, password: password.replace(/\D/g, "").slice(0, 4) })
                     }
                   />
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <Switch
-                        checked={
-                          (services ?? []).length > 0 &&
-                          (services ?? []).every((s) => form.serviceIds.includes(s.id))
-                        }
+                )}
+              </div>
+              <div>
+                <Label className="professional-section-label mb-2">Dias de trabalho</Label>
+                <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                  {DAYS.map((day, i) => (
+                    <label
+                      key={day}
+                      className={`professional-day-option cursor-pointer focus-within:ring-2 focus-within:ring-ring ${
+                        form.workingDays.includes(i) ? "is-selected" : ""
+                      }`}
+                    >
+                      <Checkbox
+                        className="sr-only"
+                        checked={form.workingDays.includes(i)}
                         onCheckedChange={(v) =>
                           setForm({
                             ...form,
-                            serviceIds: v ? (services ?? []).map((s) => s.id) : [],
+                            workingDays: v
+                              ? [...form.workingDays, i]
+                              : form.workingDays.filter((d) => d !== i),
                           })
                         }
-                        aria-label="Todos os serviços"
                       />
-                      <span className="text-sm font-semibold">Todos</span>
-                    </div>
-                    {servicesQuery.isError ? (
-                      <p role="alert" className="py-4 text-sm text-destructive">
-                        Não foi possível carregar os serviços. Atualize a página e tente novamente.
-                      </p>
-                    ) : (
-                      services?.map((s) => (
-                        <label key={s.id} className="professional-choice-row justify-between">
-                          <span>{s.name}</span>
-                          <Switch
-                            checked={form.serviceIds.includes(s.id)}
-                            onCheckedChange={(v) =>
-                              setForm({
-                                ...form,
-                                serviceIds: v
-                                  ? [...form.serviceIds, s.id]
-                                  : form.serviceIds.filter((id) => id !== s.id),
-                              })
-                            }
-                          />
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </TabsContent>
+                      {day}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </TabsContent>
 
-                <TabsContent
-                  value="permissoes"
-                  className="professional-form-section space-y-3 pt-5"
-                >
-                  <div className="professional-info-box flex items-center gap-2">
-                    <ShieldCheck className="size-5 text-primary" /> Estas permissões controlam o que
-                    aparece e o que pode ser alterado no acesso do profissional.
-                  </div>
-                  {PERMISSIONS.map(([key, label]) => (
-                    <label key={key} className="professional-choice-row justify-between">
-                      <span>{label}</span>
+            <TabsContent value="vinculos" className="professional-form-section space-y-5 pt-5">
+              <WeekdayLinks
+                workingDays={form.workingDays}
+                onToggleDay={(d) =>
+                  setForm({
+                    ...form,
+                    workingDays: form.workingDays.includes(d)
+                      ? form.workingDays.filter((x) => x !== d)
+                      : [...form.workingDays, d].sort((a, b) => a - b),
+                  })
+                }
+                onToggleAll={(on) =>
+                  setForm({ ...form, workingDays: on ? [1, 2, 3, 4, 5, 6] : [] })
+                }
+              />
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <Switch
+                    checked={
+                      (services ?? []).length > 0 &&
+                      (services ?? []).every((s) => form.serviceIds.includes(s.id))
+                    }
+                    onCheckedChange={(v) =>
+                      setForm({
+                        ...form,
+                        serviceIds: v ? (services ?? []).map((s) => s.id) : [],
+                      })
+                    }
+                    aria-label="Todos os serviços"
+                  />
+                  <span className="text-sm font-semibold">Todos</span>
+                </div>
+                {servicesQuery.isError ? (
+                  <p role="alert" className="py-4 text-sm text-destructive">
+                    Não foi possível carregar os serviços. Atualize a página e tente novamente.
+                  </p>
+                ) : (
+                  services?.map((s) => (
+                    <label key={s.id} className="professional-choice-row justify-between">
+                      <span>{s.name}</span>
                       <Switch
-                        checked={!!form.permissions[key]}
+                        checked={form.serviceIds.includes(s.id)}
                         onCheckedChange={(v) =>
-                          setForm({ ...form, permissions: { ...form.permissions, [key]: v } })
+                          setForm({
+                            ...form,
+                            serviceIds: v
+                              ? [...form.serviceIds, s.id]
+                              : form.serviceIds.filter((id) => id !== s.id),
+                          })
                         }
                       />
                     </label>
-                  ))}
-                </TabsContent>
-              </Tabs>
-              <DialogFooter className="professional-dialog-footer">
-                <Button
-                  className="professional-primary-button"
-                  onClick={() => save.mutate()}
-                  disabled={
-                    !(form.publicName.trim() || form.agendaName.trim()) ||
-                    (form.createAccess && form.password.length !== 4) ||
-                    (form.hasAccess && !!form.password && form.password.length !== 4) ||
-                    (!form.email && form.phone.replace(/\D/g, "").length < 8) ||
-                    save.isPending
-                  }
-                >
-                  Salvar profissional
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+                  ))
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="permissoes" className="professional-form-section space-y-3 pt-5">
+              <div className="professional-info-box flex items-center gap-2">
+                <ShieldCheck className="size-5 text-primary" /> Estas permissões controlam o que
+                aparece e o que pode ser alterado no acesso do profissional.
+              </div>
+              {PERMISSIONS.map(([key, label]) => (
+                <label key={key} className="professional-choice-row justify-between">
+                  <span>{label}</span>
+                  <Switch
+                    checked={!!form.permissions[key]}
+                    onCheckedChange={(v) =>
+                      setForm({ ...form, permissions: { ...form.permissions, [key]: v } })
+                    }
+                  />
+                </label>
+              ))}
+            </TabsContent>
+          </Tabs>
+          <DialogFooter className="professional-dialog-footer">
+            <Button
+              className="professional-primary-button"
+              onClick={() => save.mutate()}
+              disabled={
+                !(form.publicName.trim() || form.agendaName.trim()) ||
+                (form.createAccess && form.password.length !== 4) ||
+                (form.hasAccess && !!form.password && form.password.length !== 4) ||
+                (!form.email && form.phone.replace(/\D/g, "").length < 8) ||
+                save.isPending
+              }
+            >
+              Salvar profissional
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={warnOpen} onOpenChange={setWarnOpen}>
         <DialogContent className="max-w-md overflow-hidden rounded-2xl p-0" aria-label="Atenção">
@@ -658,12 +666,28 @@ function ProfissionaisPage() {
             <div className="flex flex-col items-end gap-1">
               <Button
                 className="professional-primary-button"
-                disabled={atLimit}
+                disabled={!creationState.canCreate}
                 onClick={() => (firstProfessionalFree ? startNewProfessional() : setWarnOpen(true))}
               >
                 <Plus className="size-4" /> Cadastrar profissional
               </Button>
-              {atLimit ? (
+              {creationState.status === "loading" ? (
+                <span role="status" className="text-[11px] text-[#62656e]">
+                  Verificando equipe e preço…
+                </span>
+              ) : creationState.status === "error" ? (
+                <span className="flex flex-wrap items-center justify-end gap-2 text-[11px] text-destructive">
+                  Não foi possível verificar o limite nem o preço.
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void peopleQuery.refetch()}
+                  >
+                    Tentar novamente
+                  </Button>
+                </span>
+              ) : atLimit ? (
                 <span className="text-[11px] font-medium text-amber-400">
                   Limite de 10 profissionais atingido.
                 </span>
@@ -678,10 +702,7 @@ function ProfissionaisPage() {
           </div>
         </div>
         {peopleQuery.isError ? (
-          <p
-            role="alert"
-            className="p-6 text-center text-sm text-destructive"
-          >
+          <p role="alert" className="p-6 text-center text-sm text-destructive">
             Não foi possível carregar os profissionais. Atualize a página e tente novamente.
           </p>
         ) : !people?.length ? (
@@ -700,7 +721,9 @@ function ProfissionaisPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">{p.name}</p>
+                    <p className="truncate text-sm font-semibold text-[var(--c-eef0f3)]">
+                      {p.name}
+                    </p>
                     {p.user_id && <span className="professional-badge">Acesso ativo</span>}
                   </div>
                   <p className="mt-1 text-xs text-[#686b74]">

@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatPrice, categoryLabel } from "@/lib/format";
 import { formatPhoneBR } from "@/lib/format-phone";
+import { businessStatusLabel, isBusinessActive } from "@/lib/master/business-status";
 import type { PlatformBusinessRow } from "@/lib/master/platform-overview.functions";
 
 const SEM_DADOS_HEALTH = { label: "Sem dados", className: "bg-white/5 text-[#9aa1ab]" };
@@ -111,11 +112,13 @@ export function BusinessQuickCard({
         <div className="flex flex-wrap gap-2 px-4 pt-3">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${
-              suspended ? "bg-destructive/15 text-destructive" : "bg-emerald-500/15 text-emerald-400"
+              isBusinessActive(row.status)
+                ? "bg-emerald-500/15 text-emerald-400"
+                : "bg-destructive/15 text-destructive"
             }`}
           >
             <span className="size-1.5 rounded-full bg-current" />
-            {suspended ? "Suspenso" : "Ativo"}
+            {businessStatusLabel(row.status)}
           </span>
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold ${payment.className}`}

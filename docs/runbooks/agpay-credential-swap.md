@@ -6,25 +6,29 @@ A Agenda Agora usa uma única conta e um único token AgPay da plataforma para c
 
 `AGPAY_API_TOKEN` também é a chave usada para validar a assinatura HMAC dos webhooks recebidos em `/api/public/agpay-webhook`. Ao rotacionar o token, coordene a atualização da chave de assinatura no AgPay para que chamadas da API e webhooks passem a usar a mesma chave.
 
-## Variáveis a atualizar no Vercel
+## Variáveis do ambiente que atende o app
 
 | Variável          | Uso                                                                                                |
 | ----------------- | -------------------------------------------------------------------------------------------------- |
 | `AGPAY_API_TOKEN` | Token único da plataforma usado no header Bearer das chamadas de API e como chave HMAC do webhook. |
+| `AGPAY_CLIENT_ID` | Identificador da credencial enviado no header `X-Client-ID` quando fornecido pelo AgPay.          |
 
-As chamadas para a API usam somente `Authorization: Bearer <AGPAY_API_TOKEN>`, conforme a
-documentação real da API (`https://agpay.services/documentacao`). Um header `X-Client-ID` extra
-faz a API retornar 401 "Credenciais de API inválidas ou expiradas" mesmo com token válido e IP
-liberado. Remova a variável antiga dos ambientes quando for conveniente.
+Os exemplos atuais da documentação AgPay usam `Authorization: Bearer <AGPAY_API_TOKEN>` e
+`X-Client-ID: <AGPAY_CLIENT_ID>`. O adaptador envia o segundo header quando essa variável está
+configurada. Em 15/11/2026, uma consulta GET somente leitura a `/transactions?limit=1` retornou
+200 com a credencial local tanto com quanto sem `X-Client-ID`; isso não substitui a validação de
+uma chamada POST em sandbox após uma rotação de credenciais. Uma observação histórica de 401 com
+esse header não deve ser tratada como regra universal sem repetir a validação com a credencial
+vigente.
 
-Atualize os ambientes Vercel que serão usados (Production e, quando aplicável, Preview). Não solicite nem cadastre tokens AgPay de estabelecimentos.
+A última verificação registrada (2026-11-15) encontrou a produção no serviço agenda-agora_app, em EasyPanel/Docker Swarm. Atualize as variáveis nesse serviço e faça o redeploy controlado. Se houver um preview Vercel ativo, atualize-o separadamente; não trate Vercel como produção sem confirmar o runtime. Não solicite nem cadastre tokens AgPay de estabelecimentos.
 
 ## Passo a passo
 
 1. Obtenha o novo `AGPAY_API_TOKEN` com o responsável pela conta de plataforma. Confirme com o AgPay a data de ativação e a troca da chave HMAC do webhook para o mesmo token.
 2. No painel do AgPay, confirme que o webhook aponta para `https://<dominio-publico>/api/public/agpay-webhook` e que a assinatura `X-Webhook-Signature` será calculada com o novo token.
-3. No Vercel, atualize `AGPAY_API_TOKEN` no ambiente aplicável. Não compartilhe o valor em tickets, logs ou mensagens.
-4. Faça o redeploy desses ambientes para que as novas variáveis sejam carregadas.
+3. No EasyPanel, atualize `AGPAY_API_TOKEN` e `AGPAY_CLIENT_ID` no serviço de produção após confirmar que o runtime continua sendo agenda-agora_app. Não compartilhe os valores em tickets, logs ou mensagens. Se houver preview Vercel ativo, atualize-o separadamente.
+4. Faça o redeploy do serviço de produção no EasyPanel para carregar as novas variáveis. Repita separadamente apenas para previews ativos.
 5. **Smoke test de cobrança**: crie uma cobrança Pix de baixo valor em um estabelecimento de teste. Confirme que o QR/copia-e-cola foi gerado e que o valor foi recebido pela plataforma.
 6. **Smoke test de webhook**: conclua o pagamento de teste e confirme que o webhook é aceito, que o evento aparece em `agpay_webhook_events` e que a reserva muda para paga/confirmada.
 7. Monitore erros de API, eventos `failed`/pendentes em `agpay_webhook_events` e o cron `POST /api/public/hooks/agpay-events` após a troca.
@@ -37,7 +41,7 @@ Todas as chamadas à API podem sair por um retransmissor próprio quando `AGPAY_
 
 ## Pedido ao suporte sobre IP de saída (rascunho)
 
-> Olá! Estamos configurando uma integração de API com a conta da plataforma. O cadastro da credencial exige um único IP fixo de saída. Podem liberar este IP para uma credencial no modo “Automático”? Se necessário, enviamos a captura do formulário que apresenta esse campo. A cobrança e os saques serão iniciados exclusivamente pelo nosso servidor.
+> Olá! Estamos integrando nosso sistema à API da conta da plataforma. O cadastro da credencial exige um único IP fixo de saída, mas nossa infraestrutura pode usar mais de um IP. Vocês podem aceitar uma faixa de IPs ou dispensar a whitelist de IP para essa credencial? Se a whitelist for obrigatória, podem informar o formato de faixa aceito e confirmar se a credencial pode operar em modo Automático? [Anexar ao envio uma captura do formulário que solicita o IP do servidor.] As cobranças e os saques serão iniciados exclusivamente pelo nosso servidor.
 
 O IP fixo da VPS de produção documentado neste projeto é `179.236.231.178`; confirme no painel de infraestrutura antes de cadastrá-lo ou gerar uma credencial nova. Se o ambiente usar retransmissor, cadastre o IPv4 reservado desse retransmissor em vez do IP da VPS.
 
@@ -51,4 +55,4 @@ O IP fixo da VPS de produção documentado neste projeto é `179.236.231.178`; c
 
 ## Retorno à credencial anterior
 
-Se o smoke test falhar, restaure no Vercel o `AGPAY_API_TOKEN` anterior, coordene com o AgPay a restauração da chave HMAC correspondente, e faça novo redeploy. Refaça os smoke tests de cobrança e webhook antes de encerrar a ocorrência.
+Se o smoke test falhar, restaure no serviço de produção o `AGPAY_API_TOKEN` anterior, coordene com o AgPay a restauração da chave HMAC correspondente, e faça novo redeploy do serviço no EasyPanel. Se um preview Vercel também tiver sido alterado, restaure-o separadamente. Refaça os smoke tests de cobrança e webhook antes de encerrar a ocorrência.

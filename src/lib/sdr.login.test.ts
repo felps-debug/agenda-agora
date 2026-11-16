@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { scryptSync } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeAdmin, serverFnMock } from "@/test-support/fake-admin";
 
@@ -46,12 +46,11 @@ const login = sdrLogin as unknown as (arg: {
   data: unknown;
 }) => Promise<{ token: string; name: string }>;
 
-const legacyHash = (pin: string, email: string) =>
-  createHash("sha256").update(`${email}::${pin}`).digest("hex");
-
 beforeEach(() => {
   runtime.attempts.clear();
   runtime.ip = "198.51.100.1";
+  const salt = "ab".repeat(16);
+  const hash = scryptSync("ana@x.com::1234", salt, 64).toString("hex");
   runtime.fake = createFakeAdmin({
     sdrs: [
       {
@@ -59,7 +58,7 @@ beforeEach(() => {
         name: "Ana",
         email: "ana@x.com",
         active: true,
-        pin: legacyHash("1234", "ana@x.com"),
+        pin: `scrypt$${salt}$${hash}`,
       },
     ],
     businesses: [{ id: "biz-1", sdr_id: "sdr-1" }],
@@ -75,7 +74,7 @@ describe("login do SDR com limite de tentativas (US2)", () => {
     expect(verifySdrToken(result.token, SECRET, Date.now() + 8 * 86_400_000)).toBeNull();
   });
 
-  it("converte o hash legado em scrypt no primeiro login e continua entrando depois", async () => {
+  it("continua entrando com hash scrypt depois de novo login", async () => {
     await login({ data: { email: "ana@x.com", pin: "1234" } });
     const stored = String(runtime.fake!.tables["sdrs"]![0]!["pin"]);
     expect(stored.startsWith("scrypt$")).toBe(true);
@@ -85,6 +84,15 @@ describe("login do SDR com limite de tentativas (US2)", () => {
     await expect(login({ data: { email: "ana@x.com", pin: "9999" } })).rejects.toThrow(
       "E-mail ou senha incorretos.",
     );
+  });
+
+  it("exige redefinição para PIN com hash legado e não o migra automaticamente", async () => {
+    runtime.fake!.tables["sdrs"]![0]!["pin"] = "legacy_hash";
+
+    await expect(login({ data: { email: "ana@x.com", pin: "1234" } })).rejects.toThrow(
+      /PIN_RESET_REQUIRED/,
+    );
+    expect(runtime.fake!.calls.updates.filter((row) => row.table === "sdrs")).toHaveLength(0);
   });
 
   it("bloqueia na quinta senha errada com TOO_MANY_ATTEMPTS e tempo restante", async () => {

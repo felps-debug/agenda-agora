@@ -23,10 +23,11 @@ vi.mock("@/lib/auth/require-super-admin", () => ({
     };
   },
 }));
-const { updateBusinessContact } = await import("./dossier.functions");
+const { updateBusinessContact, updateBusinessCommercial } = await import("./dossier.functions");
 const { setOwnerPassword } = await import("../reset-password.functions");
 type Call = (input: { data: unknown; context: { userId: string } }) => Promise<unknown>;
 const contact = updateBusinessContact as unknown as Call;
+const commercial = updateBusinessCommercial as unknown as Call;
 const password = setOwnerPassword as unknown as Call;
 const context = { userId: "master" };
 beforeEach(() => {
@@ -86,6 +87,13 @@ describe("dossier login and contact changes", () => {
     });
     expect(runtime.fake!.tables["businesses"]![0]!["name"]).toBe("Novo nome");
     expect(runtime.fake!.tables["profiles"]![0]!["full_name"]).toBe("Responsável");
+  });
+  it("reports a persisted contact change when its required audit event fails", async () => {
+    runtime.fake!.failures["master_business_events:insert"] = { message: "offline" };
+    await expect(
+      commercial({ data: { businessId: BUSINESS, salesOwner: "Nova responsável" }, context }),
+    ).rejects.toThrow(/alteração foi aplicada.*auditoria/i);
+    expect(runtime.fake!.tables["businesses"]![0]!["sales_owner"]).toBe("Nova responsável");
   });
   it("updates the phone login in Auth, profile and business", async () => {
     await contact({

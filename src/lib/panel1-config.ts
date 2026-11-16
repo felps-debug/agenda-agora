@@ -13,6 +13,17 @@ export type Panel1Font = (typeof PANEL1_FONTS)[number];
 export const PANEL1_LOGO_FITS = ["quadrado", "horizontal", "vertical"] as const;
 export type Panel1LogoFit = (typeof PANEL1_LOGO_FITS)[number];
 
+export const PANEL1_TIMEZONE_OPTIONS = [
+  ["America/Sao_Paulo", "Brasília / São Paulo"],
+  ["America/Manaus", "Manaus"],
+  ["America/Recife", "Recife"],
+  ["America/Cuiaba", "Cuiabá"],
+] as const;
+export const PANEL1_TIMEZONES = PANEL1_TIMEZONE_OPTIONS.map(([timezone]) => timezone) as [
+  (typeof PANEL1_TIMEZONE_OPTIONS)[number][0],
+  ...(typeof PANEL1_TIMEZONE_OPTIONS)[number][0][],
+];
+
 export type Panel1Appearance = {
   font_family: Panel1Font;
   logo_fit: Panel1LogoFit;
@@ -500,7 +511,11 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
       DEFAULT_PANEL1_PREFERENCES.extra_reminder_template,
       800,
     ),
-    timezone: stringValue(rawPreferences["timezone"], DEFAULT_PANEL1_PREFERENCES.timezone, 80),
+    timezone: PANEL1_TIMEZONES.includes(
+      rawPreferences["timezone"] as (typeof PANEL1_TIMEZONES)[number],
+    )
+      ? (rawPreferences["timezone"] as Panel1Preferences["timezone"])
+      : DEFAULT_PANEL1_PREFERENCES.timezone,
     list_dates_days: Math.floor(
       numberValue(
         rawPreferences["list_dates_days"],
@@ -534,8 +549,14 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
       ),
     ),
     greeting: stringValue(rawPreferences["greeting"], DEFAULT_PANEL1_PREFERENCES.greeting, 80),
-    greeting_enabled: boolValue(rawPreferences["greeting_enabled"], DEFAULT_PANEL1_PREFERENCES.greeting_enabled),
-    post_service_enabled: boolValue(rawPreferences["post_service_enabled"], DEFAULT_PANEL1_PREFERENCES.post_service_enabled),
+    greeting_enabled: boolValue(
+      rawPreferences["greeting_enabled"],
+      DEFAULT_PANEL1_PREFERENCES.greeting_enabled,
+    ),
+    post_service_enabled: boolValue(
+      rawPreferences["post_service_enabled"],
+      DEFAULT_PANEL1_PREFERENCES.post_service_enabled,
+    ),
     post_service_minutes: Math.floor(
       numberValue(
         rawPreferences["post_service_minutes"],
@@ -568,11 +589,7 @@ export function normalizePanel1Config(value: unknown): Panel1Config {
     const logoRaw = rawEntry["logoPath"];
     const backgroundRaw = rawEntry["backgroundPath"];
     const logoPath =
-      logoRaw === null
-        ? null
-        : typeof logoRaw === "string"
-          ? logoRaw.slice(0, 512)
-          : undefined;
+      logoRaw === null ? null : typeof logoRaw === "string" ? logoRaw.slice(0, 512) : undefined;
     const backgroundPath =
       backgroundRaw === null
         ? null

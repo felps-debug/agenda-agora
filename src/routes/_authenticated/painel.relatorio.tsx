@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { formatPrice } from "@/lib/format";
 import { completedReportMetrics } from "@/lib/report-metrics";
+import { requireReportDatasets } from "@/lib/report-datasets";
 import { NoBusiness } from "@/components/painel/PageHeader";
 import { ReportChart } from "@/components/painel/ReportChart";
 import {
@@ -49,7 +50,7 @@ function RelatorioPage() {
 
   const since = useMemo(() => new Date(Date.now() - days * 86400000).toISOString(), [days]);
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["report", businessId, days],
     enabled: !!businessId,
     queryFn: async () => {
@@ -65,12 +66,11 @@ function RelatorioPage() {
         supabase.from("services").select("id, name, price_cents").eq("business_id", businessId!),
         supabase.from("professionals").select("id, name").eq("business_id", businessId!),
       ]);
-      if (appts.error) throw appts.error;
-      return {
-        appointments: appts.data ?? [],
-        services: services.data ?? [],
-        professionals: pros.data ?? [],
-      };
+      return requireReportDatasets({
+        appointments: appts,
+        services,
+        professionals: pros,
+      });
     },
   });
 
@@ -152,68 +152,97 @@ function RelatorioPage() {
         </div>
       </section>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card
-          icon={WalletCards}
-          effect="strong"
-          label="Faturamento"
-          value={formatPrice(report.revenue)}
-          hint="Serviços concluídos"
-        />
-        <Card
-          icon={HandCoins}
-          effect="medium"
-          label="Sinais recebidos"
-          value={formatPrice(report.deposits)}
-          hint="Pagos pelo cliente"
-        />
-        <Card
-          icon={CalendarCheck2}
-          effect="subtle"
-          label="Atendimentos"
-          value={String(report.total)}
-          hint={`${report.done} concluídos · ${report.canceled} cancelados`}
-        />
-        <Card
-          icon={CircleDollarSign}
-          effect="none"
-          label="Ticket médio"
-          value={formatPrice(report.ticket)}
-          hint={`${report.clients} cliente(s) no período`}
-        />
-      </div>
-
-      <section className="report-luminous-card report-effect-none report-chart-card p-5 sm:p-6">
-        <ReportCardTitle icon={ChartNoAxesColumnIncreasing} title="Atendimentos por dia" />
-        {report.chart.length ? (
-          <div className="relative z-10 mt-5 h-64">
-            <ReportChart chart={report.chart} />
-          </div>
-        ) : (
-          <p className="relative z-10 flex min-h-36 items-center justify-center text-center text-sm text-muted-foreground">
-            Nenhum atendimento no período.
+      {isLoading && (
+        <p className="text-center text-sm text-muted-foreground" role="status">
+          Carregando relatório…
+        </p>
+      )}
+      {isError && (
+        <div
+          className="report-luminous-card flex flex-col items-center gap-3 p-6 text-center"
+          role="alert"
+        >
+          <p className="text-sm text-destructive">
+            Não foi possível carregar todas as fontes do relatório. Os indicadores estão
+            indisponíveis.
           </p>
-        )}
-      </section>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="rounded-lg border border-[var(--c-2a3441)] bg-[var(--c-0c1118)] px-4 py-2 text-sm text-[var(--c-c3ccd7)] hover:text-white disabled:opacity-50"
+          >
+            {isFetching ? "Atualizando…" : "Tentar novamente"}
+          </button>
+        </div>
+      )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <ListCard
-          icon={Scissors}
-          title="Serviços mais vendidos"
-          rows={report.byService.map((s) => ({
-            name: s.name,
-            value: `${s.total}x · ${formatPrice(s.valor)}`,
-          }))}
-        />
-        <ListCard
-          icon={UsersRound}
-          title="Ocupação por profissional"
-          rows={report.byProfessional.map((p) => ({
-            name: p.name,
-            value: `${p.total} atendimento(s)`,
-          }))}
-        />
-      </div>
+      {data && !isError && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Card
+              icon={WalletCards}
+              effect="strong"
+              label="Faturamento"
+              value={formatPrice(report.revenue)}
+              hint="Serviços concluídos"
+            />
+            <Card
+              icon={HandCoins}
+              effect="medium"
+              label="Sinais recebidos"
+              value={formatPrice(report.deposits)}
+              hint="Pagos pelo cliente"
+            />
+            <Card
+              icon={CalendarCheck2}
+              effect="subtle"
+              label="Atendimentos"
+              value={String(report.total)}
+              hint={`${report.done} concluídos · ${report.canceled} cancelados`}
+            />
+            <Card
+              icon={CircleDollarSign}
+              effect="none"
+              label="Ticket médio"
+              value={formatPrice(report.ticket)}
+              hint={`${report.clients} cliente(s) no período`}
+            />
+          </div>
+
+          <section className="report-luminous-card report-effect-none report-chart-card p-5 sm:p-6">
+            <ReportCardTitle icon={ChartNoAxesColumnIncreasing} title="Atendimentos por dia" />
+            {report.chart.length ? (
+              <div className="relative z-10 mt-5 h-64">
+                <ReportChart chart={report.chart} />
+              </div>
+            ) : (
+              <p className="relative z-10 flex min-h-36 items-center justify-center text-center text-sm text-muted-foreground">
+                Nenhum atendimento no período.
+              </p>
+            )}
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <ListCard
+              icon={Scissors}
+              title="Serviços mais vendidos"
+              rows={report.byService.map((s) => ({
+                name: s.name,
+                value: `${s.total}x · ${formatPrice(s.valor)}`,
+              }))}
+            />
+            <ListCard
+              icon={UsersRound}
+              title="Ocupação por profissional"
+              rows={report.byProfessional.map((p) => ({
+                name: p.name,
+                value: `${p.total} atendimento(s)`,
+              }))}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -257,7 +286,9 @@ function ReportCardTitle({ icon: Icon, title }: { icon: LucideIcon; title: strin
       <div className="report-icon-box">
         <Icon className="size-[1.05rem]" strokeWidth={1.8} aria-hidden="true" />
       </div>
-      <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--c-eef1f6)]">{title}</h2>
+      <h2 className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--c-eef1f6)]">
+        {title}
+      </h2>
     </div>
   );
 }

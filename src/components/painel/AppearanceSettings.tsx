@@ -137,7 +137,9 @@ export function AppearanceSettings({
         <div className="mx-auto flex max-w-[430px] flex-col overflow-hidden rounded-[1.5rem] border-4 border-[var(--c-020617)] bg-background shadow-2xl sm:rounded-[2rem] sm:border-8">
           <div
             className="flex flex-1 min-h-full flex-col [&>div]:flex-1"
-            style={{ backgroundColor: data?.brandBackground ?? business?.brand_background ?? "#ffffff" }}
+            style={{
+              backgroundColor: data?.brandBackground ?? business?.brand_background ?? "#ffffff",
+            }}
           >
             <ElegancePanel
               appearance={appearance}

@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { connect, uuid, seedBasics, type PgClient, type Seed } from "./helpers";
+import { attempt, connect, uuid, seedBasics, type PgClient, type Seed } from "./helpers";
 
 let db: PgClient;
 let seed: Seed;
+let appointmentFixtureIndex = 0;
+
+const nextAppointmentFixtureIndex = () => ++appointmentFixtureIndex;
 
 beforeAll(async () => {
   db = await connect();
@@ -20,6 +23,65 @@ const fail = (key: string, limit = 5, windowMs = 15 * 60_000, lockMs = 30 * 60_0
     windowMs,
     lockMs,
   ]);
+
+describe("limite de profissionais por negocio", () => {
+  const addProfessionals = async (businessId: string, count: number) => {
+    for (let index = 0; index < count; index++) {
+      await db.query("INSERT INTO public.professionals (business_id, name) VALUES ($1, $2)", [
+        businessId,
+        `Profissional ${index + 1}`,
+      ]);
+    }
+  };
+
+  it("bloqueia INSERT direto do owner acima de dez profissionais", async () => {
+    await addProfessionals(seed.businessA, 10);
+    const result = await attempt(
+      db,
+      { role: "authenticated", userId: seed.ownerA },
+      "INSERT INTO public.professionals (business_id, name) VALUES ($1, 'Extra')",
+      [seed.businessA],
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/limite.*10.*profissionais/i);
+  });
+
+  it("serializa criacoes concorrentes quando resta uma vaga", async () => {
+    await addProfessionals(seed.businessB, 9);
+    const clients = await Promise.all([connect(), connect()]);
+    const insertAsOwner = async (client: PgClient, name: string) => {
+      await client.query("BEGIN");
+      try {
+        await client.query("SET LOCAL ROLE authenticated");
+        await client.query("SELECT set_config('request.jwt.claims', $1, true)", [
+          JSON.stringify({ role: "authenticated", sub: seed.ownerB }),
+        ]);
+        await client.query("INSERT INTO public.professionals (business_id, name) VALUES ($1, $2)", [
+          seed.businessB,
+          name,
+        ]);
+        await client.query("COMMIT");
+        return true;
+      } catch {
+        await client.query("ROLLBACK");
+        return false;
+      }
+    };
+    try {
+      const inserted = await Promise.all(
+        clients.map((client, index) => insertAsOwner(client, `Concorrente ${index + 1}`)),
+      );
+      expect(inserted.filter(Boolean)).toHaveLength(1);
+      const { rows } = await db.query(
+        "SELECT count(*)::int AS n FROM public.professionals WHERE business_id = $1",
+        [seed.businessB],
+      );
+      expect(rows[0]!["n"]).toBe(10);
+    } finally {
+      await Promise.all(clients.map((client) => client.end()));
+    }
+  });
+});
 
 describe("register_auth_failure: limite de tentativas no banco", () => {
   it("conta falhas, bloqueia na quinta e informa o tempo restante", async () => {
@@ -181,6 +243,28 @@ describe("cancel_overdue_business: regra do dia 15", () => {
     expect(await cancel(uuid())).toBe(false);
   });
 
+  it("conta criada como trial mas com pagamento confirmado segue a regra de assinante", async () => {
+    const id = await create({ accessUntilDays: 30, trialDays: 7 });
+    await db.query(
+      `INSERT INTO public.subscription_payments (business_id, reference_month, amount_cents, status, paid_at)
+       VALUES ($1, date_trunc('month', now())::date, 8990, 'pago', now())`,
+      [id],
+    );
+
+    expect(await cancel(id)).toBe(true);
+  });
+
+  it("reconhece cobrança paga mesmo se o histórico best-effort não foi gravado", async () => {
+    const id = await create({ accessUntilDays: 30, trialDays: 7 });
+    await db.query(
+      `INSERT INTO public.subscription_charges (business_id, provider_payment_id, amount_cents, status)
+       VALUES ($1, $2, 8990, 'paid')`,
+      [id, `tx-${id}`],
+    );
+
+    expect(await cancel(id)).toBe(true);
+  });
+
   it("chamadas simultâneas cancelam uma única vez", async () => {
     const id = await create({ accessUntilDays: 25 });
     const clients = await Promise.all(Array.from({ length: 5 }, () => connect()));
@@ -202,7 +286,7 @@ describe("cancel_overdue_business: regra do dia 15", () => {
   });
 });
 
-describe("saudação do WhatsApp: reserva atômica e janela de 24 h", () => {
+describe("saudação do WhatsApp: reserva atômica e janela de 30 min", () => {
   const claim = async (phone: string) =>
     (
       await db.query("SELECT public.claim_whatsapp_greeting($1, $2) AS token", [
@@ -227,13 +311,18 @@ describe("saudação do WhatsApp: reserva atômica e janela de 24 h", () => {
     expect(await claim(phone)).toBeNull();
   });
 
-  it("depois de enviada, nada novo por 24 h; depois disso, volta a poder enviar", async () => {
+  it("permite nova saudação após 30 min, mas não antes", async () => {
     const phone = "5511900000002";
     const token = (await claim(phone))!;
     expect(await finish(phone, token, true)).toBe(true);
     expect(await claim(phone)).toBeNull();
     await db.query(
-      "UPDATE public.whatsapp_greeting_replies SET replied_at = now() - interval '25 hours' WHERE business_id = $1 AND sender_phone = $2",
+      "UPDATE public.whatsapp_greeting_replies SET replied_at = now() - interval '29 minutes 59 seconds' WHERE business_id = $1 AND sender_phone = $2",
+      [seed.businessA, phone],
+    );
+    expect(await claim(phone)).toBeNull();
+    await db.query(
+      "UPDATE public.whatsapp_greeting_replies SET replied_at = now() - interval '30 minutes' WHERE business_id = $1 AND sender_phone = $2",
       [seed.businessA, phone],
     );
     expect(await claim(phone)).not.toBeNull();
@@ -272,13 +361,86 @@ describe("saudação do WhatsApp: reserva atômica e janela de 24 h", () => {
   });
 });
 
+describe("claim de lembretes WhatsApp", () => {
+  const claim = async (appointmentId: string, channel = "whatsapp") =>
+    (
+      await db.query("SELECT public.claim_whatsapp_reminder($1, $2, $3) AS token", [
+        seed.businessA,
+        appointmentId,
+        channel,
+      ])
+    ).rows[0]!["token"] as string | null;
+  const finish = async (appointmentId: string, channel: string, token: string, sent: boolean) =>
+    (
+      await db.query("SELECT public.finish_whatsapp_reminder($1, $2, $3, $4, $5, $6) AS ok", [
+        seed.businessA,
+        appointmentId,
+        channel,
+        token,
+        sent,
+        sent ? null : "provider offline",
+      ])
+    ).rows[0]!["ok"] as boolean;
+  const createAppointment = async () => {
+    const id = uuid();
+    await db.query(
+      `INSERT INTO public.appointments (id, business_id, customer_name, starts_at, ends_at, status)
+       VALUES ($1, $2, 'Maria', now() + ($3::int * interval '2 hours'),
+         now() + ($3::int * interval '2 hours') + interval '1 hour', 'agendado')`,
+      [id, seed.businessA, nextAppointmentFixtureIndex()],
+    );
+    return id;
+  };
+
+  it("libera retry após falha, bloqueia claim concorrente e não repete envio concluído", async () => {
+    const appointmentId = await createAppointment();
+    const first = await claim(appointmentId);
+    expect(first).toMatch(/^[0-9a-f-]{36}$/);
+    expect(await claim(appointmentId)).toBeNull();
+    expect(await finish(appointmentId, "whatsapp", first!, false)).toBe(true);
+
+    const retry = await claim(appointmentId);
+    expect(retry).toMatch(/^[0-9a-f-]{36}$/);
+    expect(retry).not.toBe(first);
+    expect(await finish(appointmentId, "whatsapp", retry!, true)).toBe(true);
+    expect(await claim(appointmentId)).toBeNull();
+
+    const { rows } = await db.query(
+      "SELECT status, error, claim_token FROM public.reminder_logs WHERE appointment_id = $1 AND channel = 'whatsapp'",
+      [appointmentId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "enviado", error: null, claim_token: null });
+  });
+
+  it("concede no máximo um claim entre processos simultâneos", async () => {
+    const appointmentId = await createAppointment();
+    const clients = await Promise.all(Array.from({ length: 6 }, () => connect()));
+    try {
+      const results = await Promise.all(
+        clients.map((client) =>
+          client.query("SELECT public.claim_whatsapp_reminder($1, $2, $3) AS token", [
+            seed.businessA,
+            appointmentId,
+            "whatsapp-extra",
+          ]),
+        ),
+      );
+      expect(results.filter((result) => result.rows[0]!["token"] !== null)).toHaveLength(1);
+    } finally {
+      await Promise.all(clients.map((client) => client.end()));
+    }
+  });
+});
+
 describe("fila pós-atendimento", () => {
   const appointment = async () => {
     const id = uuid();
     await db.query(
       `INSERT INTO public.appointments (id, business_id, customer_name, starts_at, ends_at, status)
-       VALUES ($1, $2, 'Maria', now() - interval '2 hours', now() - interval '1 hour', 'concluido')`,
-      [id, seed.businessA],
+       VALUES ($1, $2, 'Maria', now() - ($3::int * interval '2 hours'),
+         now() - ($3::int * interval '2 hours') + interval '1 hour', 'concluido')`,
+      [id, seed.businessA, nextAppointmentFixtureIndex()],
     );
     return id;
   };

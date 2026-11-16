@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
-import { fetchPaymentStatus } from "./agpay.server";
-import {
-  computePaymentBreakdown,
-  creditPayment,
-  debitRefund,
-  settleWithdrawal,
-} from "./ledger.server";
+import { fetchPayment } from "./agpay.server";
+import { agpayAmountToCents } from "./agpay-amount";
+import { computePaymentBreakdown, creditPayment, settleWithdrawal } from "./ledger.server";
 import { nextAccessAfterPayment } from "./billing-cycle";
 
 type WebhookPayload = {
@@ -17,8 +13,33 @@ type WebhookPayload = {
     withdrawal_id?: string | number;
     uuid?: string;
     status?: string;
+    amount?: unknown;
   };
 };
+
+class PaymentAmountMismatchError extends Error {
+  constructor(
+    readonly expectedCents: number,
+    readonly receivedCents: number | null,
+    readonly receivedValue: unknown,
+  ) {
+    const expected = (expectedCents / 100).toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    const received =
+      receivedCents === null
+        ? "ausente ou inválido"
+        : (receivedCents / 100).toLocaleString("pt-BR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+    super(
+      `Valor bruto informado pela AgPay diverge da cobrança local: esperado R$ ${expected}; recebido ${received}.`,
+    );
+    this.name = "PaymentAmountMismatchError";
+  }
+}
 
 async function database() {
   return (await import("@/integrations/supabase/client.server")).supabaseAdmin;
@@ -72,6 +93,83 @@ async function readLedgerPayment(db: Database, providerPaymentId: string) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data as LedgerPayment | null;
+}
+
+async function expectedPaymentAmountCents(db: Database, providerPaymentId: string) {
+  const { data: deposit, error: depositError } = await db
+    .from("deposit_payments")
+    .select("amount_cents")
+    .eq("provider_payment_id", providerPaymentId)
+    .maybeSingle();
+  if (depositError) throw new Error(depositError.message);
+  if (deposit) return Number(deposit.amount_cents);
+
+  const { data: subscription, error: subscriptionError } = await db
+    .from("subscription_charges")
+    .select("amount_cents")
+    .eq("provider_payment_id", providerPaymentId)
+    .maybeSingle();
+  if (subscriptionError) throw new Error(subscriptionError.message);
+  return subscription ? Number(subscription.amount_cents) : null;
+}
+
+function assertPaymentAmount(expectedCents: number, receivedValue: unknown) {
+  const receivedCents = agpayAmountToCents(receivedValue);
+  if (receivedCents !== expectedCents) {
+    throw new PaymentAmountMismatchError(expectedCents, receivedCents, receivedValue);
+  }
+}
+
+async function persistAmountMismatchReview(
+  db: Database,
+  input: {
+    providerPaymentId: string;
+    expectedCents: number;
+    receivedValue: unknown;
+    source: "status_query";
+  },
+) {
+  const message = new PaymentAmountMismatchError(
+    input.expectedCents,
+    agpayAmountToCents(input.receivedValue),
+    input.receivedValue,
+  ).message;
+  const dedupeHash = createHash("sha256")
+    .update(
+      JSON.stringify({
+        source: input.source,
+        providerPaymentId: input.providerPaymentId,
+        expectedCents: input.expectedCents,
+        receivedValue: input.receivedValue ?? null,
+      }),
+      "utf8",
+    )
+    .digest("hex");
+  const { error } = await db.from("agpay_webhook_events").upsert(
+    {
+      dedupe_hash: dedupeHash,
+      event_type: "payment.amount_mismatch",
+      transaction_uuid: input.providerPaymentId,
+      payload: {
+        source: input.source,
+        data: {
+          transaction_uuid: input.providerPaymentId,
+          amount:
+            typeof input.receivedValue === "string" || typeof input.receivedValue === "number"
+              ? input.receivedValue
+              : null,
+        },
+        expected_amount_cents: input.expectedCents,
+      },
+      status: "error",
+      attempts: 1,
+      locked_at: null,
+      processed_at: null,
+      last_error: message,
+    },
+    { onConflict: "dedupe_hash" },
+  );
+  if (error) throw new Error("Não foi possível registrar a divergência para revisão manual.");
 }
 
 async function freezePaymentBreakdown(db: Database, payment: LedgerPayment) {
@@ -197,7 +295,8 @@ export async function confirmSubscriptionCharge(providerPaymentId: string) {
     const { error: renewError } = await db
       .from("businesses")
       .update({ access_until: target })
-      .eq("id", charge.business_id);
+      .eq("id", charge.business_id)
+      .or(`access_until.is.null,access_until.lt.${target}`);
     if (renewError) throw new Error(renewError.message);
   }
 
@@ -227,7 +326,10 @@ export async function confirmSubscriptionCharge(providerPaymentId: string) {
     }
   }
 
-  return { outcome: transitioned ? ("renewed" as const) : ("already_paid" as const), accessUntil: target };
+  return {
+    outcome: transitioned ? ("renewed" as const) : ("already_paid" as const),
+    accessUntil: target,
+  };
 }
 
 export async function persistAgpayWebhookEvent(rawBody: string, input: unknown) {
@@ -266,6 +368,60 @@ async function markAppointmentCancelled(appointmentId: string | null) {
   if (error) throw new Error(error.message);
 }
 
+async function deliverPaymentConfirmation(
+  db: Database,
+  payment: { id: string; status: string; appointment_id: string | null },
+) {
+  if (payment.status !== "pago" || !payment.appointment_id) return;
+  const { data: claimToken, error: claimError } = await db.rpc(
+    "claim_deposit_payment_whatsapp_confirmation",
+    { _payment_id: payment.id },
+  );
+  if (claimError) throw new Error("Não foi possível reservar o aviso de pagamento.");
+  if (typeof claimToken !== "string") {
+    const { data: current, error } = await db
+      .from("deposit_payment_whatsapp_confirmations")
+      .select("status")
+      .eq("deposit_payment_id", payment.id)
+      .maybeSingle();
+    if (error) throw new Error("Não foi possível consultar o estado do aviso de pagamento.");
+    if (["sent", "skipped"].includes(current?.status ?? "")) return;
+    if (current?.status === "processing") {
+      throw new Error("O aviso de pagamento já está sendo processado.");
+    }
+    throw new Error("O aviso de pagamento continua pendente de processamento.");
+  }
+
+  try {
+    const { sendPaymentConfirmation } = await import("./whatsapp-notify.server");
+    const sent = await sendPaymentConfirmation(payment.appointment_id);
+    const { data: finished, error: finishError } = await db
+      .from("deposit_payment_whatsapp_confirmations")
+      .update({
+        status: sent === false ? "skipped" : "sent",
+        claim_token: null,
+        claimed_at: null,
+      })
+      .eq("deposit_payment_id", payment.id)
+      .eq("claim_token", claimToken)
+      .select("deposit_payment_id")
+      .maybeSingle();
+    if (finishError || !finished)
+      throw new Error("Não foi possível finalizar o aviso de pagamento.");
+  } catch (error) {
+    await db
+      .from("deposit_payment_whatsapp_confirmations")
+      .update({
+        status: "pending",
+        claim_token: null,
+        claimed_at: null,
+      })
+      .eq("deposit_payment_id", payment.id)
+      .eq("claim_token", claimToken);
+    throw error;
+  }
+}
+
 /** Somente a instância que efetua pendente -> pago confirma e notifica. */
 export async function confirmDepositPayment(
   providerPaymentId: string,
@@ -274,6 +430,7 @@ export async function confirmDepositPayment(
   const db = await database();
   const current = await readLedgerPayment(db, providerPaymentId);
   if (!current) return { outcome: "not_found" as const };
+  if (current.status === "estornado") return { outcome: "already_refunded" as const };
   const paidAt = new Date().toISOString();
   let payment = current;
   let transitioned = false;
@@ -300,7 +457,10 @@ export async function confirmDepositPayment(
   payment = await freezePaymentBreakdown(db, payment);
   const credited = await creditFrozenPayment(db, payment);
   // Uma falha no crédito sobe ao worker: a inbox fica failed e reprocessa o snapshot congelado.
-  if (!transitioned && !credited.created) return { outcome: "already_paid" as const };
+  if (!transitioned && !credited.created) {
+    await deliverPaymentConfirmation(db, payment);
+    return { outcome: "already_paid" as const };
+  }
   if (latePayment || payment.status === "pago_sem_agendamento") {
     return { outcome: "paid_after_expiration" as const };
   }
@@ -329,8 +489,7 @@ export async function confirmDepositPayment(
     return { outcome: "appointment_conflict" as const };
   }
 
-  const { sendPaymentConfirmation } = await import("./whatsapp-notify.server");
-  await sendPaymentConfirmation(payment.appointment_id);
+  await deliverPaymentConfirmation(db, payment);
   return { outcome: "confirmed" as const };
 }
 
@@ -402,13 +561,17 @@ export async function cancelPendingDeposit(chargeId: string): Promise<{ status: 
     }
     if (charge.status !== "pendente") return { status: charge.status };
 
-    await expireLocalCharge(
+    const expired = await expireLocalCharge(
       charge.id,
       charge.appointment_id,
       charge.provider_payment_id ? "cancelled_locally" : "not_created",
       claimToken,
     );
-    return { status: "expirado" };
+    if (expired) return { status: "expirado" };
+
+    const current = await readCancellableCharge(db, charge.id);
+    if (!current) throw new Error("Cobrança não encontrada.");
+    return { status: current.status };
   } finally {
     const { error: releaseError } = await Promise.resolve(
       rpc("release_deposit_pix", {
@@ -425,7 +588,7 @@ export async function synchronizeDepositPayment(chargeId: string) {
   const db = await database();
   const { data: charge, error } = await db
     .from("deposit_payments")
-    .select("id, appointment_id, status, provider_payment_id, expires_at")
+    .select("id, appointment_id, status, provider_payment_id, amount_cents, expires_at")
     .eq("id", chargeId)
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -442,14 +605,33 @@ export async function synchronizeDepositPayment(chargeId: string) {
   // confirmado no gateway perto do fim da janela e só chegar aqui depois de expirar
   // localmente (webhook atrasado/ausente). Cancelar sem checar perderia um pagamento já recebido.
   if (charge.provider_payment_id) {
-    const status = await fetchPaymentStatus(charge.provider_payment_id);
-    await db.from("deposit_payments").update({ provider_status: status }).eq("id", charge.id);
-    if (status === "completed") {
-      await confirmDepositPayment(charge.provider_payment_id, status);
+    const payment = await fetchPayment(charge.provider_payment_id);
+    if (payment.status === "completed") {
+      try {
+        assertPaymentAmount(Number(charge.amount_cents), payment.amount);
+      } catch (error) {
+        if (!(error instanceof PaymentAmountMismatchError)) throw error;
+        await persistAmountMismatchReview(db, {
+          providerPaymentId: charge.provider_payment_id,
+          expectedCents: Number(charge.amount_cents),
+          receivedValue: payment.amount,
+          source: "status_query",
+        });
+        throw error;
+      }
+      await db
+        .from("deposit_payments")
+        .update({ provider_status: payment.status })
+        .eq("id", charge.id);
+      await confirmDepositPayment(charge.provider_payment_id, payment.status);
       return { status: "pago" as const };
     }
-    if (status === "failed") {
-      await expireLocalCharge(charge.id, charge.appointment_id, status);
+    await db
+      .from("deposit_payments")
+      .update({ provider_status: payment.status })
+      .eq("id", charge.id);
+    if (payment.status === "failed") {
+      await expireLocalCharge(charge.id, charge.appointment_id, payment.status);
       return { status: "expirado" as const };
     }
   }
@@ -465,6 +647,7 @@ export async function synchronizeDepositPayment(chargeId: string) {
 
 /** Evento chegou antes de a referência local existir: fica em retry e expira em 24 h. */
 class MissingLocalReferenceError extends Error {}
+class UnconfirmedRefundEventError extends Error {}
 
 async function processWebhookEvent(row: {
   event_type: string;
@@ -478,7 +661,8 @@ async function processWebhookEvent(row: {
     payload.data?.uuid ??
     row.transaction_uuid;
   if (row.event_type.startsWith("withdrawal.")) {
-    if (!withdrawalRef) throw new MissingLocalReferenceError("Evento de saque sem referência do provedor.");
+    if (!withdrawalRef)
+      throw new MissingLocalReferenceError("Evento de saque sem referência do provedor.");
     const db = await database();
     const terminalStatus =
       row.event_type === "withdrawal.completed"
@@ -511,28 +695,20 @@ async function processWebhookEvent(row: {
     }
     return;
   }
+  if (hasUnconfirmedRefundMarker(row.event_type, payload.data?.status)) {
+    throw new UnconfirmedRefundEventError(
+      "Contrato oficial de evento de estorno/chargeback não confirmado; enviado para revisão manual.",
+    );
+  }
   const transactionUuid = row.transaction_uuid;
-  if (!transactionUuid) throw new MissingLocalReferenceError("Evento de depósito sem referência do provedor.");
+  if (!transactionUuid)
+    throw new MissingLocalReferenceError("Evento de depósito sem referência do provedor.");
   const providerStatus = payload.data?.status ?? row.event_type;
 
-  if (isRefundEvent(row.event_type, payload.data?.status)) {
-    const db = await database();
-    const payment = await readLedgerPayment(db, transactionUuid);
-    if (!payment || !["pago", "pago_sem_agendamento"].includes(payment.status)) {
-      throw new Error("Estorno recebido antes da confirmação do pagamento.");
-    }
-    const frozen = await freezePaymentBreakdown(db, payment);
-    await creditFrozenPayment(db, frozen);
-    await debitRefund(db, {
-      businessId: frozen.business_id,
-      paymentId: frozen.id,
-      amountCents: frozen.net_amount_cents!,
-      description: `Estorno do sinal de ${frozen.payer_name?.trim() || "cliente"}`,
-    });
-    return;
-  }
-
   if (row.event_type === "deposit.completed") {
+    const db = await database();
+    const expectedCents = await expectedPaymentAmountCents(db, transactionUuid);
+    if (expectedCents !== null) assertPaymentAmount(expectedCents, payload.data?.amount);
     const result = await confirmDepositPayment(transactionUuid, "completed");
     if (result.outcome === "not_found") {
       // Pode ser uma cobrança de assinatura (US7), não um sinal de agendamento.
@@ -550,18 +726,37 @@ async function processWebhookEvent(row: {
       .eq("provider_payment_id", transactionUuid)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!charge) throw new MissingLocalReferenceError("Cobrança ainda não encontrada localmente.");
-    await expireLocalCharge(charge.id, charge.appointment_id, providerStatus);
+    if (charge) {
+      await expireLocalCharge(charge.id, charge.appointment_id, providerStatus);
+      return;
+    }
+
+    // O mesmo evento também pode encerrar um Pix de assinatura. A transição
+    // condicional impede que uma falha atrasada regrida uma cobrança já paga.
+    const { data: subscriptionCharge, error: subscriptionError } = await db
+      .from("subscription_charges")
+      .select("id, status")
+      .eq("provider_payment_id", transactionUuid)
+      .maybeSingle();
+    if (subscriptionError) throw new Error(subscriptionError.message);
+    if (!subscriptionCharge)
+      throw new MissingLocalReferenceError("Cobrança ainda não encontrada localmente.");
+    if (subscriptionCharge.status === "pending") {
+      const { error: updateError } = await db
+        .from("subscription_charges")
+        .update({ status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", subscriptionCharge.id)
+        .eq("status", "pending");
+      if (updateError) throw new Error(updateError.message);
+    }
   }
   // waiting_payment fica registrado apenas para auditoria.
 }
 
-/** Hipótese até o AgPay confirmar o nome oficial do evento de estorno. */
-function isRefundEvent(eventType: string, status?: string) {
-  return (
-    ["transaction.refunded", "deposit.refunded", "transaction.chargeback"].includes(eventType) ||
-    (["transaction.updated", "deposit.updated"].includes(eventType) &&
-      ["refunded", "chargeback", "charged_back"].includes(status ?? ""))
+/** Marcadores semânticos de estorno ficam em revisão manual até o contrato AgPay ser confirmado. */
+function hasUnconfirmedRefundMarker(eventType: string, status?: string) {
+  return /refund|chargeback|charged[_ -]?back|estorn|reembols|devolu|revers/i.test(
+    `${eventType} ${status ?? ""}`,
   );
 }
 
@@ -616,6 +811,9 @@ export async function processAgpayWebhookEvents(limit = 25) {
     } catch (processError) {
       const attempts = candidate.attempts + 1;
       const delaySeconds = Math.min(900, 15 * 2 ** Math.min(attempts, 6));
+      const manualReview =
+        processError instanceof PaymentAmountMismatchError ||
+        processError instanceof UnconfirmedRefundEventError;
       const receivedAt = new Date(candidate.received_at).getTime();
       const expired =
         processError instanceof MissingLocalReferenceError &&
@@ -625,7 +823,7 @@ export async function processAgpayWebhookEvents(limit = 25) {
         .from("agpay_webhook_events")
         .update({
           // Depois de 24 h tentando, o evento sai da fila automática e vai para reconciliação manual.
-          status: expired ? "error" : "failed",
+          status: manualReview || expired ? "error" : "failed",
           attempts,
           locked_at: null,
           available_at: new Date(Date.now() + delaySeconds * 1000).toISOString(),

@@ -8,7 +8,7 @@ export const getLedgerStatement = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         from: z.string().optional(),
         to: z.string().optional(),
       })

@@ -1,5 +1,5 @@
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
@@ -58,11 +58,18 @@ import {
   getBusinessCoupon,
   setBusinessCoupon,
 } from "@/lib/subscription.functions";
+import { canEditBusinessCoupon } from "@/lib/coupon-edit-state";
+import { businessStatusLabel, isBusinessActive } from "@/lib/master/business-status";
 import { formatPrice } from "@/lib/format";
 import { rememberFreshSupportSession, clearFreshSupportSession } from "@/lib/support-session";
 import { saveCachedIsPlatformAdmin } from "@/lib/business-cache";
 import { isOwnerPin, OWNER_PIN_MESSAGE } from "@/lib/password-strength";
 import { categoryLabel } from "@/lib/format";
+import {
+  retainTemporarySecretForBusiness,
+  visibleTemporaryPassword,
+  type TemporarySecretState,
+} from "@/lib/master/temporary-secret-state";
 
 type DossierTab =
   | "visao"
@@ -243,11 +250,21 @@ export function BusinessDossier({
   const [leadSource, setLeadSource] = useState<string | null>(null);
   const [salesOwner, setSalesOwner] = useState<string | null>(null);
   const [commercialNotes, setCommercialNotes] = useState<string | null>(null);
-  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
+  const [temporaryPassword, setTemporaryPassword] = useState<TemporarySecretState | null>(null);
+  const businessIdRef = useRef(businessId);
+  businessIdRef.current = businessId;
+  const revealedTemporaryPassword = visibleTemporaryPassword(temporaryPassword, businessId);
+  useEffect(() => {
+    setTemporaryPassword((secret) => retainTemporarySecretForBusiness(secret, businessId));
+  }, [businessId]);
   const [confirmResetOpen, setConfirmResetOpen] = useState(false);
   const resetPassword = useMutation({
-    mutationFn: () => resetPasswordFn({ data: { businessId: businessId! } }),
-    onSuccess: (result) => setTemporaryPassword(result.temporaryPassword),
+    mutationFn: (targetBusinessId: string) =>
+      resetPasswordFn({ data: { businessId: targetBusinessId } }),
+    onSuccess: (result, targetBusinessId) => {
+      if (businessIdRef.current !== targetBusinessId) return;
+      setTemporaryPassword({ businessId: targetBusinessId, value: result.temporaryPassword });
+    },
     onError: (error: Error) => toast.error(error.message),
   });
 
@@ -359,12 +376,12 @@ export function BusinessDossier({
                     </p>
                     <span
                       className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-                        data.business.status === "suspenso"
+                        !isBusinessActive(data.business.status)
                           ? "border-destructive/40 bg-destructive/10 text-destructive"
                           : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                       }`}
                     >
-                      {data.business.status === "suspenso" ? "Suspenso" : "Ativo"}
+                      {businessStatusLabel(data.business.status)}
                     </span>
                   </div>
                   <p className="text-[12.5px] text-[#9aa1ab]">
@@ -535,10 +552,10 @@ export function BusinessDossier({
                             {resetPassword.isPending ? "Gerando…" : "Redefinir senha"}
                           </Button>
                         </div>
-                        {temporaryPassword ? (
+                        {revealedTemporaryPassword ? (
                           <p className="rounded-md border border-amber-400/30 bg-amber-400/10 p-2 text-xs text-amber-100">
                             Senha temporária, exibida uma vez:{" "}
-                            <code className="select-all">{temporaryPassword}</code>
+                            <code className="select-all">{revealedTemporaryPassword}</code>
                           </p>
                         ) : null}
                         <InfoRow label="Responsável" value={data.owner?.fullName || "—"} />
@@ -1145,15 +1162,15 @@ export function BusinessDossier({
                     />
                     <KpiCard
                       icon={<Banknote className="size-5" />}
-                      label="Volume confirmado"
-                      value={brl(data.deposits.paidVolumeCents)}
-                      hint={`${brl(data.deposits.feesCents)} de taxas`}
+                      label="Volume bruto pago"
+                      value={brl(data.deposits.grossPaidVolumeCents)}
+                      hint={`${data.deposits.refunded} estorno(s) · ${brl(data.deposits.refundedVolumeCents)} devolvido`}
                     />
                     <KpiCard
                       icon={<CreditCard className="size-5" />}
                       label="Comissão do SaaS"
                       value={brl(data.deposits.platformCommissionCents)}
-                      hint="Somente pagamentos confirmados"
+                      hint="Comissão registrada, inclusive em pagamentos estornados"
                     />
                   </div>
 
@@ -1524,7 +1541,7 @@ export function BusinessDossier({
               onClick={(event) => {
                 event.preventDefault();
                 setTemporaryPassword(null);
-                resetPassword.mutate(undefined, {
+                resetPassword.mutate(businessId!, {
                   onSettled: () => setConfirmResetOpen(false),
                 });
               }}
@@ -1847,6 +1864,11 @@ function CouponCard({ businessId, baseCents }: { businessId: string | null; base
   const [days, setDays] = useState<number | "">(7);
 
   const active = coupon.data?.coupon ?? null;
+  const couponReady = canEditBusinessCoupon({
+    isLoading: coupon.isLoading,
+    isError: coupon.isError,
+    hasData: coupon.data !== undefined,
+  });
   const effectiveOn = on || !!active;
 
   const set = useMutation({
@@ -1900,13 +1922,28 @@ function CouponCard({ businessId, baseCents }: { businessId: string | null; base
             Cupom de desconto
           </p>
           <p className="mt-0.5 text-[13px] text-[#9aa1ab]">
-            {active
-              ? `Cupom ${active.code} em vigor — ${active.percent}% de desconto, expira em ${formatDateTime(active.expiresAt)}`
-              : "Sempre desativado por padrão. Ative para liberar no checkout do estabelecimento (1–7 dias)."}
+            {coupon.isLoading
+              ? "Carregando configuração do cupom…"
+              : coupon.isError
+                ? "Não foi possível confirmar o cupom vigente. A edição está bloqueada."
+                : active
+                  ? `Cupom ${active.code} em vigor — ${active.percent}% de desconto, expira em ${formatDateTime(active.expiresAt)}`
+                  : "Sempre desativado por padrão. Ative para liberar no checkout do estabelecimento (1–7 dias)."}
           </p>
+          {coupon.isError && (
+            <button
+              type="button"
+              onClick={() => void coupon.refetch()}
+              disabled={coupon.isFetching}
+              className="mt-1 text-xs text-[var(--c-8fb5ff)] underline disabled:opacity-50"
+            >
+              {coupon.isFetching ? "Atualizando…" : "Tentar novamente"}
+            </button>
+          )}
         </div>
         <Switch
           checked={effectiveOn}
+          disabled={!couponReady || set.isPending || clear.isPending}
           onCheckedChange={(checked) => {
             if (checked) {
               setOn(true);
@@ -1920,7 +1957,7 @@ function CouponCard({ businessId, baseCents }: { businessId: string | null; base
         />
       </div>
 
-      {effectiveOn ? (
+      {couponReady && effectiveOn ? (
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

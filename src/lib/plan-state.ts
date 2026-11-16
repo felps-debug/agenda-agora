@@ -40,7 +40,12 @@ export function planState(
     : null;
   const daysLeft = until ? Math.round((until.getTime() - startOfToday.getTime()) / DAY_MS) : null;
   const daysLate = daysLeft != null ? Math.max(-daysLeft, 0) : 0;
-  const trial = business ? trialInfo({ trial_days: business.trial_days ?? null, trial_created_at: business.trial_created_at ?? null }) : null;
+  const trial = business
+    ? trialInfo({
+        trial_days: business.trial_days ?? null,
+        trial_created_at: business.trial_created_at ?? null,
+      })
+    : null;
 
   const renew = (detail: string): PlanState => ({
     tone: "renovar",

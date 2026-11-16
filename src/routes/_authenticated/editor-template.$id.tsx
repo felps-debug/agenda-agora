@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Download, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EditorPanel } from "@/components/template-editor/EditorPanel";
@@ -14,6 +14,7 @@ import {
   saveOutreachTemplateDesign,
 } from "@/lib/outreach-templates.functions";
 import type { OutreachDesign } from "@/lib/outreach-design";
+import { downloadOutreachPng } from "@/components/template-editor/export";
 
 type VisualTemplate = { id: string; title: string; design: OutreachDesign };
 
@@ -81,6 +82,21 @@ function OutreachTemplateEditorPage() {
     onError: () => toast.error("Não foi possível salvar a arte. Tente novamente."),
   });
 
+  const downloadPng = useMutation({
+    mutationFn: async () => {
+      if (!template || !design) throw new Error("A arte não foi encontrada.");
+      const filename = template.title
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      await downloadOutreachPng(design, `agenda-agora-${filename || "arte"}.png`);
+    },
+    onSuccess: () => toast.success("PNG baixado."),
+    onError: () => toast.error("Não foi possível gerar o PNG. Tente novamente."),
+  });
+
   if (status.isLoading || templates.isLoading)
     return (
       <p role="status" className="p-6">
@@ -133,10 +149,21 @@ function OutreachTemplateEditorPage() {
               </p>
             </div>
           </div>
-          <Button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
-            <Save />
-            {save.isPending ? "Salvando..." : "Salvar"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={downloadPng.isPending}
+              onClick={() => downloadPng.mutate()}
+            >
+              <Download />
+              {downloadPng.isPending ? "Gerando PNG..." : "Baixar PNG"}
+            </Button>
+            <Button type="button" disabled={!dirty || save.isPending} onClick={() => save.mutate()}>
+              <Save />
+              {save.isPending ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
         </div>
       </header>
       <div className="mx-auto max-w-[1600px] space-y-5 p-4 lg:p-6">

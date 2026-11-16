@@ -33,6 +33,7 @@ import {
 import {
   DEFAULT_EXTRA_REMINDER_TEMPLATE,
   DEFAULT_PANEL1_PREFERENCES,
+  PANEL1_TIMEZONE_OPTIONS,
   type Panel1Preferences as Preferences,
 } from "@/lib/panel1-config";
 import { PageHeader, NoBusiness } from "@/components/painel/PageHeader";
@@ -304,7 +305,10 @@ function ConfiguracoesPage() {
     return (
       <div className="-m-4 sm:-m-7 lg:-m-8">
         <div className="space-y-6">
-          <PageHeader title="Configurações" subtitle="Personalize o Painel 1 que o cliente acessa." />
+          <PageHeader
+            title="Configurações"
+            subtitle="Personalize o Painel 1 que o cliente acessa."
+          />
           <p className="-mb-4 min-h-4 text-right text-xs text-muted-foreground" aria-live="polite">
             {appearanceSaveStatus === "saving"
               ? "Salvando..."
@@ -640,7 +644,11 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
 
       <div className="grid min-h-[calc(100vh-65px)] lg:grid-cols-[260px_minmax(0,1fr)]">
         <aside className="preferences-mini-sidebar hidden min-h-[calc(100vh-65px)] rounded-l-[32px] border-r border-[var(--c-18345d)] bg-[radial-gradient(ellipse_120%_48%_at_0%_0%,var(--c-rgba-22-119-255-a0d30)_0%,var(--c-rgba-22-119-255-a0d12)_38%,transparent_72%),linear-gradient(180deg,var(--c-090d14)_0%,var(--c-07090d)_48%,#050607_100%)] px-3 pb-4 shadow-[inset_-1px_0_0_var(--c-rgba-93-168-255-a0d08)] lg:block lg:static lg:z-auto lg:w-auto lg:translate-x-0 lg:visible lg:pointer-events-auto">
-          <PreferencesSidebarInner selected={selected} onSelect={selectPreference} decorations={true} />
+          <PreferencesSidebarInner
+            selected={selected}
+            onSelect={selectPreference}
+            decorations={true}
+          />
         </aside>
 
         <section className="min-w-0 p-4 sm:p-8 lg:p-10">
@@ -760,12 +768,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                 <NativeSelect
                   value={prefs.timezone}
                   onChange={(timezone) => setPrefs({ ...prefs, timezone })}
-                  options={[
-                    ["America/Sao_Paulo", "Brasília / São Paulo"],
-                    ["America/Manaus", "Manaus"],
-                    ["America/Recife", "Recife"],
-                    ["America/Cuiaba", "Cuiabá"],
-                  ]}
+                  options={[...PANEL1_TIMEZONE_OPTIONS]}
                 />
               </SettingBlock>
             )}
@@ -932,9 +935,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                       </span>
                       <NativeSelect
                         value={prefs.post_service_send_to}
-                        onChange={(value) =>
-                          setPrefs({ ...prefs, post_service_send_to: value })
-                        }
+                        onChange={(value) => setPrefs({ ...prefs, post_service_send_to: value })}
                         options={[
                           ["todos", "Todos"],
                           ["somente_para", "Somente para"],
@@ -1078,9 +1079,8 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                           <span
                             dangerouslySetInnerHTML={{
                               __html:
-                                renderWhatsappPreview(
-                                  prefs.post_service_template || " ",
-                                ) || "<br />",
+                                renderWhatsappPreview(prefs.post_service_template || " ") ||
+                                "<br />",
                             }}
                           />
                         </div>
@@ -1121,8 +1121,7 @@ function PreferencesSettings({ businessId }: { businessId: string }) {
                             onClick={() =>
                               setPrefs({
                                 ...prefs,
-                                post_service_template:
-                                  prefs.post_service_template + token,
+                                post_service_template: prefs.post_service_template + token,
                               })
                             }
                             className="rounded-lg border border-[#2a2d32] bg-[#202226] px-4 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"

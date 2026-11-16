@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clientIp,
   consumeRateLimit,
@@ -7,9 +7,9 @@ import {
   resetRateLimits,
 } from "./rate-limit.server";
 
-// Os testes rodam fora do runtime de requisição, então clientIp() cai em
-// "sem-request" e todas as chamadas compartilham a mesma chave.
-const NO_REQUEST = "sem-request";
+const { getRequestMock } = vi.hoisted(() => ({ getRequestMock: vi.fn() }));
+
+vi.mock("@tanstack/react-start/server", () => ({ getRequest: getRequestMock }));
 
 describe("consumeRateLimit", () => {
   beforeEach(() => resetRateLimits());
@@ -56,8 +56,23 @@ describe("consumeRateLimit", () => {
 });
 
 describe("clientIp", () => {
-  it("não estoura fora do runtime de requisição", () => {
-    expect(clientIp()).toBe(NO_REQUEST);
+  beforeEach(() => getRequestMock.mockReset());
+
+  it("retorna endereço desconhecido quando o request não tem headers", () => {
+    getRequestMock.mockReturnValue(undefined);
+    expect(clientIp()).toBe("desconhecido");
+  });
+
+  it("usa o IP acrescentado pelo proxy em vez dos cabeçalhos forjáveis", () => {
+    getRequestMock.mockReturnValue({
+      headers: new Headers({
+        "cf-connecting-ip": "198.51.100.200",
+        "x-real-ip": "198.51.100.201",
+        "x-forwarded-for": "198.51.100.202, 203.0.113.19",
+      }),
+    });
+
+    expect(clientIp()).toBe("203.0.113.19");
   });
 });
 

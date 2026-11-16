@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { getTransactions } from "@/lib/transactions.functions";
+import { filterTransactionRows } from "@/lib/transactions-filter";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import {
@@ -52,6 +53,11 @@ function TransacoesPage() {
   const [type, setType] = useState("Todos");
   const [depositStatus, setDepositStatus] = useState("Todos");
   const [withdrawalStatus, setWithdrawalStatus] = useState("Todos");
+  const [appliedFilters, setAppliedFilters] = useState({
+    type: "Todos",
+    depositStatus: "Todos",
+    withdrawalStatus: "Todos",
+  });
   const [activeTab, setActiveTab] = useState<"deposits" | "withdrawals">("deposits");
   const [page, setPage] = useState(1);
   const [detailsId, setDetailsId] = useState<string | null>(null);
@@ -65,29 +71,12 @@ function TransacoesPage() {
   const deposits = data?.deposits ?? [];
   const withdrawals = data?.withdrawals ?? [];
 
-  const filteredDeposits = useMemo(() => {
-    if (!search) return deposits;
-    const term = search.toLowerCase();
-    return deposits.filter(
-      (d) =>
-        d.clientName.toLowerCase().includes(term) ||
-        d.email.toLowerCase().includes(term) ||
-        d.id.toLowerCase().includes(term) ||
-        d.uuid.toLowerCase().includes(term),
-    );
-  }, [deposits, search]);
-
-  const filteredWithdrawals = useMemo(() => {
-    if (!search) return withdrawals;
-    const term = search.toLowerCase();
-    return withdrawals.filter(
-      (d) =>
-        d.clientName.toLowerCase().includes(term) ||
-        d.email.toLowerCase().includes(term) ||
-        d.id.toLowerCase().includes(term) ||
-        d.uuid.toLowerCase().includes(term),
-    );
-  }, [withdrawals, search]);
+  const filtered = useMemo(
+    () => filterTransactionRows({ deposits, withdrawals }, { search, ...appliedFilters }),
+    [deposits, withdrawals, search, appliedFilters],
+  );
+  const filteredDeposits = filtered.deposits;
+  const filteredWithdrawals = filtered.withdrawals;
 
   const currentList = activeTab === "deposits" ? filteredDeposits : filteredWithdrawals;
   const PAGE_SIZE = 20;
@@ -299,7 +288,10 @@ function TransacoesPage() {
         <div className="mt-3 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setPage(1)}
+            onClick={() => {
+              setAppliedFilters({ type, depositStatus, withdrawalStatus });
+              setPage(1);
+            }}
             className="inline-flex items-center gap-2 rounded-xl bg-[var(--c-2563eb)] px-5 py-2.5 text-xs font-bold text-white shadow-[0_0_22px_rgba(22,119,255,0.35)] transition-colors hover:bg-[var(--c-1677ff)]"
           >
             Aplicar filtros
@@ -311,6 +303,11 @@ function TransacoesPage() {
               setType("Todos");
               setDepositStatus("Todos");
               setWithdrawalStatus("Todos");
+              setAppliedFilters({
+                type: "Todos",
+                depositStatus: "Todos",
+                withdrawalStatus: "Todos",
+              });
               setPage(1);
             }}
             className="inline-flex items-center gap-2 rounded-xl border border-[#2b2b2e] bg-[var(--c-0f1114)] px-5 py-2.5 text-xs font-bold text-[var(--c-cfd3d9)] transition-colors hover:border-[var(--c-5da8ff)]/40 hover:text-white"
@@ -356,7 +353,7 @@ function TransacoesPage() {
                 <th className="py-3 px-4">Cliente</th>
                 <th className="py-3 px-4">Tipo</th>
                 <th className="py-3 px-4">Valor bruto</th>
-                <th className="py-3 px-4">Lucro Ag Pay</th>
+                <th className="py-3 px-4">Valor líquido</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4">Data</th>
                 <th className="py-3 px-4 text-center">Ações</th>

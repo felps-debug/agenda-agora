@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Database, TablesInsert } from "@/integrations/supabase/types";
+import type { Database } from "@/integrations/supabase/types";
 import { isBusinessImagePath } from "@/lib/business-image-path";
 import { assertStoredBusinessImage } from "@/lib/logo";
 import {
@@ -16,8 +16,8 @@ const MAX_CENTS = 100_000_000;
 const MIN_PIX_DEPOSIT_CENTS = 500;
 
 export const saveServiceInput = z.object({
-  id: z.string().uuid().optional(),
-  businessId: z.string().uuid(),
+  id: z.string().guid().optional(),
+  businessId: z.string().guid(),
   name: z.string().trim().min(1).max(120),
   durationMinutes: z
     .number()
@@ -31,20 +31,32 @@ export const saveServiceInput = z.object({
   depositPercentBps: z.number().int().min(0).max(10_000),
   description: z.string().max(2000).nullable(),
   isCombo: z.boolean().default(false),
-  availableDays: z.array(z.number().int().min(0).max(6)).default([1, 2, 3, 4, 5, 6]),
+  availableDays: z.array(z.number().int().min(0).max(6)).max(7).default([1, 2, 3, 4, 5, 6]),
   showPrice: z.boolean().default(true),
   showDuration: z.boolean().default(true),
   showService: z.boolean().default(true),
   imagePath: z.string().max(512).nullable().default(null),
+  professionalIds: z.array(z.string().guid()).max(10).default([]),
 });
 
 export type SaveServiceInput = z.infer<typeof saveServiceInput>;
 
-// T034: as colunas vêm da migration service_deposit_percent, ainda ausentes do
-// types.ts gerado. Remover este tipo e a anotação em saveServiceForOwner quando os tipos
-// forem regenerados a partir do schema migrado.
 type ServiceDepositColumns = { deposit_mode: DepositMode; deposit_percent_bps: number };
-type ServiceRow = Omit<TablesInsert<"services">, "id"> & ServiceDepositColumns;
+type ServiceRow = {
+  business_id: string;
+  name: string;
+  duration_minutes: number;
+  price_cents: number;
+  requires_deposit: boolean;
+  deposit_cents: number;
+  description: string | null;
+  is_combo: boolean;
+  available_days: number[];
+  show_price: boolean;
+  show_duration: boolean;
+  show_service: boolean;
+  image_path: string | null;
+} & ServiceDepositColumns;
 
 /**
  * Monta a linha de `services` validada. No modo percentual, `deposit_cents` guarda o
@@ -111,25 +123,33 @@ export async function saveServiceForOwner(
   if (businessError) throw new Error("Não foi possível validar o negócio.");
   if (!business) throw new Error("Somente o dono pode gerenciar os serviços do negócio.");
 
-  // Sem `as unknown`: a linha só é alargada para o tipo gerado; as duas colunas extras
-  // seguem no payload até T034 incluí-las em TablesInsert<"services">.
   if (input.imagePath) {
     await assertStoredBusinessImage(supabase, input.imagePath, input.businessId, "service");
   }
 
-  const row: TablesInsert<"services"> = buildServiceRow(input);
-  const result = input.id
-    ? await supabase
-        .from("services")
-        .update(row)
-        .eq("id", input.id)
-        .eq("business_id", input.businessId)
-        .select("id")
-        .maybeSingle()
-    : await supabase.from("services").insert(row).select("id").single();
-  if (result.error) throw new Error("Não foi possível salvar o serviço.");
+  const row = buildServiceRow(input);
+  const result = await supabase.rpc("save_service_with_professionals", {
+    _service_id: input.id ?? null,
+    _business_id: input.businessId,
+    _name: row.name,
+    _duration_minutes: row.duration_minutes,
+    _price_cents: row.price_cents,
+    _requires_deposit: row.requires_deposit,
+    _deposit_mode: row.deposit_mode,
+    _deposit_percent_bps: row.deposit_percent_bps,
+    _deposit_cents: row.deposit_cents,
+    _description: row.description,
+    _is_combo: row.is_combo,
+    _available_days: row.available_days,
+    _show_price: row.show_price,
+    _show_duration: row.show_duration,
+    _show_service: row.show_service,
+    _image_path: row.image_path,
+    _professional_ids: input.professionalIds,
+  });
+  if (result.error) throw new Error("Não foi possível salvar o serviço e seus profissionais.");
   if (!result.data) throw new Error("Serviço não encontrado neste negócio.");
-  return { id: result.data.id };
+  return { id: result.data };
 }
 
 export const saveService = createServerFn({ method: "POST" })
@@ -139,18 +159,24 @@ export const saveService = createServerFn({ method: "POST" })
     saveServiceForOwner(context.supabase, context.userId, data),
   );
 
-export const saveServiceDepositInput = z.object({
-  businessId: z.string().uuid(),
-  serviceId: z.string().uuid(),
-  requiresDeposit: z.boolean(),
-  depositMode: z.enum(["fixed", "percent"]),
-  /** Centavos (modo fixo) ou pontos-base (modo percentual, 10000 = 100%). */
-  amount: z.number().int().min(0).max(10000000),
-}).superRefine((data, ctx) => {
-  if (data.depositMode === "percent" && data.amount > 10000) {
-    ctx.addIssue({ code: "custom", path: ["amount"], message: "O percentual do sinal deve ficar entre 0% e 100%." });
-  }
-});
+export const saveServiceDepositInput = z
+  .object({
+    businessId: z.string().guid(),
+    serviceId: z.string().guid(),
+    requiresDeposit: z.boolean(),
+    depositMode: z.enum(["fixed", "percent"]),
+    /** Centavos (modo fixo) ou pontos-base (modo percentual, 10000 = 100%). */
+    amount: z.number().int().min(0).max(10000000),
+  })
+  .superRefine((data, ctx) => {
+    if (data.depositMode === "percent" && data.amount > 10000) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["amount"],
+        message: "O percentual do sinal deve ficar entre 0% e 100%.",
+      });
+    }
+  });
 
 /** Atualiza somente o sinal de um serviço (atalho da tela de regras). */
 export const saveServiceDeposit = createServerFn({ method: "POST" })

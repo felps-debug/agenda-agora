@@ -47,7 +47,7 @@ const sdrReset = resetSdrOwnerPassword as unknown as (arg: {
   data: unknown;
 }) => Promise<{ temporaryPassword: string }>;
 
-const master = { userId: "master-1", claims: { aal: "aal1" } };
+const master = { userId: "master-1", claims: { aal: "aal2" } };
 const owner = { userId: "dono-1", claims: { aal: "aal1" } };
 
 beforeEach(() => {
@@ -150,11 +150,13 @@ describe("redefinição de senha do dono (US3)", () => {
         return /\.(ts|tsx)$/.test(name) && !/\.test\./.test(name) ? [path] : [];
       });
     }
-    // `types.ts` é gerado do banco: só perde as colunas depois da migration de DROP (T046/T048),
-    // então fica fora desta checagem até a regeneração pós-DROP. O resto do código tem de estar limpo.
+    // Inclui os tipos gerados: as colunas antigas foram removidas após a migration de DROP.
+    const removedColumns = ["access", "password"].join("_");
+    const removedPinColumn = ["withdrawal", "pin", "plain"].join("_");
     const offenders = files(join(process.cwd(), "src"))
-      .filter((path) => !path.endsWith(join("integrations", "supabase", "types.ts")))
-      .filter((path) => /access_password|withdrawal_pin_plain/.test(readFileSync(path, "utf8")))
+      .filter((path) =>
+        new RegExp(`${removedColumns}|${removedPinColumn}`).test(readFileSync(path, "utf8")),
+      )
       .map((path) => path.replace(process.cwd(), ""));
     expect(offenders).toEqual([]);
   });

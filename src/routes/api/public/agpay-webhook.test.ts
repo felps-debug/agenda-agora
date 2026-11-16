@@ -32,6 +32,32 @@ function request(rawBody: string, signature?: string) {
   });
 }
 
+function oversizedStreamRequest() {
+  let chunks = 0;
+  runtime.persistedHashes.clear();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (chunks === 17) {
+        controller.close();
+        return;
+      }
+      chunks++;
+      controller.enqueue(new Uint8Array(64 * 1024).fill(65));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const req = new Request("https://agenda.test/api/public/agpay-webhook", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-webhook-signature": "assinatura-valida" },
+    body,
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+  return { request: req, wasCancelled: () => cancelled };
+}
+
 describe("POST /api/public/agpay-webhook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,6 +76,31 @@ describe("POST /api/public/agpay-webhook", () => {
     expect(invalid.status).toBe(401);
     expect(await invalid.json()).toEqual({ error: "Unauthorized" });
     expect(runtime.persist).not.toHaveBeenCalled();
+  });
+
+  it("rejeita Content-Length maior que 1 MiB antes de verificar a assinatura", async () => {
+    const req = new Request("https://agenda.test/api/public/agpay-webhook", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(1024 * 1024 + 1),
+        "x-webhook-signature": "assinatura-valida",
+      },
+      body: "{}",
+    });
+    const response = await post({ request: req });
+
+    expect(response.status).toBe(413);
+    expect(runtime.verify).not.toHaveBeenCalled();
+  });
+
+  it("limita o corpo em streaming mesmo sem Content-Length", async () => {
+    const oversized = oversizedStreamRequest();
+    const response = await post({ request: oversized.request });
+
+    expect(response.status).toBe(413);
+    expect(runtime.verify).not.toHaveBeenCalled();
+    expect(oversized.wasCancelled()).toBe(true);
   });
 
   it("valida a assinatura sobre o texto bruto antes de tentar JSON.parse", async () => {

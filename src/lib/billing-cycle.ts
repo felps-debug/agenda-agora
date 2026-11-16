@@ -12,13 +12,7 @@
  * - "ok": acesso vigente, sem avisos.
  */
 
-export type BillingStage =
-  | "ok"
-  | "amanha"
-  | "venceu_hoje"
-  | "atrasado"
-  | "urgente"
-  | "bloqueado";
+export type BillingStage = "ok" | "amanha" | "venceu_hoje" | "atrasado" | "urgente" | "bloqueado";
 
 const DAY_MS = 86_400_000;
 
@@ -73,11 +67,15 @@ export const ADDITIONAL_PROFESSIONAL_CENTS = 1000;
 export const MAX_PROFESSIONALS = 10;
 
 export function subscriptionTotalCents(baseCents: number, professionalsCount: number): number {
-  const extras = Math.max(0, Math.min(professionalsCount, MAX_PROFESSIONALS) - INCLUDED_PROFESSIONALS);
+  const extras = Math.max(
+    0,
+    Math.min(professionalsCount, MAX_PROFESSIONALS) - INCLUDED_PROFESSIONALS,
+  );
   return baseCents + extras * ADDITIONAL_PROFESSIONAL_CENTS;
 }
 
-export type InvoiceCardStatus = {  status: "a_vencer" | "vencida";
+export type InvoiceCardStatus = {
+  status: "a_vencer" | "vencida";
   daysLeft: number;
   /**
    * Regra de exibição no menu Assinatura (SEMPRE UMA CAIXA DE STATUS):

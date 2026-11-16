@@ -4,10 +4,15 @@ import {
   computeOpenDays,
   computeSlots,
   cancelAppointmentPublic,
+  civilDateSchema,
   generateDepositPix,
   getPublicBookingCatalog,
   getAvailability,
+  getMyBookings,
+  getOpenDays,
+  filterPossibleLocalTimes,
   hhmm,
+  isPublicBookingEnabled,
   isValidCpfCnpj,
   minutesOf,
   reserveBooking,
@@ -67,6 +72,17 @@ describe("isValidCpfCnpj", () => {
   });
 });
 
+describe("isPublicBookingEnabled", () => {
+  it.each([
+    [{ status: "cancelado", cancelled_at: null }, false],
+    [{ status: "ativo", cancelled_at: "2026-11-14T00:00:00.000Z" }, false],
+    [{ status: "suspenso", cancelled_at: null }, false],
+    [{ status: "ativo", cancelled_at: null }, true],
+  ])("bloqueia estados encerrados para reservas públicas: %j", (business, expected) => {
+    expect(isPublicBookingEnabled(business)).toBe(expected);
+  });
+});
+
 describe("minutesOf / hhmm", () => {
   it("converte HH:mm pra minutos e volta", () => {
     expect(minutesOf("09:30")).toBe(570);
@@ -85,6 +101,43 @@ describe("toIso: fuso do estabelecimento", () => {
   ])("converte 10h corretamente em %s", (timezone, expected) => {
     expect(toIso("2026-01-15", "10:00", timezone)).toBe(expected);
   });
+});
+
+describe("toIso: transições de horário sazonal", () => {
+  it("preserva o horário local válido após a entrada do horário de verão", () => {
+    expect(toIso("2027-03-14", "03:30", "America/New_York")).toBe("2027-03-14T07:30:00.000Z");
+  });
+
+  it("rejeita horário local inexistente na entrada do horário de verão", () => {
+    expect(() => toIso("2027-03-14", "02:30", "America/New_York")).toThrow(
+      "Horário local inexistente ou ambíguo",
+    );
+  });
+
+  it("rejeita horário local ambíguo na saída do horário de verão", () => {
+    expect(() => toIso("2026-11-01", "01:30", "America/New_York")).toThrow(
+      "Horário local inexistente ou ambíguo",
+    );
+  });
+
+  it("não oferece horários inexistentes ou ambíguos na agenda", () => {
+    expect(
+      filterPossibleLocalTimes("2027-03-14", ["01:30", "02:30", "03:30"], "America/New_York"),
+    ).toEqual(["01:30", "03:30"]);
+  });
+});
+
+describe("civilDateSchema: valida calendário gregoriano", () => {
+  it.each(["2024-02-29", "2026-03-31", "2026-12-01"])("aceita %s", (date) => {
+    expect(civilDateSchema.parse(date)).toBe(date);
+  });
+
+  it.each(["2026-02-29", "2026-02-31", "2026-04-31", "2026-13-01"])(
+    "rejeita data civil inexistente %s",
+    (date) => {
+      expect(() => civilDateSchema.parse(date)).toThrow();
+    },
+  );
 });
 
 describe("computeSlots: intervalo de listagem", () => {
@@ -359,6 +412,36 @@ describe("generateDepositPix: retry e estados da cobrança", () => {
       }),
     );
   });
+
+  it.each([400, 401, 403, 404, 422])(
+    "marca rejeição documentada HTTP %s como rejeitado, sem tratar timeout como retryável",
+    async (status) => {
+      const db = setupDepositPix();
+      const error = Object.assign(new Error("request rejected"), {
+        name: "AgpayApiError",
+        status,
+      });
+      pixRuntime.createPixCharge.mockRejectedValueOnce(error);
+
+      await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
+      expect(db.releases).toEqual(["rejeitado"]);
+    },
+  );
+
+  it.each([302, 500])(
+    "mantém HTTP %s como ambíguo e não libera POST Pix imediato",
+    async (status) => {
+      const db = setupDepositPix();
+      const error = Object.assign(new Error("provider response uncertain"), {
+        name: "AgpayApiError",
+        status,
+      });
+      pixRuntime.createPixCharge.mockRejectedValueOnce(error);
+
+      await expect(generateDepositPix({ data: { chargeId } })).rejects.toThrow();
+      expect(db.releases).toEqual(["falhou"]);
+    },
+  );
 
   it("serializa chamadas simultâneas da mesma cobrança e cria apenas um Pix", async () => {
     setupDepositPix();
@@ -636,17 +719,34 @@ type Call = { table: string; method: string; args: unknown[] };
 
 /** Query encadeável do Supabase: qualquer filtro devolve a própria query; await/single resolvem `result`. */
 function fakeQuery(table: string, result: unknown, calls: Call[]): unknown {
+  let resolvedResult = result;
   const query: object = new Proxy(
     {},
     {
       get(_target, prop) {
         if (prop === "then") {
           return (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
-            Promise.resolve(result).then(resolve, reject);
+            Promise.resolve(resolvedResult).then(resolve, reject);
         }
-        if (prop === "maybeSingle" || prop === "single") return async () => result;
+        if (prop === "maybeSingle" || prop === "single") return async () => resolvedResult;
         return (...args: unknown[]) => {
           calls.push({ table, method: String(prop), args });
+          if (
+            prop === "update" &&
+            result !== null &&
+            typeof result === "object" &&
+            "appointmentUpdateResult" in result
+          ) {
+            resolvedResult = result.appointmentUpdateResult;
+          }
+          if (
+            prop === "limit" &&
+            result !== null &&
+            typeof result === "object" &&
+            "clashError" in result
+          ) {
+            resolvedResult = { data: null, error: result.clashError };
+          }
           return query;
         };
       },
@@ -913,7 +1013,18 @@ function setupReserve(
   availability: {
     hours?: { starts_at: string; ends_at: string }[];
     blocks?: Record<string, unknown>[];
+    blocksError?: { message: string } | null;
+    appointmentsError?: { message: string } | null;
+    clashError?: { message: string } | null;
+    serviceProfessionals?: { professional_id: string }[];
+    serviceProfessionalsError?: { message: string } | null;
+    professional?: Record<string, unknown> | null;
+    professionalError?: { message: string } | null;
     minimumNoticeHours?: number;
+    businessStatus?: string;
+    businessCancelledAt?: string | null;
+    depositError?: { message: string } | null;
+    appointmentUpdateResult?: { data: { id: string } | null; error: { message: string } | null };
   } = {},
 ) {
   const config = defaultPanel1Config();
@@ -923,7 +1034,11 @@ function setupReserve(
   const calls: Call[] = [];
   const results: Record<string, unknown> = {
     businesses: {
-      data: { id: businessId, status: "ativo" },
+      data: {
+        id: businessId,
+        status: availability.businessStatus ?? "ativo",
+        cancelled_at: availability.businessCancelledAt ?? null,
+      },
       error: null,
     },
     services: {
@@ -940,7 +1055,14 @@ function setupReserve(
       },
       error: null,
     },
-    service_professionals: { data: [], error: null },
+    service_professionals: {
+      data: availability.serviceProfessionals ?? [],
+      error: availability.serviceProfessionalsError ?? null,
+    },
+    professionals: {
+      data: availability.professional ?? null,
+      error: availability.professionalError ?? null,
+    },
     // reserveBooking valida expediente/bloqueio antes de gravar. `appointments`
     // volta vazio: a leitura de disponibilidade não encontra conflito e a
     // checagem seguinte também — um `select` do Supabase sempre devolve array.
@@ -948,9 +1070,18 @@ function setupReserve(
       data: availability.hours ?? [{ starts_at: "00:00", ends_at: "23:59" }],
       error: null,
     },
-    time_blocks: { data: availability.blocks ?? [], error: null },
-    appointments: { data: [], error: null },
-    deposit_payments: { data: { id: chargeId }, error: null },
+    time_blocks: { data: availability.blocks ?? [], error: availability.blocksError ?? null },
+    appointments: {
+      data: [],
+      error: availability.appointmentsError ?? null,
+      ...(availability.appointmentUpdateResult
+        ? { appointmentUpdateResult: availability.appointmentUpdateResult }
+        : {}),
+      ...(availability.clashError ? { clashError: availability.clashError } : {}),
+    },
+    deposit_payments: availability.depositError
+      ? { data: null, error: availability.depositError }
+      : { data: { id: chargeId }, error: null },
   };
   pixRuntime.db.from.mockImplementation((table: string) => {
     if (!(table in results)) throw new Error(`Tabela inesperada no teste: ${table}`);
@@ -977,6 +1108,152 @@ const reserveInput = {
   customerEmail: "cliente.pagador@example.com",
   customerCpfCnpj: "529.982.247-25",
 };
+
+describe("getMyBookings: consulta falha como erro, nao como lista vazia", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("retorna erro se falhar a consulta da cobranca pedida", async () => {
+    const calls: Call[] = [];
+    pixRuntime.db.from.mockImplementation((table: string) =>
+      fakeQuery(table, { data: null, error: { message: "falha de leitura" } }, calls),
+    );
+
+    await expect(
+      getMyBookings({ data: { chargeIds: [chargeId], publicCodes: [] } }),
+    ).rejects.toThrow("Não foi possível consultar os agendamentos.");
+  });
+});
+
+describe("getOpenDays: consulta indisponivel nao equivale a agenda vazia", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it.each(["businesses", "business_hours"] as const)(
+    "propaga falha ao consultar %s",
+    async (failedTable) => {
+      pixRuntime.db.from.mockImplementation((table: string) => {
+        const result =
+          table === failedTable
+            ? { data: null, error: { message: `falha em ${table}` } }
+            : table === "businesses"
+              ? {
+                  data: { id: businessId, status: "ativo", cancelled_at: null },
+                  error: null,
+                }
+              : { data: [], error: null };
+        return fakeQuery(table, result, []);
+      });
+
+      await expect(getOpenDays({ data: { slug: "barbearia" } })).rejects.toThrow(
+        "Não foi possível consultar os dias de atendimento.",
+      );
+    },
+  );
+});
+
+describe("reserveBooking: consultas críticas de disponibilidade falham fechadas", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it.each([
+    ["bloqueios", { blocksError: { message: "falha time_blocks" } }],
+    ["agendamentos", { appointmentsError: { message: "falha appointments" } }],
+  ])("não cria reserva quando falha a leitura de %s", async (_name, failure) => {
+    const db = setupReserve({}, "America/Sao_Paulo", failure);
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      "Não foi possível consultar a disponibilidade.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+    expect(db.inserted("deposit_payments")).toHaveLength(0);
+  });
+
+  it("não cria reserva quando falha a checagem final de conflito", async () => {
+    const db = setupReserve({}, "America/Sao_Paulo", {
+      clashError: { message: "falha checagem final" },
+    });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      "Não foi possível confirmar a disponibilidade.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+    expect(db.inserted("deposit_payments")).toHaveLength(0);
+  });
+});
+
+describe("reserveBooking: compensa reserva quando falha persistir cobranca", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("cancela appointment pendente e nao chama provedor se insert da cobranca falhar", async () => {
+    const db = setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 }, "America/Sao_Paulo", {
+      depositError: { message: "insert failed" },
+      appointmentUpdateResult: { data: { id: appointmentId }, error: null },
+    });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow("insert failed");
+
+    expect(db.calls).toContainEqual({
+      table: "appointments",
+      method: "update",
+      args: [{ status: "cancelado" }],
+    });
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
+  });
+
+  it("sinaliza estado parcial se a compensacao tambem falhar", async () => {
+    setupReserve({ deposit_mode: "fixed", deposit_cents: 2_500 }, "America/Sao_Paulo", {
+      depositError: { message: "insert failed" },
+      appointmentUpdateResult: { data: null, error: { message: "update failed" } },
+    });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      "não foi possível cancelar a reserva pendente",
+    );
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
+  });
+});
+
+describe("reserveBooking: valida o profissional no negócio e serviço", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  const professionalId = "77777777-7777-4777-8777-777777777777";
+
+  it("interrompe a reserva quando falha a leitura de vínculos do serviço", async () => {
+    const db = setupReserve({}, "America/Sao_Paulo", {
+      serviceProfessionalsError: { message: "falha nos vinculos" },
+    });
+    await expect(reserveBooking({ data: { ...reserveInput, professionalId } })).rejects.toThrow(
+      "Não foi possível validar o profissional.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("rejeita professionalId fornecido quando o serviço não tem vínculo", async () => {
+    const db = setupReserve();
+    await expect(reserveBooking({ data: { ...reserveInput, professionalId } })).rejects.toThrow(
+      "Selecione um profissional disponível.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("interrompe a reserva se a consulta do profissional vinculado falhar", async () => {
+    const db = setupReserve({}, "America/Sao_Paulo", {
+      serviceProfessionals: [{ professional_id: professionalId }],
+      professionalError: { message: "falha no cadastro" },
+    });
+    await expect(reserveBooking({ data: { ...reserveInput, professionalId } })).rejects.toThrow(
+      "Não foi possível validar o profissional.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
+  it("aceita profissional ativo que pertence ao vínculo do serviço e ao negócio", async () => {
+    const db = setupReserve({}, "America/Sao_Paulo", {
+      serviceProfessionals: [{ professional_id: professionalId }],
+      professional: { id: professionalId, name: "Profissional", active: true, working_days: null },
+    });
+    await reserveBooking({ data: { ...reserveInput, professionalId } });
+    expect(db.inserted("appointments")[0]).toMatchObject({ professional_id: professionalId });
+  });
+});
 
 describe("reserveBooking: snapshot do sinal (fixo/percentual)", () => {
   beforeEach(() => vi.resetAllMocks());
@@ -1193,6 +1470,22 @@ describe("reserveBooking: as regras de agenda valem no servidor, não só na UI"
 
   const BARBEARIA = { hours: [{ starts_at: "08:30", ends_at: "19:00" }] };
 
+  it("não oferece horário inexistente no salto de DST e impede a reserva direta", async () => {
+    const db = setupReserve({ requires_deposit: false }, "America/New_York", {
+      hours: [{ starts_at: "01:00", ends_at: "04:00" }],
+    });
+    const availability = await getAvailability({
+      data: { slug: "barbearia", serviceId, date: "2027-03-14" },
+    });
+    expect(availability.slots).not.toContain("02:30");
+    expect(availability.slots).toContain("03:30");
+
+    await expect(
+      reserveBooking({ data: { ...reserveInput, date: "2027-03-14", time: "02:30" } }),
+    ).rejects.toThrow(/não está mais disponível/i);
+    expect(db.inserted("appointments")).toHaveLength(0);
+  });
+
   const dayOffset = (days: number) =>
     new Date(Date.now() + days * 86_400_000).toLocaleDateString("en-CA", {
       timeZone: "America/Sao_Paulo",
@@ -1280,6 +1573,22 @@ describe("reserveBooking: as regras de agenda valem no servidor, não só na UI"
     await reserveBooking({ data: { ...reserveInput, time: "10:20" } });
 
     expect(db.inserted("appointments")).toHaveLength(1);
+  });
+
+  it.each([
+    ["cancelado", null],
+    ["ativo", "2026-11-14T00:00:00.000Z"],
+  ])("recusa reserva após cancelamento (%s / %s)", async (status, cancelledAt) => {
+    const db = setupReserve({}, "America/Sao_Paulo", {
+      businessStatus: status,
+      businessCancelledAt: cancelledAt,
+    });
+
+    await expect(reserveBooking({ data: reserveInput })).rejects.toThrow(
+      "Os agendamentos deste estabelecimento estão temporariamente indisponíveis.",
+    );
+    expect(db.inserted("appointments")).toHaveLength(0);
+    expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
   });
 });
 
@@ -1410,5 +1719,85 @@ describe("getPublicBookingCatalog: sinal efetivo calculado no servidor", () => {
     expect(Object.keys(appearance ?? {})).toHaveLength(
       Object.keys(DEFAULT_PANEL1_APPEARANCE).length,
     );
+  });
+
+  it("expõe só as preferências necessárias à jornada pública", async () => {
+    const calls: Call[] = [];
+    pixRuntime.panel1Config = {
+      ...defaultPanel1Config(),
+      preferences: {
+        ...defaultPanel1Config().preferences,
+        timezone: "America/Fortaleza",
+        cancellations_enabled: true,
+        reschedule_enabled: false,
+        extra_reminder_template: "SENTINEL-REMINDER-TEMPLATE",
+        post_service_template: "SENTINEL-POST-SERVICE-TEMPLATE",
+        post_service_clients: "SENTINEL-CLIENT-UUID",
+      },
+      visual: {
+        ...defaultPanel1Config().visual,
+        layout_key: "classic",
+        layout_media: {
+          classic: { logoPath: "private/internal-logo-path", backgroundPath: null },
+        },
+      },
+    };
+    pixRuntime.db.from.mockImplementation((table: string) =>
+      fakeQuery(
+        table,
+        table === "businesses"
+          ? {
+              data: {
+                id: businessId,
+                name: "Barbearia",
+                status: "ativo",
+                cancelled_at: null,
+                logo_url: null,
+                brand_background_image: null,
+              },
+              error: null,
+            }
+          : { data: [], error: null },
+        calls,
+      ),
+    );
+
+    const result = await getPublicBookingCatalog({ data: { slug: "barbearia" } });
+
+    expect(result.preferences).toEqual({
+      timezone: "America/Fortaleza",
+      cancellations_enabled: true,
+      reschedule_enabled: false,
+    });
+    expect(result.visual).toEqual({ layout_key: "classic" });
+    expect(JSON.stringify(result)).not.toContain("SENTINEL-");
+    expect(JSON.stringify(result)).not.toContain("private/internal-logo-path");
+  });
+
+  it("oculta catálogo de business cancelado e não consulta serviços", async () => {
+    const calls: Call[] = [];
+    pixRuntime.db.from.mockImplementation((table: string) =>
+      fakeQuery(
+        table,
+        table === "businesses"
+          ? {
+              data: {
+                id: businessId,
+                name: "Barbearia",
+                status: "cancelado",
+                cancelled_at: null,
+              },
+              error: null,
+            }
+          : { data: [], error: null },
+        calls,
+      ),
+    );
+
+    await expect(getPublicBookingCatalog({ data: { slug: "barbearia" } })).resolves.toMatchObject({
+      business: null,
+      services: [],
+    });
+    expect(calls.some((call) => call.table === "services")).toBe(false);
   });
 });

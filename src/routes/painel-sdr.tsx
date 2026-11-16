@@ -32,6 +32,7 @@ import {
   sdrCreateBusiness,
   resetSdrOwnerPassword,
   sdrDeleteIdea,
+  sdrLogout,
   sdrSaveScriptNotes,
 } from "@/lib/sdr.functions";
 import { clearSdrSession, readSdrSession } from "./sdr";
@@ -60,7 +61,8 @@ const formatPhone = (value: string) => {
   const digits = value.replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 2) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
-  if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  if (digits.length <= 10)
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
@@ -69,12 +71,29 @@ function SdrPanelPage() {
   const queryClient = useQueryClient();
   const dashboardFn = useServerFn(getSdrDashboard);
   const createBusinessFn = useServerFn(sdrCreateBusiness);
+  const logoutFn = useServerFn(sdrLogout);
 
   const [session] = useState(() => (typeof window === "undefined" ? null : readSdrSession()));
   const [dialogOpen, setDialogOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [tab, setTab] = useState<"inicio" | "scripts" | "cadastros">("inicio");
   const [form, setForm] = useState(emptyForm);
+
+  const signOut = async () => {
+    if (!session) {
+      clearSdrSession();
+      void navigate({ to: "/sdr" });
+      return;
+    }
+    try {
+      await logoutFn({ data: { token: session.token } });
+    } catch {
+      toast.error("Não foi possível revogar a sessão. Tente novamente.");
+      return;
+    }
+    clearSdrSession();
+    void navigate({ to: "/sdr" });
+  };
 
   useEffect(() => {
     if (!session) void navigate({ to: "/sdr", replace: true });
@@ -118,7 +137,9 @@ function SdrPanelPage() {
       trialDays: number | undefined;
     }) => createBusinessFn({ data: { token: session!.token, ...input } }),
     onSuccess: (result) => {
-      toast.success(`Cadastro concluído. Senha inicial (mostrada uma vez): ${result.initialPassword}`);
+      toast.success(
+        `Cadastro concluído. Senha inicial (mostrada uma vez): ${result.initialPassword}`,
+      );
       setDialogOpen(false);
       setForm(emptyForm);
       setTab("cadastros");
@@ -132,12 +153,14 @@ function SdrPanelPage() {
 
   const data = dashboard.data;
   const firstName = session.name.split(" ")[0] ?? session.name;
-  const signupPercent = data && data.goals.signupGoal > 0
-    ? Math.min(Math.round((data.month.cadastros / data.goals.signupGoal) * 100), 100)
-    : 0;
-  const salesPercent = data && data.goals.salesGoal > 0
-    ? Math.min(Math.round((data.month.vendas / data.goals.salesGoal) * 100), 100)
-    : 0;
+  const signupPercent =
+    data && data.goals.signupGoal > 0
+      ? Math.min(Math.round((data.month.cadastros / data.goals.signupGoal) * 100), 100)
+      : 0;
+  const salesPercent =
+    data && data.goals.salesGoal > 0
+      ? Math.min(Math.round((data.month.vendas / data.goals.salesGoal) * 100), 100)
+      : 0;
 
   const submitCadastro = () => {
     if (!/^\d{10,11}$/.test(form.phone.replace(/\D/g, ""))) {
@@ -182,10 +205,7 @@ function SdrPanelPage() {
             variant="ghost"
             size="sm"
             className="gap-2 text-[#8a919c] hover:bg-white/10 hover:text-white"
-            onClick={() => {
-              clearSdrSession();
-              void navigate({ to: "/sdr" });
-            }}
+            onClick={() => void signOut()}
           >
             <LogOut className="size-4" /> Sair
           </Button>
@@ -212,7 +232,9 @@ function SdrPanelPage() {
               {session.name.slice(0, 1).toUpperCase()}
             </span>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-[var(--c-eef1f6)]">{session.name}</p>
+              <p className="truncate text-sm font-semibold text-[var(--c-eef1f6)]">
+                {session.name}
+              </p>
               <p className="truncate text-[0.68rem] text-[#626872]">SDR · Agenda Agora</p>
             </div>
           </div>
@@ -242,10 +264,7 @@ function SdrPanelPage() {
           <div className="border-t border-[#1f232b] p-3">
             <button
               type="button"
-              onClick={() => {
-                clearSdrSession();
-                void navigate({ to: "/sdr" });
-              }}
+              onClick={() => void signOut()}
               className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-semibold text-[#e5484d] transition-colors hover:bg-white/10 hover:text-[#ff6a6f]"
             >
               <LogOut className="size-4" /> Sair
@@ -257,145 +276,170 @@ function SdrPanelPage() {
           <main className="mx-auto w-full max-w-4xl space-y-4 px-4 pb-12 pt-4 sm:px-6">
             {/* Navegação (mobile) */}
             <nav className="grid grid-cols-3 gap-2 md:hidden">
-            <SdrSideTab
-              icon={<House className="size-4" />}
-              label="Início"
-              compact
-              active={tab === "inicio"}
-              onClick={() => setTab("inicio")}
-            />
-            <SdrSideTab
-              icon={<ScrollText className="size-4" />}
-              label="Scripts"
-              compact
-              active={tab === "scripts"}
-              onClick={() => setTab("scripts")}
-            />
-            <SdrSideTab
-              icon={<Building2 className="size-4" />}
-              label="Cadastros"
-              compact
-              active={tab === "cadastros"}
-              onClick={() => setTab("cadastros")}
-            />
-          </nav>
+              <SdrSideTab
+                icon={<House className="size-4" />}
+                label="Início"
+                compact
+                active={tab === "inicio"}
+                onClick={() => setTab("inicio")}
+              />
+              <SdrSideTab
+                icon={<ScrollText className="size-4" />}
+                label="Scripts"
+                compact
+                active={tab === "scripts"}
+                onClick={() => setTab("scripts")}
+              />
+              <SdrSideTab
+                icon={<Building2 className="size-4" />}
+                label="Cadastros"
+                compact
+                active={tab === "cadastros"}
+                onClick={() => setTab("cadastros")}
+              />
+            </nav>
 
-          {tab === "inicio" ? (
-            <>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-white">
-              Olá, {firstName}!
-            </h1>
-            <p className="text-sm text-[#777d87]">
-              Suas metas, cadastros e vendas de {new Date().toLocaleDateString("pt-BR", { month: "long" })}.
-            </p>
-          </div>
-          <Button
-            onClick={() => setDialogOpen(true)}
-            className="h-10 rounded-xl bg-[var(--c-1677ff)] px-4 text-sm font-bold text-white shadow-[0_8px_24px_rgba(22,119,255,0.35)] hover:bg-[var(--c-3b82f6)]"
-          >
-            <Plus className="size-4" /> Novo cadastro
-          </Button>
-        </div>
+            {tab === "inicio" ? (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h1 className="text-2xl font-extrabold tracking-tight text-white">
+                      Olá, {firstName}!
+                    </h1>
+                    <p className="text-sm text-[#777d87]">
+                      Suas metas, cadastros e vendas de{" "}
+                      {new Date().toLocaleDateString("pt-BR", { month: "long" })}.
+                    </p>
+                  </div>
+                  <Button
+                    onClick={() => setDialogOpen(true)}
+                    className="h-10 rounded-xl bg-[var(--c-1677ff)] px-4 text-sm font-bold text-white shadow-[0_8px_24px_rgba(22,119,255,0.35)] hover:bg-[var(--c-3b82f6)]"
+                  >
+                    <Plus className="size-4" /> Novo cadastro
+                  </Button>
+                </div>
 
-        {dashboard.isError ? (
-          <p role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive">
-            Não foi possível carregar seus dados. Atualize a página.
-          </p>
-        ) : null}
+                {dashboard.isError ? (
+                  <p
+                    role="alert"
+                    className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive"
+                  >
+                    Não foi possível carregar seus dados. Atualize a página.
+                  </p>
+                ) : null}
 
-        <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
-          <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
-            <Target className="size-4 text-[var(--c-69a2ff)]" /> Metas do mês
-          </p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <GoalBar
-              label="Cadastros"
-              current={data?.month.cadastros ?? 0}
-              goal={data?.goals.signupGoal ?? 0}
-              percent={signupPercent}
-            />
-            <GoalBar
-              label="Vendas"
-              current={data?.month.vendas ?? 0}
-              goal={data?.goals.salesGoal ?? 0}
-              percent={salesPercent}
-            />
-          </div>
-        </section>
+                <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
+                  <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
+                    <Target className="size-4 text-[var(--c-69a2ff)]" /> Metas do mês
+                  </p>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <GoalBar
+                      label="Cadastros"
+                      current={data?.month.cadastros ?? 0}
+                      goal={data?.goals.signupGoal ?? 0}
+                      percent={signupPercent}
+                    />
+                    <GoalBar
+                      label="Vendas"
+                      current={data?.month.vendas ?? 0}
+                      goal={data?.goals.salesGoal ?? 0}
+                      percent={salesPercent}
+                    />
+                  </div>
+                </section>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MiniStat icon={<ClipboardList className="size-4" />} label="Cadastros no mês" value={String(data?.month.cadastros ?? 0)} />
-          <MiniStat icon={<ShoppingCart className="size-4" />} label="Vendas no mês" value={String(data?.month.vendas ?? 0)} />
-          <MiniStat icon={<Percent className="size-4" />} label="Conversão" value={`${data?.month.conversao ?? 0}%`} />
-          <MiniStat
-            icon={<ShoppingCart className="size-4" />}
-            label="Comissão estimada"
-            value={(data?.month.comissaoCents ?? 0) > 0
-              ? ((data?.month.comissaoCents ?? 0) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-              : "R$ 0,00"}
-          />
-        </div>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <MiniStat
+                    icon={<ClipboardList className="size-4" />}
+                    label="Cadastros no mês"
+                    value={String(data?.month.cadastros ?? 0)}
+                  />
+                  <MiniStat
+                    icon={<ShoppingCart className="size-4" />}
+                    label="Vendas no mês"
+                    value={String(data?.month.vendas ?? 0)}
+                  />
+                  <MiniStat
+                    icon={<Percent className="size-4" />}
+                    label="Conversão"
+                    value={`${data?.month.conversao ?? 0}%`}
+                  />
+                  <MiniStat
+                    icon={<ShoppingCart className="size-4" />}
+                    label="Comissão estimada"
+                    value={
+                      (data?.month.comissaoCents ?? 0) > 0
+                        ? ((data?.month.comissaoCents ?? 0) / 100).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })
+                        : "R$ 0,00"
+                    }
+                  />
+                </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
-            <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
-              <CalendarCheck className="size-4 text-[var(--c-69a2ff)]" /> Meus cadastros
-            </p>
-            <ul className="mt-3 space-y-2">
-              {(data?.cadastros ?? []).map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-black/25 px-3.5 py-2.5 text-sm"
-                >
-                  <span className="truncate text-[var(--c-dfe3ea)]">{item.name}</span>
-                  <span className="ml-2 shrink-0 text-xs text-[#626872]">
-                    {new Date(item.createdAt).toLocaleDateString("pt-BR")}
-                  </span>
-                </li>
-              ))}
-              {!data?.cadastros.length ? (
-                <li className="rounded-xl border border-white/[0.05] bg-black/20 px-3.5 py-6 text-center text-sm text-[#777d87]">
-                  Nenhum cadastro ainda. Clique em <strong className="text-white">Novo cadastro</strong>.
-                </li>
-              ) : null}
-            </ul>
-          </section>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
+                    <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
+                      <CalendarCheck className="size-4 text-[var(--c-69a2ff)]" /> Meus cadastros
+                    </p>
+                    <ul className="mt-3 space-y-2">
+                      {(data?.cadastros ?? []).map((item) => (
+                        <li
+                          key={item.id}
+                          className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-black/25 px-3.5 py-2.5 text-sm"
+                        >
+                          <span className="truncate text-[var(--c-dfe3ea)]">{item.name}</span>
+                          <span className="ml-2 shrink-0 text-xs text-[#626872]">
+                            {new Date(item.createdAt).toLocaleDateString("pt-BR")}
+                          </span>
+                        </li>
+                      ))}
+                      {!data?.cadastros.length ? (
+                        <li className="rounded-xl border border-white/[0.05] bg-black/20 px-3.5 py-6 text-center text-sm text-[#777d87]">
+                          Nenhum cadastro ainda. Clique em{" "}
+                          <strong className="text-white">Novo cadastro</strong>.
+                        </li>
+                      ) : null}
+                    </ul>
+                  </section>
 
-          <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
-            <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
-              <ShoppingCart className="size-4 text-[var(--c-69a2ff)]" /> Minhas vendas
-            </p>
-            <ul className="mt-3 space-y-2">
-              {(data?.vendas ?? []).map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-black/25 px-3.5 py-2.5 text-sm"
-                >
-                  <span className="min-w-0 truncate text-[var(--c-dfe3ea)]">
-                    {item.businessName}{" "}
-                    <span className="text-xs text-[#626872]">· {item.referenceMonth}</span>
-                  </span>
-                  <span className="ml-2 shrink-0 font-medium text-emerald-400">
-                    {(item.amountCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
-                  </span>
-                </li>
-              ))}
-              {!data?.vendas.length ? (
-                <li className="rounded-xl border border-white/[0.05] bg-black/20 px-3.5 py-6 text-center text-sm text-[#777d87]">
-                  Nenhuma venda paga ainda.
-                </li>
-              ) : null}
-            </ul>
-          </section>
-        </div>
-            </>
-          ) : tab === "scripts" ? (
-            <ScriptsView session={session} />
-          ) : (
-            <CadastrosView session={session} />
-          )}
+                  <section className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-5">
+                    <p className="flex items-center gap-2 text-[1.05rem] font-semibold text-[var(--c-eef1f6)]">
+                      <ShoppingCart className="size-4 text-[var(--c-69a2ff)]" /> Minhas vendas
+                    </p>
+                    <ul className="mt-3 space-y-2">
+                      {(data?.vendas ?? []).map((item) => (
+                        <li
+                          key={item.id}
+                          className="flex items-center justify-between rounded-xl border border-white/[0.06] bg-black/25 px-3.5 py-2.5 text-sm"
+                        >
+                          <span className="min-w-0 truncate text-[var(--c-dfe3ea)]">
+                            {item.businessName}{" "}
+                            <span className="text-xs text-[#626872]">· {item.referenceMonth}</span>
+                          </span>
+                          <span className="ml-2 shrink-0 font-medium text-emerald-400">
+                            {(item.amountCents / 100).toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            })}
+                          </span>
+                        </li>
+                      ))}
+                      {!data?.vendas.length ? (
+                        <li className="rounded-xl border border-white/[0.05] bg-black/20 px-3.5 py-6 text-center text-sm text-[#777d87]">
+                          Nenhuma venda paga ainda.
+                        </li>
+                      ) : null}
+                    </ul>
+                  </section>
+                </div>
+              </>
+            ) : tab === "scripts" ? (
+              <ScriptsView session={session} />
+            ) : (
+              <CadastrosView session={session} />
+            )}
           </main>
         </div>
       </div>
@@ -525,26 +569,52 @@ function SdrPanelPage() {
             <div className="smodal-feats">
               <div className="smodal-feat-h">Suas metas deste mês</div>
               <div className="smf">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
                 <span>
-                  Bater <b>{data.goals.signupGoal} cadastros</b> e <b>{data.goals.salesGoal} vendas</b>
+                  Bater <b>{data.goals.signupGoal} cadastros</b> e{" "}
+                  <b>{data.goals.salesGoal} vendas</b>
                 </span>
               </div>
               {data.goals.signupGoal > 0 ? (
                 <div className="smf">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.4}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>
-                    Ritmo semanal: cerca de <b>{Math.ceil(data.goals.signupGoal / 4)} cadastros por semana</b>
+                    Ritmo semanal: cerca de{" "}
+                    <b>{Math.ceil(data.goals.signupGoal / 4)} cadastros por semana</b>
                   </span>
                 </div>
               ) : null}
               {data.commissionCents > 0 ? (
                 <div className="smf">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2.4}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                   <span>
@@ -559,7 +629,15 @@ function SdrPanelPage() {
                 </div>
               ) : null}
               <div className="smf">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
                 <span>
@@ -625,8 +703,12 @@ function CadastrosView({ session }: { session: { token: string } }) {
     queryFn: () => listFn({ data: { token: session.token } }),
   });
   const resetPassword = useMutation({
-    mutationFn: (businessId: string) => resetOwnerPasswordFn({ data: { token: session.token, businessId } }),
-    onSuccess: (result) => toast.info(`Nova senha temporária (copie agora): ${result.temporaryPassword}`, { duration: 30_000 }),
+    mutationFn: (businessId: string) =>
+      resetOwnerPasswordFn({ data: { token: session.token, businessId } }),
+    onSuccess: (result) =>
+      toast.info(`Nova senha temporária (copie agora): ${result.temporaryPassword}`, {
+        duration: 30_000,
+      }),
     onError: (error: Error) => toast.error(error.message),
   });
 
@@ -641,13 +723,17 @@ function CadastrosView({ session }: { session: { token: string } }) {
         <div className="min-w-0 flex-1">
           <p className="text-[1.05rem] font-bold text-white">Cadastros criados</p>
           <p className="text-sm text-[#777d87]">
-            Estabelecimentos que você criou. Senhas não ficam armazenadas e não podem ser consultadas depois.
+            Estabelecimentos que você criou. Senhas não ficam armazenadas e não podem ser
+            consultadas depois.
           </p>
         </div>
       </div>
 
       {query.isError ? (
-        <p role="alert" className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-xl border border-destructive/40 p-4 text-sm text-destructive"
+        >
           Não foi possível carregar os cadastros. Atualize a página.
         </p>
       ) : null}
@@ -664,10 +750,7 @@ function CadastrosView({ session }: { session: { token: string } }) {
       ) : (
         <ul className="space-y-3">
           {rows.map((row) => (
-            <li
-              key={row.id}
-              className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-4"
-            >
+            <li key={row.id} className="rounded-2xl border border-[#22262e] bg-[#0d1015] p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[var(--c-1677ff)]/15 text-sm font-bold text-[var(--c-60a5fa)]">
                   {row.name.slice(0, 1).toUpperCase()}
@@ -684,8 +767,17 @@ function CadastrosView({ session }: { session: { token: string } }) {
                 <InfoBox label="Login" value={row.login} mono />
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-[#777d87]">Senhas não ficam armazenadas e não podem ser consultadas.</p>
-                <Button size="sm" variant="outline" disabled={resetPassword.isPending} onClick={() => resetPassword.mutate(row.id)}>{resetPassword.isPending ? "Gerando…" : "Redefinir senha"}</Button>
+                <p className="text-xs text-[#777d87]">
+                  Senhas não ficam armazenadas e não podem ser consultadas.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={resetPassword.isPending}
+                  onClick={() => resetPassword.mutate(row.id)}
+                >
+                  {resetPassword.isPending ? "Gerando…" : "Redefinir senha"}
+                </Button>
               </div>
             </li>
           ))}
@@ -708,9 +800,7 @@ function InfoBox({
 }) {
   return (
     <div className="rounded-xl border border-white/[0.06] bg-black/25 px-3 py-2.5">
-      <p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[#5f6670]">
-        {label}
-      </p>
+      <p className="text-[0.62rem] font-bold uppercase tracking-[0.14em] text-[#5f6670]">{label}</p>
       <p
         className={`mt-1 truncate text-sm ${
           mono ? "tracking-wide" : ""

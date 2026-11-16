@@ -7,8 +7,8 @@ import type { Database } from "@/integrations/supabase/types";
  */
 const GATEWAY_FEE_PERCENT = 0;
 const GATEWAY_FEE_FIXED_CENTS = 75;
-/** Taxa fixa da plataforma por transação: removida (R$ 0,00) em 06/10/2026. */
-export const PLATFORM_FLAT_FEE_CENTS = 0;
+/** Taxa fixa da plataforma por pagamento de sinal: R$ 0,20, conforme regra confirmada pelo usuário. */
+export const PLATFORM_FLAT_FEE_CENTS = 20;
 
 export function gatewayFeeCents(grossCents: number): number {
   if (!Number.isInteger(grossCents) || grossCents < 0) {

@@ -32,8 +32,7 @@ import {
   getPlatformMetrics,
   listAllBusinesses,
   registerSubscriptionCharge,
-  setAgpaySplitStatus,
-  setBusinessAgpaySplit,
+  setBusinessPlatformCommission,
   setBusinessStatus,
   setMonthlyFee,
 } from "@/lib/admin.functions";
@@ -78,8 +77,11 @@ const LedgerReconciliation = lazy(() =>
 
 export const Route = createFileRoute("/_authenticated/painel/master")({
   // A sessão Supabase fica no localStorage, indisponível durante SSR. Cada server
-  // function da página verifica a role e o AAL2 antes de ler ou gravar dados.
-  loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
+  // function da página verifica a role atual antes de ler ou gravar dados.
+  loader: async () => {
+    if (typeof window === "undefined") return;
+    return requireMasterAccess();
+  },
   head: () => ({
     meta: [
       { title: "Painel master — Agenda Agora" },
@@ -103,18 +105,14 @@ const emptyForm = {
   trialDays: "",
 };
 
-type AgpaySplitForm = {
+type PlatformCommissionForm = {
   businessId: string;
-  splitEmail: string;
   commissionPercent: string;
-  autoFirst: boolean;
 };
 
-const emptyAgpaySplitForm: AgpaySplitForm = {
+const emptyPlatformCommissionForm: PlatformCommissionForm = {
   businessId: "",
-  splitEmail: "",
   commissionPercent: "0",
-  autoFirst: false,
 };
 
 const formatBrazilianNumber = (value: number) =>
@@ -155,15 +153,14 @@ function MasterPage() {
   const feeFn = useServerFn(setMonthlyFee);
   const chargeFn = useServerFn(registerSubscriptionCharge);
   const diagnosticsFn = useServerFn(getDepositPaymentDiagnostics);
-  const setBusinessAgpaySplitFn = useServerFn(setBusinessAgpaySplit);
-  const setAgpaySplitStatusFn = useServerFn(setAgpaySplitStatus);
+  const setBusinessPlatformCommissionFn = useServerFn(setBusinessPlatformCommission);
   const currentMonth = new Date().toISOString().slice(0, 7);
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [semTeste, setSemTeste] = useState(false);
-  const [agpaySplitOpen, setAgpaySplitOpen] = useState(false);
-  const [agpaySplitForm, setAgpaySplitForm] = useState(emptyAgpaySplitForm);
+  const [platformCommissionOpen, setPlatformCommissionOpen] = useState(false);
+  const [platformCommissionForm, setPlatformCommissionForm] = useState(emptyPlatformCommissionForm);
   const [diagnosticChargeId, setDiagnosticChargeId] = useState("");
   const [monthlyFeeTarget, setMonthlyFeeTarget] = useState<{ id: string; value: string } | null>(
     null,
@@ -282,35 +279,22 @@ function MasterPage() {
     onError: (error: Error) => toast.error(friendlyError(error)),
   });
 
-  const saveAgpaySplit = useMutation({
+  const savePlatformCommission = useMutation({
     mutationFn: () =>
-      setBusinessAgpaySplitFn({
+      setBusinessPlatformCommissionFn({
         data: {
-          businessId: agpaySplitForm.businessId,
-          splitEmail: agpaySplitForm.splitEmail.trim() || undefined,
-          commissionPercent: Number(agpaySplitForm.commissionPercent.replace(",", ".")),
-          autoFirstKey: false,
+          businessId: platformCommissionForm.businessId,
+          commissionPercent: Number(platformCommissionForm.commissionPercent.replace(",", ".")),
         },
       }),
     onSuccess: () => {
-      toast.success("Dados de split AgPay atualizados.");
-      setAgpaySplitOpen(false);
-      setAgpaySplitForm(emptyAgpaySplitForm);
+      toast.success("Comissão da plataforma atualizada.");
+      setPlatformCommissionOpen(false);
+      setPlatformCommissionForm(emptyPlatformCommissionForm);
       refreshAll();
     },
     onError: (e: Error) => toast.error(friendlyError(e)),
   });
-
-  const updateAgpaySplitStatus = useMutation({
-    mutationFn: (vars: { businessId: string; status: "pendente" | "aprovada" | "bloqueada" }) =>
-      setAgpaySplitStatusFn({ data: vars }),
-    onSuccess: () => {
-      toast.success("Situação da subconta atualizada.");
-      refreshAll();
-    },
-    onError: (e: Error) => toast.error(friendlyError(e)),
-  });
-
   if (status.isLoading) {
     return <p className="p-8 text-sm text-muted-foreground">Carregando...</p>;
   }
@@ -505,9 +489,9 @@ function MasterPage() {
               <span>
                 <span className="block text-sm font-medium text-white">Sem Período de teste</span>
                 <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
-                  O dono consegue fazer login, mas fica fixo somente na tela de assinaturas
-                  (R$ 89,90/mês) — todos os menus ficam bloqueados até pagar. Após o pagamento,
-                  tudo é liberado por 1 mês.
+                  O dono consegue fazer login, mas fica fixo somente na tela de assinaturas (R$
+                  89,90/mês) — todos os menus ficam bloqueados até pagar. Após o pagamento, tudo é
+                  liberado por 1 mês.
                 </span>
               </span>
             </label>
@@ -532,52 +516,48 @@ function MasterPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={agpaySplitOpen} onOpenChange={setAgpaySplitOpen}>
+      <Dialog open={platformCommissionOpen} onOpenChange={setPlatformCommissionOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Configurar split AgPay</DialogTitle>
+            <DialogTitle>Configurar comissão da plataforma</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <Field
               label="Comissão Agenda Agora (%)"
-              id="agpay-commission"
+              id="platform-commission"
               inputMode="decimal"
-              value={agpaySplitForm.commissionPercent}
+              value={platformCommissionForm.commissionPercent}
               onChange={(commissionPercent) =>
-                setAgpaySplitForm({ ...agpaySplitForm, commissionPercent })
+                setPlatformCommissionForm({ ...platformCommissionForm, commissionPercent })
               }
             />
-            {(!Number.isFinite(Number(agpaySplitForm.commissionPercent.replace(",", "."))) ||
-              Number(agpaySplitForm.commissionPercent.replace(",", ".")) < 0 ||
-              Number(agpaySplitForm.commissionPercent.replace(",", ".")) > 100) && (
+            {(!Number.isFinite(
+              Number(platformCommissionForm.commissionPercent.replace(",", ".")),
+            ) ||
+              Number(platformCommissionForm.commissionPercent.replace(",", ".")) < 0 ||
+              Number(platformCommissionForm.commissionPercent.replace(",", ".")) > 99.99) && (
               <p className="-mt-3 text-sm text-destructive" role="alert">
-                A comissão deve ficar entre 0 e 100.
+                A comissão deve ficar entre 0 e 99,99.
               </p>
             )}
-            <label className="flex items-start gap-3 rounded-lg border border-[var(--c-2b3038)] bg-[var(--c-15181d)] p-3">
-              <input type="checkbox" checked disabled className="mt-0.5 size-4 shrink-0" />
-              <span>
-                <span className="block text-sm font-medium">
-                  Aprovação automática desativada
-                </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Toda chave Pix enviada fica pendente e precisa de autorização manual no menu Pix
-                  em Aprovação — sem exceções.
-                </span>
-              </span>
-            </label>
+            <p className="text-sm text-muted-foreground">
+              O valor é retido no saldo do estabelecimento quando um sinal é confirmado. O restante
+              é pago ao estabelecimento por saque Pix solicitado pelo próprio dono.
+            </p>
           </div>
           <DialogFooter>
             <Button
-              onClick={() => saveAgpaySplit.mutate()}
+              onClick={() => savePlatformCommission.mutate()}
               disabled={
-                saveAgpaySplit.isPending ||
-                !Number.isFinite(Number(agpaySplitForm.commissionPercent.replace(",", "."))) ||
-                Number(agpaySplitForm.commissionPercent.replace(",", ".")) < 0 ||
-                Number(agpaySplitForm.commissionPercent.replace(",", ".")) > 100
+                savePlatformCommission.isPending ||
+                !Number.isFinite(
+                  Number(platformCommissionForm.commissionPercent.replace(",", ".")),
+                ) ||
+                Number(platformCommissionForm.commissionPercent.replace(",", ".")) < 0 ||
+                Number(platformCommissionForm.commissionPercent.replace(",", ".")) > 99.99
               }
             >
-              Salvar configuração
+              Salvar comissão
             </Button>
           </DialogFooter>
         </DialogContent>

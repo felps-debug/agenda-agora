@@ -11,7 +11,7 @@
 
 ## Pagamentos
 
-- [x] Gateway Pix ativo: AgPay, autenticado por um token único da plataforma (`AGPAY_API_TOKEN`; `AGPAY_CLIENT_ID` não é usado pela API real — corrigido em 2026-09-29, causava 401 mesmo com token válido).
+- [x] Gateway Pix ativo: AgPay, autenticado pelo token da plataforma (`AGPAY_API_TOKEN`); `AGPAY_CLIENT_ID` é encaminhado em `X-Client-ID` quando configurado, conforme os exemplos atuais da documentação. O GET somente leitura testado em 2026-11-15 aceitou as duas variantes; POST em sandbox ainda requer validação após rotação de credenciais.
 - [x] Cobranças Pix processadas pela conta da plataforma.
 - [x] Webhook AgPay validado por HMAC e processado de forma idempotente pela inbox em `/api/public/agpay-webhook` e pelo cron `/api/public/hooks/agpay-events`.
 - [x] Cancelamento de reserva com Pix pendente tratado localmente; a cobrança externa expira sem chamada de cancelamento ao provedor.

@@ -3,6 +3,11 @@ import { Pipette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type EyeDropperResult = { sRGBHex: string };
+type WindowWithEyeDropper = Window & {
+  EyeDropper?: new () => { open(): Promise<EyeDropperResult> };
+};
+
 function hexToHsv(hex: string): { h: number; s: number; v: number } {
   const clean = hex.replace("#", "");
   const r = parseInt(clean.slice(0, 2), 16) / 255;
@@ -121,11 +126,13 @@ export function ColorPicker({
   };
 
   const handleEyedropper = async () => {
-    if (typeof window !== "undefined" && "EyeDropper" in window) {
+    const EyeDropperApi =
+      typeof window === "undefined" ? undefined : (window as WindowWithEyeDropper).EyeDropper;
+    if (EyeDropperApi) {
       setOpen(false);
       window.dispatchEvent(new Event("appearance-eyedropper-start"));
       try {
-        const dropper = new (window as any).EyeDropper();
+        const dropper = new EyeDropperApi();
         const result = await dropper.open();
         if (result?.sRGBHex) onChange(result.sRGBHex);
       } catch {

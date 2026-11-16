@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { formatPrice } from "@/lib/format";
+import { hasLedgerDivergence, parseObservedBalanceCents } from "@/lib/ledger-reconciliation";
 import {
   getLedgerReconciliation,
   listNegativeBalanceBusinesses,
@@ -18,6 +20,7 @@ function Total({ label, cents, hint }: { label: string; cents: number; hint?: st
 }
 
 export function LedgerReconciliation() {
+  const [observedBalanceInput, setObservedBalanceInput] = useState("");
   const totalsFn = useServerFn(getLedgerReconciliation);
   const stuckFn = useServerFn(listStuckWithdrawals);
   const negativeFn = useServerFn(listNegativeBalanceBusinesses);
@@ -40,6 +43,17 @@ export function LedgerReconciliation() {
 
   const { availableCents, pendingCents, lockedCents, platformRevenueCents } = totals.data;
   const owedToBusinesses = availableCents + pendingCents + lockedCents;
+  const observedBalanceCents = parseObservedBalanceCents(observedBalanceInput);
+  const requiredBalanceCents = owedToBusinesses + platformRevenueCents;
+  const hasInvalidObservedBalance =
+    Boolean(observedBalanceInput.trim()) && observedBalanceCents === null;
+  const hasDivergence = hasLedgerDivergence(
+    availableCents,
+    pendingCents,
+    lockedCents,
+    platformRevenueCents,
+    observedBalanceCents,
+  );
   const stuckRows = stuck.data ?? [];
   const negativeRows = negative.data ?? [];
 
@@ -50,17 +64,47 @@ export function LedgerReconciliation() {
           <Total
             label="Devido aos negócios"
             cents={owedToBusinesses}
-            hint="Disponível + bloqueado"
+            hint="Disponível + pendente + bloqueado"
           />
           <Total label="Disponível para saque" cents={availableCents} />
           <Total label="Em saque" cents={lockedCents} hint="Aguardando confirmação do Pix" />
           <Total label="Receita da plataforma" cents={platformRevenueCents} />
         </div>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Confira manualmente: <strong>devido aos negócios + receita da plataforma</strong> não deve
-          ultrapassar o saldo real da conta no AgPay. A comparação é manual porque o AgPay não expõe
-          o saldo da conta por API.
-        </p>
+        <div className="mt-4 max-w-sm space-y-2">
+          <label htmlFor="agpay-observed-balance" className="text-sm font-medium">
+            Saldo observado na conta AgPay
+          </label>
+          <input
+            id="agpay-observed-balance"
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value={observedBalanceInput}
+            onChange={(event) => setObservedBalanceInput(event.currentTarget.value)}
+            aria-invalid={hasInvalidObservedBalance}
+            aria-describedby="agpay-observed-balance-hint"
+            placeholder="Ex.: 1.234,56"
+            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          />
+          <p id="agpay-observed-balance-hint" className="text-xs text-muted-foreground">
+            Compare com o total necessário de {formatPrice(requiredBalanceCents)} (valores devidos
+            aos negócios + receita da plataforma). Essa conferência é manual porque o AgPay não
+            fornece o saldo por API.
+          </p>
+          {hasInvalidObservedBalance && (
+            <p className="text-sm text-destructive">Informe um valor em reais, como 1.234,56.</p>
+          )}
+          {hasDivergence && (
+            <p
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              Divergência: o saldo informado ({formatPrice(observedBalanceCents!)}) é menor que o
+              total necessário ({formatPrice(requiredBalanceCents)}). Diferença:{" "}
+              {formatPrice(requiredBalanceCents - observedBalanceCents!)}.
+            </p>
+          )}
+        </div>
       </div>
 
       <section aria-labelledby="stuck-withdrawals-title">

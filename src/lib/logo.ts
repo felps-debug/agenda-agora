@@ -178,7 +178,7 @@ export function getBackgroundImageUrl(path: string | null | undefined, businessI
 }
 
 export const backgroundImageUrlInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   path: z.string().max(512),
 });
 
@@ -255,7 +255,7 @@ export async function assertStoredBusinessImage(
 }
 
 export const saveBusinessLogoInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   path: z.string().max(512),
 });
 
@@ -302,7 +302,7 @@ export const saveBusinessLogo = createServerFn({ method: "POST" })
   );
 
 export const saveBusinessBackgroundImageInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   path: z.string().max(512),
 });
 
@@ -352,7 +352,7 @@ export const saveBusinessBackgroundImage = createServerFn({ method: "POST" })
     saveBusinessBackgroundImageForOwner(context.supabase, context.userId, data),
   );
 
-const clearBusinessBackgroundImageInput = z.object({ businessId: z.string().uuid() });
+const clearBusinessBackgroundImageInput = z.object({ businessId: z.string().guid() });
 
 /** Volta a usar cor sólida (brand_background) no lugar da imagem de fundo. */
 export const clearBusinessBackgroundImage = createServerFn({ method: "POST" })

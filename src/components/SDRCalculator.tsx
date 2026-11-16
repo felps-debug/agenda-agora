@@ -53,17 +53,13 @@ export default function SDRCalculator() {
 
   const weeklyRegistrations = dailyRegistrations * workDays;
 
-  const conversion =
-    weeklyRegistrations > 0
-      ? (weeklySales / weeklyRegistrations) * 100
-      : 0;
+  const conversion = weeklyRegistrations > 0 ? (weeklySales / weeklyRegistrations) * 100 : 0;
 
   const weeklyCommissions = commission * weeklySales;
 
   // O cenário considera que a meta semanal de vendas foi atingida.
   const weeklyRegistrationBonus = dailyBonus * bonusDays;
-  const weeklyEarnings =
-    weeklyCommissions + extraBonus + weeklyRegistrationBonus;
+  const weeklyEarnings = weeklyCommissions + extraBonus + weeklyRegistrationBonus;
 
   const monthlyEarnings = weeklyEarnings * monthlyWeeks;
 
@@ -107,11 +103,7 @@ export default function SDRCalculator() {
           onChange={(event) => onChange(event.target.value)}
           className={inputClass}
         />
-        {hint && (
-          <span className="mt-1 block text-xs leading-relaxed text-gray-500">
-            {hint}
-          </span>
-        )}
+        {hint && <span className="mt-1 block text-xs leading-relaxed text-gray-500">{hint}</span>}
       </label>
     );
   }
@@ -131,9 +123,7 @@ export default function SDRCalculator() {
       <div className="min-w-0 rounded-2xl border border-white/[0.07] bg-[#10151E] p-4">
         <Icon className="mb-3 h-5 w-5 text-blue-400" />
         <p className="text-xs leading-relaxed text-gray-400">{label}</p>
-        <p className={`mt-1 break-words text-xl font-bold ${color}`}>
-          {value}
-        </p>
+        <p className={`mt-1 break-words text-xl font-bold ${color}`}>{value}</p>
       </div>
     );
   }
@@ -212,10 +202,9 @@ export default function SDRCalculator() {
           </div>
 
           <p className="text-xs leading-relaxed text-gray-500">
-            A conversão acima é uma projeção da meta de vendas dividida pelos
-            cadastros previstos. Para medir a conversão real, considere apenas
-            as turmas de cadastros que já tiveram tempo de completar o ciclo
-            de teste, cobrança e tolerância.
+            A conversão acima é uma projeção da meta de vendas dividida pelos cadastros previstos.
+            Para medir a conversão real, considere apenas as turmas de cadastros que já tiveram
+            tempo de completar o ciclo de teste, cobrança e tolerância.
           </p>
         </section>
 
@@ -240,13 +229,10 @@ export default function SDRCalculator() {
                 <ClipboardCheck className="h-5 w-5 text-amber-400" />
               </div>
               <div>
-                <h3 className="font-semibold">
-                  Bônus por cadastros confirmados
-                </h3>
+                <h3 className="font-semibold">Bônus por cadastros confirmados</h3>
                 <p className="mt-1 text-xs leading-relaxed text-gray-400">
-                  Pode ser pago mesmo que nenhuma assinatura tenha sido
-                  confirmada, desde que os critérios de cadastro sejam
-                  cumpridos.
+                  Pode ser pago mesmo que nenhuma assinatura tenha sido confirmada, desde que os
+                  critérios de cadastro sejam cumpridos.
                 </p>
               </div>
             </div>
@@ -276,23 +262,18 @@ export default function SDRCalculator() {
 
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[#090D14] p-3">
               <div>
-                <p className="text-sm text-gray-300">
-                  Bônus por cadastros na semana
-                </p>
+                <p className="text-sm text-gray-300">Bônus por cadastros na semana</p>
                 <p className="mt-1 text-xs text-gray-500">
                   {bonusDays} dia(s) × {money(dailyBonus)}
                 </p>
               </div>
-              <p className="text-lg font-bold text-amber-400">
-                {money(weeklyRegistrationBonus)}
-              </p>
+              <p className="text-lg font-bold text-amber-400">{money(weeklyRegistrationBonus)}</p>
             </div>
 
             <p className="text-xs leading-relaxed text-gray-500">
-              A calculadora não verifica automaticamente se cada dia atingiu
-              o limite de cadastros. Informe apenas os dias efetivamente
-              elegíveis. Na integração definitiva, essa validação deve vir
-              dos registros reais do sistema.
+              A calculadora não verifica automaticamente se cada dia atingiu o limite de cadastros.
+              Informe apenas os dias efetivamente elegíveis. Na integração definitiva, essa
+              validação deve vir dos registros reais do sistema.
             </p>
           </div>
         </section>
@@ -302,25 +283,21 @@ export default function SDRCalculator() {
           <div className="space-y-2 p-5 sm:p-6">
             <div className="flex items-center gap-2 text-blue-300">
               <Wallet className="h-5 w-5" />
-              <p className="text-sm font-medium">
-                Ganho estimado por semana
-              </p>
+              <p className="text-sm font-medium">Ganho estimado por semana</p>
             </div>
 
             <p className="break-words text-3xl font-bold tracking-tight sm:text-4xl">
               {money(weeklyEarnings)}
             </p>
             <p className="text-xs text-gray-400">
-              Cenário em que a meta de assinaturas pagas é atingida e os
-              bônus configurados são elegíveis.
+              Cenário em que a meta de assinaturas pagas é atingida e os bônus configurados são
+              elegíveis.
             </p>
           </div>
 
           <div className="space-y-3 border-t border-white/10 bg-black/10 p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-gray-400">
-                Comissões ({weeklySales} assinaturas)
-              </span>
+              <span className="text-gray-400">Comissões ({weeklySales} assinaturas)</span>
               <span className="font-medium">{money(weeklyCommissions)}</span>
             </div>
 
@@ -331,9 +308,7 @@ export default function SDRCalculator() {
 
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="text-gray-400">Bônus por cadastros</span>
-              <span className="font-medium">
-                {money(weeklyRegistrationBonus)}
-              </span>
+              <span className="font-medium">{money(weeklyRegistrationBonus)}</span>
             </div>
           </div>
         </section>
@@ -358,16 +333,13 @@ export default function SDRCalculator() {
           </label>
 
           <div className="mt-4 rounded-xl bg-[#101C2D] p-4">
-            <p className="text-xs text-gray-400">
-              Ganho estimado no período
-            </p>
+            <p className="text-xs text-gray-400">Ganho estimado no período</p>
             <p className="mt-2 break-words text-3xl font-bold text-blue-400">
               {money(monthlyEarnings)}
             </p>
             <p className="mt-2 text-xs leading-relaxed text-gray-500">
-              Projeção bruta baseada na repetição do mesmo desempenho
-              semanal. Não representa garantia de renda nem inclui
-              descontos, impostos ou outros ajustes.
+              Projeção bruta baseada na repetição do mesmo desempenho semanal. Não representa
+              garantia de renda nem inclui descontos, impostos ou outros ajustes.
             </p>
           </div>
         </section>
@@ -401,21 +373,12 @@ export default function SDRCalculator() {
                     maximumFractionDigits: 2,
                   })}%`,
                 ],
-                [
-                  "Comissões semanais",
-                  money(weeklyCommissions),
-                ],
-                [
-                  "Bônus semanal total",
-                  money(extraBonus + weeklyRegistrationBonus),
-                ],
+                ["Comissões semanais", money(weeklyCommissions)],
+                ["Bônus semanal total", money(extraBonus + weeklyRegistrationBonus)],
                 ["Ganho semanal", money(weeklyEarnings)],
                 ["Ganho mensal", money(monthlyEarnings)],
               ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="flex items-start justify-between gap-4 text-sm"
-                >
+                <div key={label} className="flex items-start justify-between gap-4 text-sm">
                   <span className="text-gray-400">{label}</span>
                   <span className="text-right font-medium">{value}</span>
                 </div>
@@ -435,9 +398,8 @@ export default function SDRCalculator() {
         </button>
 
         <p className="pb-4 text-center text-xs leading-relaxed text-gray-500">
-          Simulador de planejamento comercial · Os resultados dependem
-          das metas, dos pagamentos confirmados e das regras de comissão
-          definidas pela Agenda Agora.
+          Simulador de planejamento comercial · Os resultados dependem das metas, dos pagamentos
+          confirmados e das regras de comissão definidas pela Agenda Agora.
         </p>
       </div>
     </main>

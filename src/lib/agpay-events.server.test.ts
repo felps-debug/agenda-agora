@@ -8,10 +8,13 @@ const runtime = vi.hoisted(() => ({
   rpcCalls: [] as Array<{ name: string; args: Record<string, unknown> }>,
   claim: null as Row | null,
   updates: [] as Array<{ table: string; patch: Row; filters: Filter[] }>,
+  businessAccessOrFilters: [] as string[],
+  fetchPayment: vi.fn(),
   fetchPaymentStatus: vi.fn(),
   sendBookingConfirmation: vi.fn(),
   sendPaymentConfirmation: vi.fn(),
   failCreditOnce: false,
+  beforeExpireUpdate: null as null | (() => Promise<void>),
 }));
 
 class FakeQuery {
@@ -76,6 +79,12 @@ class FakeQuery {
     this.filters.push([column, "lt", value]);
     return this;
   }
+  or(filters: string) {
+    if (this.table === "businesses" && this.patch?.["access_until"] !== undefined) {
+      runtime.businessAccessOrFilters.push(filters);
+    }
+    return this;
+  }
   lte(column: string, value: unknown) {
     this.filters.push([column, "lte", value]);
     return this;
@@ -105,6 +114,11 @@ class FakeQuery {
   }
 
   private async exec() {
+    if (this.patch?.["status"] === "expirado" && runtime.beforeExpireUpdate) {
+      const beforeExpireUpdate = runtime.beforeExpireUpdate;
+      runtime.beforeExpireUpdate = null;
+      await beforeExpireUpdate();
+    }
     let rows = (runtime.tables[this.table] ??= []).filter((row) => this.matches(row));
     if (this.maxRows !== null) rows = rows.slice(0, this.maxRows);
     if (this.patch) {
@@ -121,6 +135,28 @@ const fakeDb = {
     runtime.rpcCalls.push({ name, args });
     if (name === "claim_deposit_pix") return { data: [runtime.claim], error: null };
     if (name === "release_deposit_pix") return { data: true, error: null };
+    if (name === "claim_deposit_payment_whatsapp_confirmation") {
+      const payment = runtime.tables["deposit_payments"]!.find(
+        (row) => row["id"] === args["_payment_id"],
+      );
+      if (!payment || payment["status"] !== "pago" || !payment["appointment_id"]) {
+        return { data: null, error: null };
+      }
+      const confirmations = (runtime.tables["deposit_payment_whatsapp_confirmations"] ??= []);
+      let confirmation = confirmations.find((row) => row["deposit_payment_id"] === payment["id"]);
+      if (!confirmation) {
+        confirmation = { deposit_payment_id: payment["id"], status: "pending" };
+        confirmations.push(confirmation);
+      }
+      if (confirmation["status"] !== "pending") return { data: null, error: null };
+      const token = `confirmation-${runtime.rpcCalls.length}`;
+      Object.assign(confirmation, {
+        status: "processing",
+        claim_token: token,
+        claimed_at: new Date().toISOString(),
+      });
+      return { data: token, error: null };
+    }
     if (name === "ledger_settle_withdrawal") {
       const withdrawal = (runtime.tables["withdrawals"] ?? []).find(
         (row) => row["id"] === args["_withdrawal_id"],
@@ -167,7 +203,10 @@ const fakeDb = {
 };
 
 vi.mock("@/integrations/supabase/client.server", () => ({ supabaseAdmin: fakeDb }));
-vi.mock("./agpay.server", () => ({ fetchPaymentStatus: runtime.fetchPaymentStatus }));
+vi.mock("./agpay.server", () => ({
+  fetchPayment: runtime.fetchPayment,
+  fetchPaymentStatus: runtime.fetchPaymentStatus,
+}));
 vi.mock("./whatsapp-notify.server", () => ({
   sendBookingConfirmation: runtime.sendBookingConfirmation,
   sendPaymentConfirmation: runtime.sendPaymentConfirmation,
@@ -190,6 +229,7 @@ const PAYMENT = "tx-agpay-1";
 function seed(charge: Row = {}, claim: Row = {}) {
   runtime.rpcCalls = [];
   runtime.updates = [];
+  runtime.businessAccessOrFilters = [];
   runtime.tables = {
     deposit_payments: [
       {
@@ -215,6 +255,7 @@ function seed(charge: Row = {}, claim: Row = {}) {
     wallets: [{ business_id: "biz-1", available_cents: 0 }],
     ledger_entries: [],
     agpay_webhook_events: [],
+    deposit_payment_whatsapp_confirmations: [],
   };
   runtime.claim = {
     acquired: true,
@@ -233,11 +274,90 @@ describe("eventos de pagamento AgPay", () => {
     vi.clearAllMocks();
     runtime.sendBookingConfirmation.mockResolvedValue(undefined);
     runtime.sendPaymentConfirmation.mockResolvedValue(undefined);
-    runtime.fetchPaymentStatus.mockResolvedValue("pending");
+    runtime.fetchPayment.mockResolvedValue({
+      providerPaymentId: PAYMENT,
+      status: "pending",
+      amount: "100.00",
+    });
     runtime.failCreditOnce = false;
+    runtime.beforeExpireUpdate = null;
     seed();
   });
 
+  it("não renova assinatura quando o webhook informa outro valor bruto", async () => {
+    runtime.tables["subscription_charges"] = [
+      {
+        id: "sub-charge-1",
+        business_id: "biz-1",
+        provider_payment_id: "tx-sub-amount",
+        amount_cents: 8_990,
+        status: "pending",
+        period_end: "2026-12-01T00:00:00.000Z",
+      },
+    ];
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: "tx-sub-amount", status: "completed", amount: 89.91 },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "error" });
+    expect(runtime.tables["subscription_charges"]![0]!["status"]).toBe("pending");
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBeUndefined();
+    expect(runtime.tables["subscription_payments"]).toBeUndefined();
+  });
+  it("não credita e retém em revisão um webhook com valor bruto divergente", async () => {
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, status: "completed", amount: 1.0 },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+      status: "error",
+      last_error: expect.stringMatching(/valor.*diverge/i),
+    });
+    expect(charge()["status"]).toBe("pendente");
+    expect(runtime.tables["ledger_entries"]).toEqual([]);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(0);
+  });
+  it("manda para revisao manual webhook sem valor e nao credita", async () => {
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, status: "completed" },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "error" });
+    expect(charge()["status"]).toBe("pendente");
+    expect(runtime.tables["ledger_entries"]).toEqual([]);
+  });
+
+  it("confirma cobranca de assinatura quando webhook informa o valor correto", async () => {
+    runtime.tables["subscription_charges"] = [
+      {
+        id: "sub-charge-1",
+        business_id: "biz-1",
+        provider_payment_id: "tx-sub-correct",
+        amount_cents: 8_990,
+        status: "pending",
+        period_end: "2026-12-01T00:00:00.000Z",
+      },
+    ];
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: "tx-sub-correct", status: "completed", amount: "89.90" },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+    expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("done");
+    expect(runtime.tables["subscription_charges"]![0]!["status"]).toBe("paid");
+    expect(runtime.tables["businesses"]![0]!["access_until"]).toBe("2026-12-01T00:00:00.000Z");
+  });
   it("confirma pendente apenas uma vez e não duplica a notificação", async () => {
     await expect(confirmDepositPayment(PAYMENT)).resolves.toEqual({ outcome: "confirmed" });
     await expect(confirmDepositPayment(PAYMENT)).resolves.toEqual({ outcome: "already_paid" });
@@ -248,14 +368,55 @@ describe("eventos de pagamento AgPay", () => {
     expect(charge()).toMatchObject({
       gateway_fee_cents: 75,
       platform_commission_percent_snapshot: 0,
-      platform_commission_flat_cents: 0,
-      platform_commission_cents: 0,
-      net_amount_cents: 9925,
+      platform_commission_flat_cents: 20,
+      platform_commission_cents: 20,
+      net_amount_cents: 9905,
     });
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9925, description: "Sinal de Maria" },
+      { type: "payment_credit", amount_cents: 9905, description: "Sinal de Maria" },
     ]);
+  });
+
+  it("tenta novamente confirmação WhatsApp que falhou sem duplicar crédito", async () => {
+    runtime.sendPaymentConfirmation.mockRejectedValueOnce(new Error("WhatsApp indisponível"));
+
+    await expect(confirmDepositPayment(PAYMENT)).rejects.toThrow("WhatsApp indisponível");
+    expect(charge()["status"]).toBe("pago");
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+
+    await expect(confirmDepositPayment(PAYMENT)).resolves.toEqual({ outcome: "already_paid" });
+    expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(2);
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
+  });
+
+  it("worker repete confirmação WhatsApp falha sem duplicar o crédito do sinal", async () => {
+    runtime.sendPaymentConfirmation.mockRejectedValueOnce(new Error("WhatsApp indisponível"));
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, status: "completed", amount: 100.0 },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+      status: "failed",
+      attempts: 1,
+    });
+    expect(charge()).toMatchObject({ status: "pago" });
+    expect(runtime.tables["deposit_payment_whatsapp_confirmations"]![0]).toMatchObject({
+      status: "pending",
+    });
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+
+    runtime.tables["agpay_webhook_events"]![0]!["available_at"] = new Date(0).toISOString();
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+    expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("done");
+    expect(runtime.tables["deposit_payment_whatsapp_confirmations"]![0]!["status"]).toBe("sent");
+    expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(2);
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
   });
 
   it("reentrega do mesmo pagamento não recalcula taxas nem duplica crédito", async () => {
@@ -266,23 +427,29 @@ describe("eventos de pagamento AgPay", () => {
       net_amount_cents: charge()["net_amount_cents"],
     };
     runtime.tables["businesses"]![0]!["agpay_commission_percent"] = 10;
-    const payload = { event: "deposit.completed", data: { transaction_uuid: PAYMENT } };
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, amount: 100.0 },
+    };
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await processAgpayWebhookEvents();
 
     expect(charge()).toMatchObject(frozen);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
   it("falha de crédito deixa inbox failed e retry usa o snapshot já congelado", async () => {
     runtime.failCreditOnce = true;
-    const payload = { event: "deposit.completed", data: { transaction_uuid: PAYMENT } };
+    const payload = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, amount: 100.0 },
+    };
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
     expect(charge()["status"]).toBe("pago");
-    expect(charge()["net_amount_cents"]).toBe(9925);
+    expect(charge()["net_amount_cents"]).toBe(9905);
     expect(runtime.tables["ledger_entries"]).toHaveLength(0);
     expect(runtime.tables["agpay_webhook_events"]![0]!["status"]).toBe("failed");
 
@@ -291,7 +458,7 @@ describe("eventos de pagamento AgPay", () => {
     await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
     expect(charge()["platform_commission_percent_snapshot"]).toBe(0);
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
@@ -299,33 +466,71 @@ describe("eventos de pagamento AgPay", () => {
     seed({ status: "pago" });
     await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "pago" });
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9925 },
+      { type: "payment_credit", amount_cents: 9905 },
     ]);
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9925);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
   });
 
-  it("transaction.refunded debita o líquido original uma vez sem tratar transaction.failed como estorno", async () => {
+  it("evento especulativo de estorno vai para revisão manual sem alterar saldo", async () => {
     await confirmDepositPayment(PAYMENT);
     const payload = {
       event: "transaction.refunded",
       data: { transaction_uuid: PAYMENT, status: "refunded" },
     };
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
-    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
-    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(0);
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(9905);
     expect(runtime.tables["ledger_entries"]).toMatchObject([
-      { type: "payment_credit", amount_cents: 9925 },
-      { type: "refund_debit", amount_cents: -9925 },
+      { type: "payment_credit", amount_cents: 9905 },
     ]);
+    expect(charge()).toMatchObject({ status: "pago" });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+      status: "error",
+      last_error: expect.stringMatching(/contrato.*estorno|estorno.*confirmado/i),
+    });
+  });
+
+  it("status de chargeback sem contrato AgPay vai para revisão manual", async () => {
+    const payload = {
+      event: "transaction.updated",
+      data: { transaction_uuid: PAYMENT, status: "charged_back" },
+    };
     await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
-    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 0 });
-    expect(runtime.tables["ledger_entries"]).toHaveLength(2);
+
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "error" });
+    expect(runtime.tables["ledger_entries"]).toEqual([]);
+    expect(runtime.tables["wallets"]![0]!["available_cents"]).toBe(0);
+  });
+
+  it("evento especulativo de estorno não impede posterior confirmação de pagamento", async () => {
+    await confirmDepositPayment(PAYMENT);
+    const refund = {
+      event: "transaction.refunded",
+      data: { transaction_uuid: PAYMENT, status: "refunded" },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(refund), refund);
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
+
+    const lateCompleted = {
+      event: "deposit.completed",
+      data: { transaction_uuid: PAYMENT, status: "completed", amount: 100.0 },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(lateCompleted), lateCompleted);
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+
+    expect(charge()).toMatchObject({ status: "pago" });
+    expect(runtime.tables["ledger_entries"]).toMatchObject([
+      { type: "payment_credit", amount_cents: 9905 },
+    ]);
+    expect(runtime.tables["ledger_entries"]).toHaveLength(1);
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "error" });
   });
 
   it("deduplica o mesmo webhook por sha256 e o worker notifica uma vez", async () => {
     const payload = {
       event: "deposit.completed",
-      data: { transaction_uuid: PAYMENT, status: "completed" },
+      data: { transaction_uuid: PAYMENT, status: "completed", amount: 100.0 },
     };
     const rawBody = JSON.stringify(payload);
     await persistAgpayWebhookEvent(rawBody, payload);
@@ -451,6 +656,44 @@ describe("eventos de pagamento AgPay", () => {
     expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
   });
 
+  it("transaction.failed encerra uma cobrança pendente de assinatura sem regredir uma paga", async () => {
+    runtime.tables["subscription_charges"] = [
+      {
+        id: "subscription-charge-1",
+        business_id: "biz-1",
+        provider_payment_id: "tx-sub-failed",
+        amount_cents: 8990,
+        status: "pending",
+      },
+      {
+        id: "subscription-charge-2",
+        business_id: "biz-1",
+        provider_payment_id: "tx-sub-paid",
+        amount_cents: 8990,
+        status: "paid",
+      },
+    ];
+    const failedPayload = {
+      event: "transaction.failed",
+      data: { transaction_uuid: "tx-sub-failed", status: "failed" },
+    };
+    await persistAgpayWebhookEvent(JSON.stringify(failedPayload), failedPayload);
+    await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
+
+    expect(runtime.tables["subscription_charges"]![0]).toMatchObject({ status: "failed" });
+    expect(runtime.tables["subscription_charges"]![1]).toMatchObject({ status: "paid" });
+    expect(runtime.updates).toContainEqual(
+      expect.objectContaining({
+        table: "subscription_charges",
+        patch: expect.objectContaining({ status: "failed" }),
+        filters: expect.arrayContaining([
+          ["id", "eq", "subscription-charge-1"],
+          ["status", "eq", "pending"],
+        ]),
+      }),
+    );
+  });
+
   it("cancelamento é apenas local e pagamento tardio não reabre a reserva", async () => {
     await expect(cancelPendingDeposit(CHARGE)).resolves.toEqual({ status: "expirado" });
 
@@ -466,6 +709,17 @@ describe("eventos de pagamento AgPay", () => {
     expect(runtime.sendBookingConfirmation).not.toHaveBeenCalled();
   });
 
+  it("reports payment confirmation when it wins the cancellation race", async () => {
+    runtime.beforeExpireUpdate = async () => {
+      await confirmDepositPayment(PAYMENT);
+    };
+
+    await expect(cancelPendingDeposit(CHARGE)).resolves.toEqual({ status: "pago" });
+    expect(charge()["status"]).toBe("pago");
+    expect(appointment()["status"]).toBe("agendado");
+    expect(runtime.sendPaymentConfirmation).toHaveBeenCalledTimes(1);
+  });
+
   it("claim ocupado adia cancelamento sem consultar o AgPay", async () => {
     seed({}, { acquired: false, reason: "ocupada", claim_token: null });
     await expect(cancelPendingDeposit(CHARGE)).resolves.toEqual({ status: "pendente" });
@@ -473,11 +727,33 @@ describe("eventos de pagamento AgPay", () => {
     expect(charge()["status"]).toBe("pendente");
   });
 
+  it("consulta de status com valor divergente fica registrada para revisão manual", async () => {
+    seed();
+    runtime.fetchPayment.mockResolvedValue({
+      providerPaymentId: PAYMENT,
+      status: "completed",
+      amount: "1.00",
+    });
+
+    await expect(synchronizeDepositPayment(CHARGE)).rejects.toThrow(/valor bruto.*diverge/i);
+    expect(charge()["status"]).toBe("pendente");
+    expect(runtime.tables["ledger_entries"]).toEqual([]);
+    expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+      event_type: "payment.amount_mismatch",
+      status: "error",
+      transaction_uuid: PAYMENT,
+      last_error: expect.stringMatching(/valor bruto.*diverge/i),
+    });
+  });
   it("sincronização consulta o AgPay antes de expirar e recupera pagamento tardio", async () => {
     seed();
-    runtime.fetchPaymentStatus.mockResolvedValue("completed");
+    runtime.fetchPayment.mockResolvedValue({
+      providerPaymentId: PAYMENT,
+      status: "completed",
+      amount: "100.00",
+    });
     await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "pago" });
-    expect(runtime.fetchPaymentStatus).toHaveBeenCalledWith(PAYMENT);
+    expect(runtime.fetchPayment).toHaveBeenCalledWith(PAYMENT);
     expect(charge()["status"]).toBe("pago");
     expect(appointment()["status"]).toBe("agendado");
     expect(runtime.tables["ledger_entries"]).toHaveLength(1);
@@ -485,7 +761,6 @@ describe("eventos de pagamento AgPay", () => {
 
   it("sincronização ainda expira localmente quando o AgPay segue pendente", async () => {
     seed();
-    runtime.fetchPaymentStatus.mockResolvedValue("pending");
     await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "expirado" });
     expect(charge()["status"]).toBe("expirado");
     expect(appointment()["status"]).toBe("cancelado");
@@ -493,7 +768,11 @@ describe("eventos de pagamento AgPay", () => {
 
   it("expirePendingDeposits recupera cobrança paga no gateway em vez de cancelar", async () => {
     seed();
-    runtime.fetchPaymentStatus.mockResolvedValue("completed");
+    runtime.fetchPayment.mockResolvedValue({
+      providerPaymentId: PAYMENT,
+      status: "completed",
+      amount: "100.00",
+    });
     await expect(expirePendingDeposits()).resolves.toEqual({
       expired: 0,
       recovered: 1,
@@ -506,7 +785,6 @@ describe("eventos de pagamento AgPay", () => {
 
   it("expirePendingDeposits continua cancelando quando o AgPay não confirma o pagamento", async () => {
     seed();
-    runtime.fetchPaymentStatus.mockResolvedValue("pending");
     await expect(expirePendingDeposits()).resolves.toEqual({
       expired: 1,
       recovered: 0,
@@ -520,7 +798,10 @@ describe("eventos de pagamento AgPay", () => {
     const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
     it("saque sem referência local fica em retry (failed + attempts) e conclui quando a referência aparece", async () => {
-      const payload = { event: "withdrawal.completed", data: { uuid: "wd-tardio", status: "completed" } };
+      const payload = {
+        event: "withdrawal.completed",
+        data: { uuid: "wd-tardio", status: "completed" },
+      };
       await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
       runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(1);
       await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
@@ -531,7 +812,9 @@ describe("eventos de pagamento AgPay", () => {
       expect(Date.parse(String(event["available_at"]))).toBeGreaterThan(Date.now());
 
       // a referência local aparece e o retry vence
-      runtime.tables["withdrawals"] = [{ id: "wd-row", provider_ref: "wd-tardio", status: "processing" }];
+      runtime.tables["withdrawals"] = [
+        { id: "wd-row", provider_ref: "wd-tardio", status: "processing" },
+      ];
       event["available_at"] = new Date(0).toISOString();
       await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 1, failed: 0 });
       expect(event["status"]).toBe("done");
@@ -540,15 +823,24 @@ describe("eventos de pagamento AgPay", () => {
 
     it("depósito sem cobrança local fica pendente para nova tentativa", async () => {
       runtime.tables["deposit_payments"] = [];
-      const payload = { event: "deposit.completed", data: { uuid: "tx-que-nao-existe", status: "completed" } };
+      const payload = {
+        event: "deposit.completed",
+        data: { uuid: "tx-que-nao-existe", status: "completed" },
+      };
       await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
       runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(2);
       await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
-      expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "failed", attempts: 1 });
+      expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+        status: "failed",
+        attempts: 1,
+      });
     });
 
     it("depois de 24 h sem referência o evento vira error e sai da fila automática", async () => {
-      const payload = { event: "withdrawal.completed", data: { uuid: "wd-nunca", status: "completed" } };
+      const payload = {
+        event: "withdrawal.completed",
+        data: { uuid: "wd-nunca", status: "completed" },
+      };
       await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
       runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(25);
       await expect(processAgpayWebhookEvents()).resolves.toEqual({ processed: 0, failed: 1 });
@@ -559,13 +851,19 @@ describe("eventos de pagamento AgPay", () => {
     });
 
     it("antes de 24 h continua tentando, mesmo com várias falhas", async () => {
-      const payload = { event: "withdrawal.completed", data: { uuid: "wd-demora", status: "completed" } };
+      const payload = {
+        event: "withdrawal.completed",
+        data: { uuid: "wd-demora", status: "completed" },
+      };
       await persistAgpayWebhookEvent(JSON.stringify(payload), payload);
       runtime.tables["agpay_webhook_events"]![0]!["received_at"] = hoursAgo(23);
       for (let round = 1; round <= 3; round++) {
         runtime.tables["agpay_webhook_events"]![0]!["available_at"] = new Date(0).toISOString();
         await processAgpayWebhookEvents();
-        expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({ status: "failed", attempts: round });
+        expect(runtime.tables["agpay_webhook_events"]![0]).toMatchObject({
+          status: "failed",
+          attempts: round,
+        });
       }
     });
   });
@@ -577,6 +875,7 @@ describe("confirmSubscriptionCharge (US7 — renovação idempotente/auto-curáv
   const TARGET = "2026-12-20T03:00:00.000Z";
 
   function seedSub(chargeStatus: string, accessUntil: string | null) {
+    runtime.businessAccessOrFilters = [];
     runtime.tables = {
       subscription_charges: [
         {
@@ -600,7 +899,9 @@ describe("confirmSubscriptionCharge (US7 — renovação idempotente/auto-curáv
     expect(runtime.tables["subscription_payments"]!).toHaveLength(1);
 
     // Retry (webhook reentregue): não estende de novo, não duplica histórico.
-    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({ outcome: "already_paid" });
+    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({
+      outcome: "already_paid",
+    });
     expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(TARGET);
     expect(runtime.tables["subscription_payments"]!).toHaveLength(1);
   });
@@ -608,7 +909,9 @@ describe("confirmSubscriptionCharge (US7 — renovação idempotente/auto-curáv
   it("auto-cura: cobrança já 'paid' mas acesso não aplicado é renovado no retry", async () => {
     // Simula uma falha parcial anterior: marcou paid mas não renovou o acesso.
     seedSub("paid", null);
-    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({ outcome: "already_paid" });
+    await expect(confirmSubscriptionCharge(SUB)).resolves.toMatchObject({
+      outcome: "already_paid",
+    });
     expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(TARGET);
   });
 
@@ -617,6 +920,14 @@ describe("confirmSubscriptionCharge (US7 — renovação idempotente/auto-curáv
     seedSub("pending", future);
     await confirmSubscriptionCharge(SUB);
     expect(runtime.tables["businesses"]![0]!["access_until"]).toBe(future);
+  });
+
+  it("faz o compare-and-set do prazo no UPDATE para preservar a monotonicidade concorrente", async () => {
+    seedSub("pending", null);
+    await confirmSubscriptionCharge(SUB);
+    expect(runtime.businessAccessOrFilters).toEqual([
+      `access_until.is.null,access_until.lt.${TARGET}`,
+    ]);
   });
 
   it("devolve not_found para provider_payment_id desconhecido", async () => {

@@ -3,11 +3,28 @@ import { friendlyError } from "@/lib/error-page";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Trash2, Search, MessagesSquare, UserRound, Cake, Percent, TrendingUp, TrendingDown, Minus, ArrowRight, Download, ArrowLeft } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Search,
+  MessagesSquare,
+  UserRound,
+  Cake,
+  Percent,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ArrowRight,
+  Download,
+  ArrowLeft,
+} from "lucide-react";
+import { ClientReportMenuOption } from "@/components/painel/ClientReportMenuOption";
+import { CustomerListQueryNotice } from "@/components/painel/CustomerListQueryNotice";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { daysSince } from "@/lib/format";
 import { mergeAppointmentCustomers } from "@/lib/customer-list";
+import { nextDeleteConfirmation } from "@/lib/delete-confirmation";
 import { formatPhoneBR, formatPhoneShort } from "@/lib/format-phone";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
@@ -51,7 +68,9 @@ function ClientesPage() {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [campaignOpen, setCampaignOpen] = useState(false);
-  const [campaignView, setCampaignView] = useState<"menu" | "ausentes" | "aniversariantes" | "comparativo-individual">("menu");
+  const [campaignView, setCampaignView] = useState<
+    "menu" | "ausentes" | "aniversariantes" | "comparativo-individual"
+  >("menu");
   const [campaignMessage, setCampaignMessage] = useState(
     "Oi, {nome}! Sua presença faz falta!\nVenha passar um tempo conosco e conferir as novidades.\nEstamos te esperando!",
   );
@@ -125,7 +144,7 @@ function ClientesPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("appointments")
-        .select("customer_id, customer_name, customer_phone, starts_at")
+        .select("customer_id, customer_name, customer_phone, starts_at, status")
         .eq("business_id", businessId!)
         .neq("status", "bloqueado")
         .order("starts_at", { ascending: false });
@@ -164,9 +183,14 @@ function ClientesPage() {
       const { error } = await supabase.from("customers").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_result, id) => {
       toast.success("Cliente removido.");
       void invalidate();
+      setCustomerToRemove((current) => nextDeleteConfirmation(current, id, true));
+    },
+    onError: (error: Error, id: string) => {
+      setCustomerToRemove((current) => nextDeleteConfirmation(current, id, false));
+      toast.error(friendlyError(error));
     },
   });
 
@@ -195,7 +219,9 @@ function ClientesPage() {
     .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
   const toggleClient = (id: string) =>
-    setSelectedClients((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+    setSelectedClients((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
+    );
 
   const toggleAllAbsentees = () =>
     setSelectedClients((prev) =>
@@ -251,7 +277,9 @@ function ClientesPage() {
   });
 
   const toggleBirthday = (id: string) =>
-    setSelectedBirthdays((prev) => (prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]));
+    setSelectedBirthdays((prev) =>
+      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id],
+    );
 
   const toggleAllBirthdays = () =>
     setSelectedBirthdays((prev) =>
@@ -268,11 +296,15 @@ function ClientesPage() {
 
   const countInMonth = (ym: string) =>
     (visitsQuery.data ?? []).filter(
-      (a) => typeof a.starts_at === "string" && a.starts_at.slice(0, 7) === ym,
+      (a) =>
+        a.status === "concluido" &&
+        typeof a.starts_at === "string" &&
+        a.starts_at.slice(0, 7) === ym,
     ).length;
   const countA = countInMonth(monthA);
   const countB = countInMonth(monthB);
-  const pctChange = countA === 0 ? (countB === 0 ? 0 : 100) : Math.round(((countB - countA) / countA) * 100);
+  const pctChange =
+    countA === 0 ? (countB === 0 ? 0 : 100) : Math.round(((countB - countA) / countA) * 100);
   const shortMonth = (ym: string) => {
     const parts = ym.split("-").map(Number);
     const y = parts[0];
@@ -293,7 +325,11 @@ function ClientesPage() {
   const dailyInMonth = (ym: string) => {
     const arr: number[] = new Array(daysInMonth(ym)).fill(0);
     for (const a of visitsQuery.data ?? []) {
-      if (typeof a.starts_at === "string" && a.starts_at.slice(0, 7) === ym) {
+      if (
+        a.status === "concluido" &&
+        typeof a.starts_at === "string" &&
+        a.starts_at.slice(0, 7) === ym
+      ) {
         const d = Number(a.starts_at.slice(8, 10));
         if (d >= 1 && d <= arr.length) arr[d - 1] = (arr[d - 1] ?? 0) + 1;
       }
@@ -462,7 +498,9 @@ function ClientesPage() {
                           inputMode="numeric"
                           placeholder="DD/MM/AAAA"
                           value={form.birthdate}
-                          onChange={(e) => setForm({ ...form, birthdate: maskBirthdate(e.target.value) })}
+                          onChange={(e) =>
+                            setForm({ ...form, birthdate: maskBirthdate(e.target.value) })
+                          }
                         />
                       </div>
                     </div>
@@ -552,43 +590,58 @@ function ClientesPage() {
                 <div className="professional-form-section">
                   <div className="grid grid-cols-2 gap-4">
                     {[
-                      { id: "aniversariantes", label: "Aniversariantes", Icon: Cake, color: "text-[var(--c-a855f7)]" },
-                      { id: "comparativo-individual", label: "Comparativo Individual", Icon: Percent, color: "text-[#facc15]" },
-                      { id: "campanha", label: "Campanha", Icon: MessagesSquare, color: "text-white" },
-                      { id: "comparativo-evolutivo", label: "Comparativo Evolutivo", Icon: TrendingUp, color: "text-[#22c55e]" },
-                    ].map(({ id, label, Icon, color }) => (
-                      <div key={id} className="flex flex-col items-center">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (id === "campanha") {
-                              setCampaignView("ausentes");
-                            } else if (id === "aniversariantes") {
-                              setBirthdayTab("hoje");
-                              setSelectedBirthdays([]);
-                              setCampaignView("aniversariantes");
-                            } else if (id === "comparativo-individual") {
-                              setCampaignView("comparativo-individual");
-                            } else {
-                              toast.success(`${label}: relatório em breve`);
-                            }
-                          }}
-                          className="flex h-32 w-full items-center justify-center rounded-xl border border-[var(--c-rgba-51-125-255-a0d29)] bg-[var(--c-rgba-22-119-255-a0d09)] shadow-[inset_0_1px_0_rgba(255,255,255,0.045),0_0_18px_var(--c-rgba-22-119-255-a0d08)] transition-colors hover:border-[var(--c-rgba-51-125-255-a0d5)] hover:bg-[var(--c-rgba-22-119-255-a0d14)]"
-                          aria-label={label}
-                        >
-                          <Icon className={`size-12 ${color}`} strokeWidth={1.8} />
-                        </button>
-                        <span className="mt-2 text-center text-[13px] font-medium leading-tight text-[var(--c-e5e7eb)]">
-                          {label}
-                        </span>
-                      </div>
+                      {
+                        id: "aniversariantes",
+                        label: "Aniversariantes",
+                        Icon: Cake,
+                        color: "text-[var(--c-a855f7)]",
+                      },
+                      {
+                        id: "comparativo-individual",
+                        label: "Comparativo Individual",
+                        Icon: Percent,
+                        color: "text-[#facc15]",
+                      },
+                      {
+                        id: "campanha",
+                        label: "Campanha",
+                        Icon: MessagesSquare,
+                        color: "text-white",
+                      },
+                      {
+                        id: "comparativo-evolutivo",
+                        label: "Comparativo Evolutivo",
+                        Icon: TrendingUp,
+                        color: "text-[#22c55e]",
+                        unavailable: true,
+                      },
+                    ].map(({ id, label, Icon, color, unavailable }) => (
+                      <ClientReportMenuOption
+                        key={id}
+                        label={label}
+                        Icon={Icon}
+                        color={color}
+                        unavailable={unavailable}
+                        onSelect={() => {
+                          if (id === "campanha") {
+                            setCampaignView("ausentes");
+                          } else if (id === "aniversariantes") {
+                            setBirthdayTab("hoje");
+                            setSelectedBirthdays([]);
+                            setCampaignView("aniversariantes");
+                          } else if (id === "comparativo-individual") {
+                            setCampaignView("comparativo-individual");
+                          }
+                        }}
+                      />
                     ))}
                   </div>
                 </div>
               </div>
               <DialogFooter className="professional-dialog-footer gap-2">
                 <span className="mr-auto self-center text-[13px] text-[#686b74]">
-                  Total de clientes: <span className="font-semibold text-[var(--c-69a2ff)]">{filtered.length}</span>
+                  Total de clientes:{" "}
+                  <span className="font-semibold text-[var(--c-69a2ff)]">{filtered.length}</span>
                 </span>
                 <Button
                   type="button"
@@ -673,7 +726,9 @@ function ClientesPage() {
                       <div className="grid grid-cols-[28px_1fr_auto] items-center gap-2 px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#8b8e96]">
                         <input
                           type="checkbox"
-                          checked={absentees.length > 0 && selectedClients.length === absentees.length}
+                          checked={
+                            absentees.length > 0 && selectedClients.length === absentees.length
+                          }
                           onChange={toggleAllAbsentees}
                           className="size-4 accent-[var(--c-2f83ff)]"
                           aria-label="Selecionar todos"
@@ -700,7 +755,9 @@ function ClientesPage() {
                               />
                               <span className="truncate font-medium">{c.name}</span>
                               <span className="whitespace-nowrap">
-                                {canViewCustomerPhone ? formatPhoneShort(c.phone) || "—" : "•••••••••"}
+                                {canViewCustomerPhone
+                                  ? formatPhoneShort(c.phone) || "—"
+                                  : "•••••••••"}
                               </span>
                             </label>
                           ))
@@ -777,7 +834,11 @@ function ClientesPage() {
                     </label>
 
                     <div className="hidden justify-center sm:flex">
-                      <ArrowRight className="size-4 text-[#4a4e57]" strokeWidth={2} aria-hidden="true" />
+                      <ArrowRight
+                        className="size-4 text-[#4a4e57]"
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />
                     </div>
 
                     <label className="rounded-[0.85rem] border border-[#d9a83f]/25 bg-[#d9a83f]/[0.07] p-3 transition-colors focus-within:border-[#d9a83f]/50">
@@ -805,7 +866,7 @@ function ClientesPage() {
                   <p className="rounded-[0.7rem] border border-white/[0.04] bg-white/[0.015] px-3 py-2 text-xs leading-relaxed text-[#8b8e96]">
                     {comparativeMessage}
                   </p>
-                                    <div className="overflow-hidden rounded-[0.9rem] border border-white/[0.05] bg-white/[0.02] p-4">
+                  <div className="overflow-hidden rounded-[0.9rem] border border-white/[0.05] bg-white/[0.02] p-4">
                     <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <h4 className="font-[Chakra_Petch] text-[12px] font-bold tracking-tight text-white">
@@ -816,11 +877,17 @@ function ClientesPage() {
                         </p>
                         <div className="mt-2 flex flex-wrap items-center gap-3 text-[9px] font-semibold uppercase tracking-widest">
                           <span className="inline-flex items-center gap-1.5 text-neutral-500">
-                            <span aria-hidden="true" className="size-1.5 rounded-full bg-neutral-500" />
+                            <span
+                              aria-hidden="true"
+                              className="size-1.5 rounded-full bg-neutral-500"
+                            />
                             {shortMonth(monthA)}
                           </span>
                           <span className="inline-flex items-center gap-1.5 text-[#d9a83f]">
-                            <span aria-hidden="true" className="size-1.5 rounded-full bg-[#d9a83f]" />
+                            <span
+                              aria-hidden="true"
+                              className="size-1.5 rounded-full bg-[#d9a83f]"
+                            />
                             {shortMonth(monthB)}
                           </span>
                         </div>
@@ -836,13 +903,17 @@ function ClientesPage() {
                           <p className="text-[9px] font-semibold uppercase tracking-widest text-neutral-600">
                             Média/dia
                           </p>
-                          <p className="text-sm font-light tracking-tighter text-neutral-400">{avgB}</p>
+                          <p className="text-sm font-light tracking-tighter text-neutral-400">
+                            {avgB}
+                          </p>
                         </div>
                         <div className="text-right">
                           <p className="text-[9px] font-semibold uppercase tracking-widest text-neutral-600">
                             Melhor dia
                           </p>
-                          <p className="text-sm font-light tracking-tighter text-[#d9a83f]">{bestWeekday}</p>
+                          <p className="text-sm font-light tracking-tighter text-[#d9a83f]">
+                            {bestWeekday}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -852,14 +923,21 @@ function ClientesPage() {
                       aria-label={`Atendimentos por dia em ${shortMonth(monthB)}`}
                     >
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
+                        <AreaChart
+                          data={chartData}
+                          margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
+                        >
                           <defs>
                             <linearGradient id="clientesPerf" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="0%" stopColor="#d9a83f" stopOpacity={0.22} />
                               <stop offset="100%" stopColor="#d9a83f" stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <CartesianGrid stroke="rgba(255,255,255,0.04)" strokeDasharray="4 4" vertical={false} />
+                          <CartesianGrid
+                            stroke="rgba(255,255,255,0.04)"
+                            strokeDasharray="4 4"
+                            vertical={false}
+                          />
                           <XAxis
                             dataKey="day"
                             ticks={chartTicks}
@@ -885,8 +963,18 @@ function ClientesPage() {
                             stroke="#d9a83f"
                             strokeWidth={2}
                             fill="url(#clientesPerf)"
-                            dot={{ r: 2.5, stroke: "#d9a83f", strokeWidth: 1.5, fill: "var(--c-09090b)" }}
-                            activeDot={{ r: 4, stroke: "#d9a83f", strokeWidth: 1.5, fill: "var(--c-09090b)" }}
+                            dot={{
+                              r: 2.5,
+                              stroke: "#d9a83f",
+                              strokeWidth: 1.5,
+                              fill: "var(--c-09090b)",
+                            }}
+                            activeDot={{
+                              r: 4,
+                              stroke: "#d9a83f",
+                              strokeWidth: 1.5,
+                              fill: "var(--c-09090b)",
+                            }}
                           />
                         </AreaChart>
                       </ResponsiveContainer>
@@ -958,7 +1046,9 @@ function ClientesPage() {
                       <div className="grid grid-cols-[28px_1fr_auto] items-center gap-2 px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-[#8b8e96]">
                         <input
                           type="checkbox"
-                          checked={birthdays.length > 0 && selectedBirthdays.length === birthdays.length}
+                          checked={
+                            birthdays.length > 0 && selectedBirthdays.length === birthdays.length
+                          }
                           onChange={toggleAllBirthdays}
                           className="size-4 accent-[var(--c-2f83ff)]"
                           aria-label="Selecionar todos"
@@ -985,7 +1075,8 @@ function ClientesPage() {
                               />
                               <span className="truncate font-medium">{c.name}</span>
                               <span className="whitespace-nowrap">
-                                {String(c.birth.day).padStart(2, "0")}/{String(c.birth.month).padStart(2, "0")}
+                                {String(c.birth.day).padStart(2, "0")}/
+                                {String(c.birth.month).padStart(2, "0")}
                               </span>
                             </label>
                           ))
@@ -1009,18 +1100,22 @@ function ClientesPage() {
           onChange={(e) => setTerm(e.target.value)}
         />
       </div>
-
-      {visitsQuery.isError && (
-        <p role="alert" className="mb-4 rounded-xl border border-destructive/40 p-4 text-sm">
-          Não foi possível carregar o histórico de visitas; os dias ausente podem estar incompletos.
-        </p>
-      )}
-
-      {customersQuery.isError || visitsQuery.isError ? (
-        <p role="alert" className="rounded-xl border border-destructive/40 p-6 text-center text-sm">
-          Não foi possível carregar os clientes. Atualize a página e tente novamente.
-        </p>
-      ) : !filtered.length ? (
+      <CustomerListQueryNotice
+        isLoading={
+          !customersQuery.isError &&
+          !visitsQuery.isError &&
+          (customersQuery.isPending || visitsQuery.isPending)
+        }
+        isError={customersQuery.isError || visitsQuery.isError}
+        isFetching={customersQuery.isFetching || visitsQuery.isFetching}
+        onRetry={() => {
+          void Promise.all([customersQuery.refetch(), visitsQuery.refetch()]);
+        }}
+      />
+      {customersQuery.isPending ||
+      visitsQuery.isPending ||
+      customersQuery.isError ||
+      visitsQuery.isError ? null : !filtered.length ? (
         <EmptyList text="Nenhum cliente encontrado." />
       ) : (
         <div className="report-luminous-card report-effect-strong mt-[4.5%] overflow-x-auto">
@@ -1067,7 +1162,9 @@ function ClientesPage() {
                         "•••••••••"
                       )}
                     </td>
-                    <td className="whitespace-nowrap py-3 pl-[56px] pr-4 text-[15.4px]">{days === null ? "-" : `${days} dias`}</td>
+                    <td className="whitespace-nowrap py-3 pl-[56px] pr-4 text-[15.4px]">
+                      {days === null ? "-" : `${days} dias`}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       {c.manual && (
                         <Button
@@ -1106,8 +1203,7 @@ function ClientesPage() {
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                if (customerToRemove)
-                  remove.mutate(customerToRemove, { onSettled: () => setCustomerToRemove(null) });
+                if (customerToRemove) remove.mutate(customerToRemove);
               }}
               disabled={remove.isPending}
             >
@@ -1119,4 +1215,3 @@ function ClientesPage() {
     </div>
   );
 }
-

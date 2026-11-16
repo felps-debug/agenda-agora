@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Clock, Loader2 } from "lucide-react";
 import { formatPrice } from "@/lib/format";
 import type { Panel1Appearance } from "@/lib/panel1-config";
@@ -171,7 +178,8 @@ export function EleganceBookingDialog({
   const showDetails = showTimes && !!date && !!time;
 
   const calendarBase = days[0]?.date ?? new Date().toISOString().slice(0, 10);
-  const [calendarYear = new Date().getFullYear(), calendarMonth = new Date().getMonth() + 1] = calendarBase.split("-").map(Number);
+  const [calendarYear = new Date().getFullYear(), calendarMonth = new Date().getMonth() + 1] =
+    calendarBase.split("-").map(Number);
   const daysInMonth = new Date(calendarYear, calendarMonth, 0).getDate();
   const firstWeekday = new Date(calendarYear, calendarMonth - 1, 1).getDay();
   const calendarCells = Array.from({ length: firstWeekday + daysInMonth }, (_, index) =>
@@ -179,10 +187,13 @@ export function EleganceBookingDialog({
       ? null
       : `${calendarYear}-${String(calendarMonth).padStart(2, "0")}-${String(index - firstWeekday + 1).padStart(2, "0")}`,
   );
-  const calendarMonthLabel = new Date(calendarYear, calendarMonth - 1, 1).toLocaleDateString("pt-BR", {
-    month: "long",
-    year: "numeric",
-  });
+  const calendarMonthLabel = new Date(calendarYear, calendarMonth - 1, 1).toLocaleDateString(
+    "pt-BR",
+    {
+      month: "long",
+      year: "numeric",
+    },
+  );
   const todayIso = new Date().toISOString().slice(0, 10);
   const minimalistCalendarText = "#252525";
 
@@ -224,9 +235,11 @@ export function EleganceBookingDialog({
     <Container
       aria-label={`Agendar ${service.name}`}
       {...(asPreview ? {} : { overlayStyle: { animation: "none" } })}
-      className={asPreview
-        ? "max-w-[480px] rounded-[22px] border p-0 sm:rounded-[22px]"
-        : "max-h-[92vh] max-w-[480px] overflow-y-auto rounded-[22px] border p-0 sm:rounded-[22px] [&>[data-slot='dialog-close']]:hidden"}
+      className={
+        asPreview
+          ? "max-w-[480px] rounded-[22px] border p-0 sm:rounded-[22px]"
+          : "max-h-[92vh] max-w-[480px] overflow-y-auto rounded-[22px] border p-0 sm:rounded-[22px] [&>[data-slot='dialog-close']]:hidden"
+      }
       style={
         {
           ...(asPreview
@@ -249,7 +262,10 @@ export function EleganceBookingDialog({
           aria-label="Voltar aos serviços"
           onClick={onClose}
           className="absolute left-6 top-5 flex size-[38px] cursor-pointer items-center justify-center rounded-full hover:opacity-85"
-          style={{ backgroundColor: appearance.backButtonBackgroundColor, color: appearance.backButtonIconColor }}
+          style={{
+            backgroundColor: appearance.backButtonBackgroundColor,
+            color: appearance.backButtonIconColor,
+          }}
         >
           <ChevronLeft className="size-[26px]" strokeWidth={2} />
         </button>
@@ -329,14 +345,36 @@ export function EleganceBookingDialog({
               className="rounded-[15px] border p-3"
               style={{ backgroundColor: "#ffffff", borderColor: "#e8e8e8" }}
             >
-              <div className="mb-3 flex items-center justify-between px-1 text-[16px] font-medium capitalize" style={{ color: minimalistCalendarText }}>
-                <button type="button" aria-label="Mês anterior" className="rounded-full px-2 py-1 opacity-50" disabled>‹</button>
+              <div
+                className="mb-3 flex items-center justify-between px-1 text-[16px] font-medium capitalize"
+                style={{ color: minimalistCalendarText }}
+              >
+                <button
+                  type="button"
+                  aria-label="Mês anterior"
+                  className="rounded-full px-2 py-1 opacity-50"
+                  disabled
+                >
+                  ‹
+                </button>
                 <span>{calendarMonthLabel}</span>
-                <button type="button" aria-label="Próximo mês" className="rounded-full px-2 py-1 opacity-50" disabled>›</button>
+                <button
+                  type="button"
+                  aria-label="Próximo mês"
+                  className="rounded-full px-2 py-1 opacity-50"
+                  disabled
+                >
+                  ›
+                </button>
               </div>
-              <div className="grid grid-cols-7 gap-1 text-center text-[13px]" style={{ color: minimalistCalendarText }}>
+              <div
+                className="grid grid-cols-7 gap-1 text-center text-[13px]"
+                style={{ color: minimalistCalendarText }}
+              >
                 {["dom", "seg", "ter", "qua", "qui", "sex", "sáb"].map((weekday) => (
-                  <span key={weekday} className="py-1 opacity-60">{weekday}</span>
+                  <span key={weekday} className="py-1 opacity-60">
+                    {weekday}
+                  </span>
                 ))}
                 {calendarCells.map((cell, index) => {
                   const available = !!cell && days.some((day) => day.date === cell);
@@ -350,14 +388,16 @@ export function EleganceBookingDialog({
                       aria-pressed={selected}
                       onClick={() => cell && available && onDateSelect(cell)}
                       className="min-h-10 rounded-md border text-[15px] transition-colors disabled:cursor-default"
-                      style={selected
-                        ? optionStyle(true)
-                        : {
-                            color: available ? accent : `${minimalistCalendarText}55`,
-                            borderColor: today ? accent : "transparent",
-                            backgroundColor: "transparent",
-                            borderWidth: "1px",
-                          }}
+                      style={
+                        selected
+                          ? optionStyle(true)
+                          : {
+                              color: available ? accent : `${minimalistCalendarText}55`,
+                              borderColor: today ? accent : "transparent",
+                              backgroundColor: "transparent",
+                              borderWidth: "1px",
+                            }
+                      }
                     >
                       {cell ? Number(cell.slice(-2)) : ""}
                     </button>
@@ -424,152 +464,153 @@ export function EleganceBookingDialog({
               {showProfessional ? "Profissional e horário" : "Horário"}
             </h2>
             {showProfessional ? (
-            <div
-              ref={professionalBoxRef}
-              className="relative mb-5"
-            >
-              <div
-                className="flex items-center gap-3 rounded-[22px] border p-3.5"
-                style={{ backgroundColor: `${cardBackground}cc`, borderColor: cardBorder }}
-              >
-                {professional?.avatar_url ? (
-                  <img
-                    src={professional.avatar_url}
-                    alt=""
-                    className="size-12 shrink-0 rounded-full object-cover"
-                    style={{ border: `2px solid ${cardBorder}` }}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="grid size-12 shrink-0 place-items-center rounded-full text-lg"
-                    style={{ backgroundColor: gradientStart, color: accent, ...serif }}
-                  >
-                    {initials(avatarName)}
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-haspopup="listbox"
-                  aria-expanded={professionalOpen}
-                  onClick={() => setProfessionalOpen((v) => !v)}
-                  className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-left"
+              <div ref={professionalBoxRef} className="relative mb-5">
+                <div
+                  className="flex items-center gap-3 rounded-[22px] border p-3.5"
+                  style={{ backgroundColor: `${cardBackground}cc`, borderColor: cardBorder }}
                 >
-                  <span className="block text-[11px]" style={{ color: modalText, opacity: 0.75 }}>
-                    Selecione o profissional
-                  </span>
-                  <span className="flex items-center justify-between gap-2 pt-0.5">
-                    <span
-                      className="truncate text-[20px]"
-                      style={{ ...serif, color: appearance.service_name_text }}
-                    >
-                      {professional?.name ?? "Escolher profissional"}
-                    </span>
+                  {professional?.avatar_url ? (
+                    <img
+                      src={professional.avatar_url}
+                      alt=""
+                      className="size-12 shrink-0 rounded-full object-cover"
+                      style={{ border: `2px solid ${cardBorder}` }}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
                     <span
                       aria-hidden="true"
-                      className={`shrink-0 ${professionalOpen ? "rotate-180" : ""}`}
-                      style={{ color: modalText, opacity: 0.75 }}
+                      className="grid size-12 shrink-0 place-items-center rounded-full text-lg"
+                      style={{ backgroundColor: gradientStart, color: accent, ...serif }}
                     >
-                      <ChevronDown className="size-4" />
+                      {initials(avatarName)}
                     </span>
-                  </span>
-                  <small
-                    className="mt-0.5 block truncate text-[11px]"
-                    style={{ color: modalText, opacity: 0.55 }}
+                  )}
+                  <button
+                    type="button"
+                    aria-haspopup="listbox"
+                    aria-expanded={professionalOpen}
+                    onClick={() => setProfessionalOpen((v) => !v)}
+                    className="min-w-0 flex-1 cursor-pointer border-0 bg-transparent p-0 text-left"
                   >
-                    {professional?.role?.trim()
-                      ? professional.role
-                      : professionals.length > 1
-                        ? `${professionals.length} profissionais disponíveis`
-                        : "Profissional disponível"}
-                  </small>
-                </button>
-              </div>
+                    <span className="block text-[11px]" style={{ color: modalText, opacity: 0.75 }}>
+                      Selecione o profissional
+                    </span>
+                    <span className="flex items-center justify-between gap-2 pt-0.5">
+                      <span
+                        className="truncate text-[20px]"
+                        style={{ ...serif, color: appearance.service_name_text }}
+                      >
+                        {professional?.name ?? "Escolher profissional"}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={`shrink-0 ${professionalOpen ? "rotate-180" : ""}`}
+                        style={{ color: modalText, opacity: 0.75 }}
+                      >
+                        <ChevronDown className="size-4" />
+                      </span>
+                    </span>
+                    <small
+                      className="mt-0.5 block truncate text-[11px]"
+                      style={{ color: modalText, opacity: 0.55 }}
+                    >
+                      {professional?.role?.trim()
+                        ? professional.role
+                        : professionals.length > 1
+                          ? `${professionals.length} profissionais disponíveis`
+                          : "Profissional disponível"}
+                    </small>
+                  </button>
+                </div>
 
-              {professionalOpen ? (
-                <ul
-                  role="listbox"
-                  aria-label="Profissionais"
-                  className="absolute inset-x-0 top-[calc(100%-6px)] z-20 m-0 list-none overflow-hidden rounded-[22px] border p-1.5"
-                  style={{
-                    backgroundColor: cardBackground,
-                    borderColor: cardBorder,
-                    boxShadow: `0 14px 34px ${accent}33`,
-                  }}
-                >
-                  {professionals.map((p) => {
-                    const selected = professional?.id === p.id;
-                    return (
-                      <li key={p.id}>
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={selected}
-                          onClick={() => {
-                            onProfessionalChange(p);
-                            setProfessionalOpen(false);
-                          }}
-                          className={`flex w-full cursor-pointer items-center gap-3 rounded-[16px] border-0 p-2.5 text-left ${
-                            selected
-                              ? "bg-[var(--modal-hover-background)]"
-                              : "hover:bg-[var(--modal-hover-background)]"
-                          }`}
-                          style={
-                            {
-                              color: modalText,
-                              "--modal-hover-background": appearance.modal_hover_background,
-                              "--modal-hover-text": hoverText,
-                            } as CSSProperties
-                          }
-                        >
-                          {p.avatar_url ? (
-                            <img
-                              src={p.avatar_url}
-                              alt=""
-                              className="size-10 shrink-0 rounded-full object-cover"
-                              style={{ border: `2px solid ${cardBorder}` }}
-                              loading="lazy"
-                              decoding="async"
-                            />
-                          ) : (
-                            <span
-                              aria-hidden="true"
-                              className="grid size-10 shrink-0 place-items-center rounded-full text-base"
-                              style={{ backgroundColor: gradientStart, color: accent, ...serif }}
-                            >
-                              {initials(p.name)}
-                            </span>
-                          )}
-                          <span className="min-w-0 flex-1">
-                            <span
-                              className="block truncate text-[17px]"
-                              style={{ ...serif, color: appearance.service_name_text }}
-                            >
-                              {p.name}
-                            </span>
-                            {p.role?.trim() ? (
-                              <small
-                                className="block truncate text-[11px]"
-                                style={{ color: modalText, opacity: 0.55 }}
+                {professionalOpen ? (
+                  <ul
+                    role="listbox"
+                    aria-label="Profissionais"
+                    className="absolute inset-x-0 top-[calc(100%-6px)] z-20 m-0 list-none overflow-hidden rounded-[22px] border p-1.5"
+                    style={{
+                      backgroundColor: cardBackground,
+                      borderColor: cardBorder,
+                      boxShadow: `0 14px 34px ${accent}33`,
+                    }}
+                  >
+                    {professionals.map((p) => {
+                      const selected = professional?.id === p.id;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => {
+                              onProfessionalChange(p);
+                              setProfessionalOpen(false);
+                            }}
+                            className={`flex w-full cursor-pointer items-center gap-3 rounded-[16px] border-0 p-2.5 text-left ${
+                              selected
+                                ? "bg-[var(--modal-hover-background)]"
+                                : "hover:bg-[var(--modal-hover-background)]"
+                            }`}
+                            style={
+                              {
+                                color: modalText,
+                                "--modal-hover-background": appearance.modal_hover_background,
+                                "--modal-hover-text": hoverText,
+                              } as CSSProperties
+                            }
+                          >
+                            {p.avatar_url ? (
+                              <img
+                                src={p.avatar_url}
+                                alt=""
+                                className="size-10 shrink-0 rounded-full object-cover"
+                                style={{ border: `2px solid ${cardBorder}` }}
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <span
+                                aria-hidden="true"
+                                className="grid size-10 shrink-0 place-items-center rounded-full text-base"
+                                style={{ backgroundColor: gradientStart, color: accent, ...serif }}
                               >
-                                {p.role}
-                              </small>
-                            ) : null}
-                          </span>
-                          {selected ? (
-                            <span aria-hidden="true" className="shrink-0" style={{ color: accent }}>
-                              <Check className="size-4" strokeWidth={2.5} />
+                                {initials(p.name)}
+                              </span>
+                            )}
+                            <span className="min-w-0 flex-1">
+                              <span
+                                className="block truncate text-[17px]"
+                                style={{ ...serif, color: appearance.service_name_text }}
+                              >
+                                {p.name}
+                              </span>
+                              {p.role?.trim() ? (
+                                <small
+                                  className="block truncate text-[11px]"
+                                  style={{ color: modalText, opacity: 0.55 }}
+                                >
+                                  {p.role}
+                                </small>
+                              ) : null}
                             </span>
-                          ) : null}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </div>
+                            {selected ? (
+                              <span
+                                aria-hidden="true"
+                                className="shrink-0"
+                                style={{ color: accent }}
+                              >
+                                <Check className="size-4" strokeWidth={2.5} />
+                              </span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
             ) : null}
 
             {slotsLoading ? (
@@ -577,7 +618,10 @@ export function EleganceBookingDialog({
                 <Loader2 className="size-4 animate-spin" /> Carregando horários...
               </p>
             ) : slotsError ? (
-              <p role="alert" className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive">
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive"
+              >
                 Não foi possível carregar os horários. Atualize a página e tente novamente.
               </p>
             ) : slots.length === 0 ? (
@@ -676,7 +720,11 @@ export function EleganceBookingDialog({
                   value={formName}
                   onChange={(event) => onNameChange(event.target.value)}
                   className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"
-                  style={{ borderColor: cardBorder, backgroundColor: cardBackground, color: modalText }}
+                  style={{
+                    borderColor: cardBorder,
+                    backgroundColor: cardBackground,
+                    color: modalText,
+                  }}
                 />
               </label>
               <label className="block text-xs" style={{ color: modalText }}>
@@ -691,7 +739,11 @@ export function EleganceBookingDialog({
                   value={formPhone}
                   onChange={(event) => onPhoneChange(event.target.value)}
                   className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"
-                  style={{ borderColor: cardBorder, backgroundColor: cardBackground, color: modalText }}
+                  style={{
+                    borderColor: cardBorder,
+                    backgroundColor: cardBackground,
+                    color: modalText,
+                  }}
                 />
               </label>
               {needsDocument ? (
@@ -707,7 +759,11 @@ export function EleganceBookingDialog({
                       value={formEmail}
                       onChange={(event) => onEmailChange(event.target.value)}
                       className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"
-                      style={{ borderColor: cardBorder, backgroundColor: cardBackground, color: modalText }}
+                      style={{
+                        borderColor: cardBorder,
+                        backgroundColor: cardBackground,
+                        color: modalText,
+                      }}
                     />
                   </label>
                   <label className="block text-xs sm:col-span-2" style={{ color: modalText }}>
@@ -719,14 +775,21 @@ export function EleganceBookingDialog({
                       value={formCpfCnpj}
                       onChange={(event) => onCpfCnpjChange(event.target.value)}
                       className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"
-                      style={{ borderColor: cardBorder, backgroundColor: cardBackground, color: modalText }}
+                      style={{
+                        borderColor: cardBorder,
+                        backgroundColor: cardBackground,
+                        color: modalText,
+                      }}
                     />
                   </label>
                 </>
               ) : null}
             </div>
 
-            <p className="mt-3 text-[11px] leading-relaxed" style={{ color: modalText, opacity: 0.6 }}>
+            <p
+              className="mt-3 text-[11px] leading-relaxed"
+              style={{ color: modalText, opacity: 0.6 }}
+            >
               {noteText}
             </p>
 

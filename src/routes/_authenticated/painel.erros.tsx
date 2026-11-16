@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { requireMasterAccess } from "@/lib/master.functions";
-import { listClientErrors } from "@/lib/error-log.functions";
+import { listAgpayWebhookReviews, listClientErrors } from "@/lib/error-log.functions";
 import type { ClientErrorKind } from "@/lib/client-error-data";
 import { Button } from "@/components/ui/button";
 
@@ -16,10 +16,15 @@ function ClientErrorsPage() {
   const [kind, setKind] = useState<ClientErrorKind | "">("");
   const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
   const list = useServerFn(listClientErrors);
+  const listAgpayReviews = useServerFn(listAgpayWebhookReviews);
   const cursor = cursors.at(-1);
   const query = useQuery({
     queryKey: ["client-errors", kind, cursor],
     queryFn: () => list({ data: { kind: kind || undefined, cursor, limit: 30 } }),
+  });
+  const reviewQuery = useQuery({
+    queryKey: ["payment-webhook-reviews"],
+    queryFn: () => listAgpayReviews({ data: { limit: 30 } }),
   });
   return (
     <section className="space-y-5">
@@ -81,6 +86,26 @@ function ClientErrorsPage() {
           Próxima
         </Button>
       </div>
+      <section className="space-y-3 border-t border-border pt-5">
+        <h2 className="text-xl font-semibold text-white">Eventos AgPay para revisão manual</h2>
+        {reviewQuery.isLoading && <p>Carregando eventos AgPay…</p>}
+        {reviewQuery.error && <p role="alert">{reviewQuery.error.message}</p>}
+        {reviewQuery.data?.items.length === 0 && <p>Nenhum evento aguardando revisão manual.</p>}
+        {reviewQuery.data?.items.map((event) => (
+          <article key={event.id} className="rounded-xl border border-border p-4">
+            <p className="text-xs text-muted-foreground">
+              {new Date(event.received_at).toLocaleString("pt-BR")} · {event.event_type} ·
+              tentativas: {event.attempts}
+            </p>
+            <p className="mt-2 break-all text-sm">
+              Transação: {event.transaction_uuid ?? "sem referência"}
+            </p>
+            <p role="alert" className="mt-2 break-words text-sm text-destructive">
+              {event.last_error ?? "Requer conferência manual."}
+            </p>
+          </article>
+        ))}
+      </section>
     </section>
   );
 }

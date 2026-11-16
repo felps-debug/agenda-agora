@@ -8,6 +8,7 @@ import { friendlyError } from "@/lib/error-page";
 import { createBusinessWithOwner } from "@/lib/admin.functions";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { extendBusinessTrial, getSubscriptionLifecycle } from "@/lib/lifecycle.functions";
+import { LifecycleQueryNotice } from "@/components/master/LifecycleQueryNotice";
 import { BusinessDossier } from "@/components/master/BusinessDossier";
 import { TONE_AMBER } from "@/components/master/PlatformOverview";
 import { Button } from "@/components/ui/button";
@@ -80,7 +81,9 @@ function EmTestePage() {
         },
       }),
     onSuccess: (result) => {
-      toast.success(`Conta de teste criada. Senha inicial (mostrada uma vez): ${result.initialPassword}`);
+      toast.success(
+        `Conta de teste criada. Senha inicial (mostrada uma vez): ${result.initialPassword}`,
+      );
       setOpen(false);
       setForm(emptyForm);
       setTrialDays("7");
@@ -135,6 +138,14 @@ function EmTestePage() {
           </Button>
         </div>
       </div>
+
+      <LifecycleQueryNotice
+        isLoading={lifecycle.isLoading}
+        isError={lifecycle.isError}
+        isFetching={lifecycle.isFetching}
+        hasData={lifecycle.data !== undefined}
+        onRetry={() => void lifecycle.refetch()}
+      />
 
       <div className="mt-6 overflow-x-auto report-x-scroll rounded-xl border border-border bg-card report-luminous-card report-effect-strong">
         <table className="w-full min-w-[1020px] text-sm">
@@ -204,7 +215,12 @@ function EmTestePage() {
                       >
                         Estender +7 dias
                       </Button>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setDetailsId(item.id)}>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setDetailsId(item.id)}
+                      >
                         Detalhes
                       </Button>
                     </div>
@@ -212,7 +228,7 @@ function EmTestePage() {
                 </tr>
               );
             })}
-            {!lifecycle.isPending && !rows.length && (
+            {!lifecycle.isPending && !lifecycle.isError && !rows.length && (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   Nenhuma conta em teste no momento.
@@ -249,7 +265,8 @@ function EmTestePage() {
                 placeholder="Ex.: Maria Eduarda Silva"
               />
               <p className="text-xs text-muted-foreground">
-                Nome que constará no cadastro da conta. O Pix de saque precisará ser do mesmo titular.
+                Nome que constará no cadastro da conta. O Pix de saque precisará ser do mesmo
+                titular.
               </p>
             </div>
             <div className="space-y-2">

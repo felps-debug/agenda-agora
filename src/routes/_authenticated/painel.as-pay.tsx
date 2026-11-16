@@ -32,6 +32,7 @@ import { getLedgerStatement } from "@/lib/ledger.functions";
 import {
   MIN_WITHDRAWAL_CENTS,
   getPaymentRules,
+  getWithdrawalPixKey,
   getWithdrawalPixKeyValidationError,
   requestWithdrawal,
   savePaymentRules,
@@ -41,6 +42,7 @@ import {
   verifyWithdrawalPin,
   withdrawalPixKeyTypes,
 } from "@/lib/withdrawal.functions";
+import { startWithdrawalConfirmation } from "@/lib/withdrawal-confirmation";
 import { maskPixKey } from "@/lib/pix-key-format";
 import { saveServiceDeposit } from "@/lib/services.functions";
 import { convertDepositField, depositFieldText, parseDepositField } from "@/lib/deposit-amount";
@@ -1179,6 +1181,7 @@ function displayPixKey(type: WithdrawalPixKeyType | undefined, key: string | nul
 function AsPayPage() {
   const { businessId, business } = useBusiness();
   const queryClient = useQueryClient();
+  const getWithdrawalPixKeyFn = useServerFn(getWithdrawalPixKey);
   const saveWithdrawalPixKeyFn = useServerFn(saveWithdrawalPixKey);
   const getLedgerStatementFn = useServerFn(getLedgerStatement);
   const requestWithdrawalFn = useServerFn(requestWithdrawal);
@@ -1194,6 +1197,7 @@ function AsPayPage() {
     queryFn: () => getLedgerStatementFn({ data: { businessId: businessId! } }),
   });
 
+  const withdrawalSubmitLock = useRef(false);
   const withdraw = useMutation({
     mutationFn: () =>
       requestWithdrawalFn({
@@ -1201,9 +1205,11 @@ function AsPayPage() {
           businessId: businessId!,
           amountCents: Math.round(Number(withdrawalAmount.replace(",", ".")) * 100),
           idempotencyKey: crypto.randomUUID(),
+          pin: saquePin,
         },
       }),
     onSuccess: ({ withdrawal }) => {
+      withdrawalSubmitLock.current = false;
       setWithdrawalAmount("");
       closeSaque();
       setSaqueStep("valor");
@@ -1217,7 +1223,11 @@ function AsPayPage() {
       );
       void queryClient.invalidateQueries({ queryKey: ["wallet-statement", businessId] });
     },
-    onError: (error: Error) => toast.error(friendlyError(error)),
+    onError: (error: Error) => {
+      withdrawalSubmitLock.current = false;
+      setSaqueVerifying(false);
+      toast.error(friendlyError(error));
+    },
   });
 
   // Popup de saque: etapa 1 = valor/chave; etapa 2 = senha de transferência.
@@ -1235,6 +1245,7 @@ function AsPayPage() {
       withdraw.mutate();
     },
     onError: (error: Error) => {
+      withdrawalSubmitLock.current = false;
       setSaqueVerifying(false);
       toast.error(friendlyError(error));
     },
@@ -1244,13 +1255,7 @@ function AsPayPage() {
     queryKey: ["withdrawal-pix-key", businessId],
     enabled: !!businessId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("businesses")
-        .select("withdrawal_pix_key, withdrawal_pix_key_type")
-        .eq("id", businessId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return getWithdrawalPixKeyFn({ data: { businessId: businessId! } });
     },
   });
 
@@ -2067,16 +2072,22 @@ function AsPayPage() {
                         )}
                         <button
                           type="button"
-                          onClick={() => confirmSaque.mutate()}
+                          onClick={() => {
+                            startWithdrawalConfirmation(withdrawalSubmitLock, () => {
+                              setSaqueVerifying(true);
+                              confirmSaque.mutate();
+                            });
+                          }}
                           disabled={
                             saqueVerifying ||
+                            confirmSaque.isPending ||
                             withdraw.isPending ||
                             saquePin.length !== 4 ||
                             saquePin !== saquePinConfirm
                           }
                           className="carteira-saque-gold-btn mt-5"
                         >
-                          {saqueVerifying || withdraw.isPending
+                          {saqueVerifying || confirmSaque.isPending || withdraw.isPending
                             ? "Processando…"
                             : "Confirmar Saque"}
                           <ArrowUpRight

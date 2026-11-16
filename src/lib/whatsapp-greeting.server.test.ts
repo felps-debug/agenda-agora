@@ -42,6 +42,37 @@ describe("webhook de mensagens recebidas", () => {
     });
   });
 
+  it("lê o envelope oficial atual da UazAPI com mensagem normalizada", () => {
+    const parsed = parseIncomingWhatsapp({
+      EventType: "messages",
+      owner: "5511999999999",
+      token: "token-ficticio",
+      BaseUrl: "https://uazapi.test",
+      instanceName: "atendimento",
+      message: {
+        id: "message-1",
+        messageid: "message-1",
+        chatid: "5511888887777@s.whatsapp.net",
+        sender: "5511888887777@s.whatsapp.net",
+        senderName: "Contato Teste",
+        fromMe: false,
+        isGroup: false,
+        messageType: "Conversation",
+        text: "Olá, gostaria de agendar.",
+      },
+    });
+
+    expect(parsed).toEqual({
+      fromMe: false,
+      isGroup: false,
+      senderPhone: "5511888887777",
+      pushName: "Contato Teste",
+      text: "Olá, gostaria de agendar.",
+      messageId: "message-1",
+      messageTimestamp: null,
+    });
+  });
+
   it("lê o formato MESSAGES_UPSERT da Evolution", () => {
     const parsed = parseIncomingWhatsapp({
       event: "messages.upsert",
@@ -53,6 +84,32 @@ describe("webhook de mensagens recebidas", () => {
       },
     });
     expect(parsed).toMatchObject({ senderPhone: "5511988887777", text: "Qual o link?" });
+  });
+
+  it("usa remoteJidAlt quando remoteJid e um LID", () => {
+    const parsed = parseIncomingWhatsapp({
+      event: "messages.upsert",
+      instance: "loja-abc",
+      data: {
+        key: {
+          remoteJid: "123456789012345@lid",
+          remoteJidAlt: "5511999998888@s.whatsapp.net",
+          fromMe: false,
+        },
+        message: { conversation: "Oi" },
+      },
+    });
+
+    expect(parsed).toMatchObject({ senderPhone: "5511999998888", text: "Oi" });
+  });
+
+  it("ignora LID sem numero alternativo discavel", () => {
+    expect(
+      parseIncomingWhatsapp({
+        event: "messages.upsert",
+        data: { key: { remoteJid: "123456789012345@lid", fromMe: false }, message: {} },
+      }),
+    ).toBeNull();
   });
 
   it("ignora mensagens próprias, grupos e remetentes inválidos", () => {
@@ -89,7 +146,7 @@ describe("webhook de mensagens recebidas", () => {
     );
   });
 
-  it("respeita o cooldown de 24h por remetente", async () => {
+  it("respeita o cooldown de 30 min por remetente", async () => {
     await expect(
       shouldSendGreeting(mockAdmin(false) as never, "biz-1", "5598999990000"),
     ).resolves.toBe(true);

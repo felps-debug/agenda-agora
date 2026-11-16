@@ -154,8 +154,18 @@ describe("percentToBps", () => {
 });
 
 describe("campo da tela de sinal (US5)", () => {
-  const fixed = { price_cents: 10_000, deposit_cents: 2_500, deposit_mode: "fixed", deposit_percent_bps: 0 } as const;
-  const percent = { price_cents: 10_000, deposit_cents: 3_000, deposit_mode: "percent", deposit_percent_bps: 3_000 } as const;
+  const fixed = {
+    price_cents: 10_000,
+    deposit_cents: 2_500,
+    deposit_mode: "fixed",
+    deposit_percent_bps: 0,
+  } as const;
+  const percent = {
+    price_cents: 10_000,
+    deposit_cents: 3_000,
+    deposit_mode: "percent",
+    deposit_percent_bps: 3_000,
+  } as const;
 
   it("mostra o sinal na unidade em que o serviço foi salvo", () => {
     expect(depositFieldText(fixed, "fixed")).toBe("25,00");
@@ -196,7 +206,13 @@ describe("campo da tela de sinal (US5)", () => {
   });
 
   it("o cálculo do sinal percentual arredonda para centavos", () => {
-    const service = { requires_deposit: true, deposit_mode: "percent", deposit_percent_bps: 3_333, price_cents: 5_000, deposit_cents: 0 } as const;
+    const service = {
+      requires_deposit: true,
+      deposit_mode: "percent",
+      deposit_percent_bps: 3_333,
+      price_cents: 5_000,
+      deposit_cents: 0,
+    } as const;
     expect(effectiveDepositCents(service)).toBe(1_667);
   });
 });

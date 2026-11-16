@@ -7,6 +7,7 @@ import { Clock3, Plus, Trash2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBusiness } from "@/lib/business";
 import { WEEKDAYS, weekdayLabel, hhmm } from "@/lib/format";
+import { validateBusinessHoursRange } from "@/lib/business-hours";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import {
@@ -72,9 +73,11 @@ function FuncionamentoPage() {
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["business_hours", businessId] });
+  const hoursError = validateBusinessHoursRange(form.starts, form.ends);
 
   const save = useMutation({
     mutationFn: async () => {
+      if (hoursError) throw new Error(hoursError);
       const { error } = await supabase.from("business_hours").upsert(
         {
           business_id: businessId!,
@@ -201,11 +204,16 @@ function FuncionamentoPage() {
                     </div>
                   </div>
                 </div>
+                {hoursError && (
+                  <p role="alert" className="px-4 text-sm text-destructive sm:px-5">
+                    {hoursError}
+                  </p>
+                )}
                 <DialogFooter className="professional-dialog-footer">
                   <Button
                     className="professional-primary-button"
                     onClick={() => save.mutate()}
-                    disabled={save.isPending}
+                    disabled={!!hoursError || save.isPending}
                   >
                     Salvar
                   </Button>

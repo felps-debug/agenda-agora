@@ -12,27 +12,32 @@ const STAGES: Array<{ id: string; momento: string; oQueAparece: string }> = [
   {
     id: "amanha",
     momento: "1 dia antes",
-    oQueAparece: "Popup verde junto ao sino: \"Passando pra lembrar que sua fatura vence amanhã! Clique aqui para renovar o pagamento.\"",
+    oQueAparece:
+      'Popup verde junto ao sino: "Passando pra lembrar que sua fatura vence amanhã! Clique aqui para renovar o pagamento."',
   },
   {
     id: "venceu_hoje",
     momento: "No dia do vencimento",
-    oQueAparece: "Popup verde: \"Olá! 😊 Passando pra lembrar que sua fatura vence hoje! Clique aqui para renovar o pagamento.\" — ícone de balão com $",
+    oQueAparece:
+      'Popup verde: "Olá! 😊 Passando pra lembrar que sua fatura vence hoje! Clique aqui para renovar o pagamento." — ícone de balão com $',
   },
   {
     id: "atrasado",
     momento: "1 dia após",
-    oQueAparece: "Popup vermelho: \"ATENÇÃO! 😲 Sua fatura do sistema venceu. Clique aqui para renovar e evite bloqueios!\" — triângulo vermelho",
+    oQueAparece:
+      'Popup vermelho: "ATENÇÃO! 😲 Sua fatura do sistema venceu. Clique aqui para renovar e evite bloqueios!" — triângulo vermelho',
   },
   {
     id: "urgente",
     momento: "2º e 3º dias após",
-    oQueAparece: "Modal escuro central: \"⚠ Urgente! Ainda não identificamos seu pagamento. O funcionamento do sistema poderá parar a qualquer momento.\" — fechável, só aviso",
+    oQueAparece:
+      'Modal escuro central: "⚠ Urgente! Ainda não identificamos seu pagamento. O funcionamento do sistema poderá parar a qualquer momento." — fechável, só aviso',
   },
   {
     id: "bloqueado",
     momento: "4º dia após",
-    oQueAparece: "🔒 Painel travado na tela de assinaturas: sidebar inerte, fixo em Pagamentos até pagar",
+    oQueAparece:
+      "🔒 Painel travado na tela de assinaturas: sidebar inerte, fixo em Pagamentos até pagar",
   },
   {
     id: "ok",
@@ -106,9 +111,7 @@ export function AccessCyclePanel({ businessId }: { businessId: string }) {
   const info = cycle.data;
   const isTrial = info.isTrial;
   const diasRestantes =
-    info.category === "atencao"
-      ? -Math.max(-info.daysLeft, 0)
-      : Math.max(info.daysLeft, 0);
+    info.category === "atencao" ? -Math.max(-info.daysLeft, 0) : Math.max(info.daysLeft, 0);
   const vencimento = info.accessUntil;
   const stage = info.stage;
 
@@ -120,7 +123,9 @@ export function AccessCyclePanel({ businessId }: { businessId: string }) {
           <p className="flex items-center gap-2 text-xs text-gray-400">
             <Hourglass className="size-4 text-[var(--c-69a2ff)]" /> Dias restantes
           </p>
-          <p className={`mt-2 text-3xl font-bold ${diasRestantes < 0 ? "text-destructive" : "text-white"}`}>
+          <p
+            className={`mt-2 text-3xl font-bold ${diasRestantes < 0 ? "text-destructive" : "text-white"}`}
+          >
             {diasRestantes}
           </p>
           <p className="mt-1 text-xs text-gray-500">
@@ -261,9 +266,7 @@ export function AccessCyclePanel({ businessId }: { businessId: string }) {
               type="number"
               min={1}
               value={removeDays}
-              onChange={(event) =>
-                setRemoveDays(event.target.value.replace(/\D/g, "").slice(0, 5))
-              }
+              onChange={(event) => setRemoveDays(event.target.value.replace(/\D/g, "").slice(0, 5))}
               placeholder="Ex.: 7"
               className="mt-1 border-white/10 bg-black/40 text-white"
             />
@@ -299,8 +302,8 @@ export function AccessCyclePanel({ businessId }: { businessId: string }) {
           : "Assinante pagante: os dias deslocam o vencimento junto com a recorrência mensal. Remover mais dias do que restam antecipa o bloqueio."}
       </p>
       <p className="text-xs leading-relaxed text-gray-500">
-        A alteração vale na hora: o painel do dono recalcula os avisos a cada carregamento e a
-        cada virada de dia (1 dia antes → hoje → atrasado → urgente → bloqueio no 4º dia), sem
+        A alteração vale na hora: o painel do dono recalcula os avisos a cada carregamento e a cada
+        virada de dia (1 dia antes → hoje → atrasado → urgente → bloqueio no 4º dia), sem
         intervenção manual.
       </p>
     </div>

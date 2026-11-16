@@ -75,7 +75,7 @@ describe("panel1-config storage", () => {
     existing.appearance.page_text = "#123456";
     existing.preferences.cancellations_enabled = false;
     existing.preferences.reschedule_enabled = true;
-    existing.preferences.timezone = "America/Fortaleza";
+    existing.preferences.timezone = "America/Recife";
     const storage = fakeStorage(JSON.stringify(existing));
 
     const saved = await savePanel1Config(storage.client, businessId, {
@@ -91,7 +91,7 @@ describe("panel1-config storage", () => {
         greeting: "Welcome to booking",
         cancellations_enabled: false,
         reschedule_enabled: true,
-        timezone: "America/Fortaleza",
+        timezone: "America/Recife",
       },
     });
     expect(saved.updated_at).toEqual(expect.any(String));

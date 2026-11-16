@@ -6,11 +6,20 @@ import { EleganceBookingDialog, type EleganceBookingProfessional } from "./elega
 
 const noop = () => {};
 
-function render(professionals: EleganceBookingProfessional[], professional: EleganceBookingProfessional | null) {
+function render(
+  professionals: EleganceBookingProfessional[],
+  professional: EleganceBookingProfessional | null,
+) {
   return renderToStaticMarkup(
     createElement(EleganceBookingDialog, {
       asPreview: true,
-      service: { name: "Corte", price_cents: 3000, duration_minutes: 30, show_price: true, show_duration: true },
+      service: {
+        name: "Corte",
+        price_cents: 3000,
+        duration_minutes: 30,
+        show_price: true,
+        show_duration: true,
+      },
       appearance: DEFAULT_PANEL1_APPEARANCE,
       pageBackground: "#ffffff",
       modalText: "#222222",

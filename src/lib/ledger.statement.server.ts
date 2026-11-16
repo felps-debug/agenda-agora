@@ -87,10 +87,15 @@ export async function getLedgerStatementForOwner(
       ? db
           .from("deposit_payments")
           .select("id, amount_cents, gateway_fee_cents, platform_commission_cents")
+          .eq("business_id", business.id)
           .in("id", paymentIds)
       : Promise.resolve({ data: [], error: null }),
     withdrawalIds.length
-      ? db.from("withdrawals").select("id, status, provider_fee_cents").in("id", withdrawalIds)
+      ? db
+          .from("withdrawals")
+          .select("id, status, provider_fee_cents")
+          .eq("business_id", business.id)
+          .in("id", withdrawalIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (paymentsRes.error || withdrawalsRes.error)

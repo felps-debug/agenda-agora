@@ -83,10 +83,7 @@ export function depositFieldText(
       service.deposit_mode === "percent"
         ? service.deposit_percent_bps
         : service.price_cents > 0
-          ? Math.min(
-              MAX_BPS,
-              Math.round((service.deposit_cents / service.price_cents) * MAX_BPS),
-            )
+          ? Math.min(MAX_BPS, Math.round((service.deposit_cents / service.price_cents) * MAX_BPS))
           : 0;
     return formatDecimalBR(bps / 100);
   }

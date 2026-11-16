@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { fetchAllPages } from "@/lib/fetch-all-pages.server";
 
 const periodSchema = z.object({
   from: z.string(),
@@ -14,6 +15,9 @@ export type AgpayPerformanceData = {
   kpi: {
     signalCount: number;
     signalVolumeCents: number;
+    refundedSignalCount: number;
+    refundedSignalVolumeCents: number;
+    netSignalVolumeCents: number;
     revenueCents: number;
     gatewayFeeCents: number;
     estimatedProfitCents: number;
@@ -85,49 +89,82 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
     const to = data.to;
 
     // businesses
-    const { data: businesses } = await supabaseAdmin
-      .from("businesses")
-      .select("id, name, owner_id");
-    const bizMap = new Map((businesses ?? []).map((b) => [b.id, b]));
-    const { data: owners } = await supabaseAdmin.from("profiles").select("id, full_name");
-    const ownerMap = new Map((owners ?? []).map((o) => [o.id, o.full_name]));
+    const businesses = await fetchAllPages(
+      (from, to) => supabaseAdmin.from("businesses").select("id, name, owner_id").range(from, to),
+      "Não foi possível carregar os dados financeiros.",
+    );
+    const bizMap = new Map(businesses.map((b) => [b.id, b]));
+    const owners = await fetchAllPages(
+      (from, to) => supabaseAdmin.from("profiles").select("id, full_name").range(from, to),
+      "Não foi possível carregar os dados financeiros.",
+    );
+    const ownerMap = new Map(owners.map((o) => [o.id, o.full_name]));
 
     // deposit payments in period (by paid_at or created_at)
-    const { data: deposits } = await supabaseAdmin
-      .from("deposit_payments")
-      .select(
-        "id, business_id, appointment_id, amount_cents, status, provider_status, gateway_fee_cents, platform_commission_cents, net_amount_cents, paid_at, created_at",
-      )
-      .gte("created_at", from)
-      .lte("created_at", to)
-      .order("created_at", { ascending: false })
-      .limit(5000);
+    const deposits = await fetchAllPages(
+      (pageFrom, pageTo) =>
+        supabaseAdmin
+          .from("deposit_payments")
+          .select(
+            "id, business_id, appointment_id, amount_cents, status, provider_status, gateway_fee_cents, platform_commission_cents, net_amount_cents, paid_at, created_at",
+          )
+          .gte("created_at", from)
+          .lte("created_at", to)
+          .order("created_at", { ascending: false })
+          .range(pageFrom, pageTo),
+      "Não foi possível carregar os dados financeiros.",
+    );
 
     // withdrawals in period
-    const { data: withdrawals } = await supabaseAdmin
-      .from("withdrawals")
-      .select("id, business_id, amount_cents, platform_fee_cents, provider_fee_cents, status, provider_ref, created_at, updated_at")
-      .gte("created_at", from)
-      .lte("created_at", to)
-      .order("created_at", { ascending: false })
-      .limit(5000);
+    const withdrawals = await fetchAllPages(
+      (pageFrom, pageTo) =>
+        supabaseAdmin
+          .from("withdrawals")
+          .select(
+            "id, business_id, amount_cents, platform_fee_cents, provider_fee_cents, status, provider_ref, created_at, updated_at",
+          )
+          .gte("created_at", from)
+          .lte("created_at", to)
+          .order("created_at", { ascending: false })
+          .range(pageFrom, pageTo),
+      "Não foi possível carregar os dados financeiros.",
+    );
 
     // Aggregations
     let signalCount = 0;
     let signalVolumeCents = 0;
+    let refundedSignalCount = 0;
+    let refundedSignalVolumeCents = 0;
     let revenueCents = 0;
     let gatewayFeeCents = 0;
     let estimatedProfitCents = 0;
     const bizAgg = new Map<
       string,
-      { signalCount: number; volumeCents: number; revenueCents: number; profitCents: number; lastTxAt: string | null; pendingWithdrawals: number }
+      {
+        signalCount: number;
+        volumeCents: number;
+        revenueCents: number;
+        profitCents: number;
+        lastTxAt: string | null;
+        pendingWithdrawals: number;
+      }
     >();
-    const dailyMap = new Map<string, { volumeCents: number; revenueCents: number; gatewayFeeCents: number; profitCents: number; count: number }>();
+    const dailyMap = new Map<
+      string,
+      {
+        volumeCents: number;
+        revenueCents: number;
+        gatewayFeeCents: number;
+        profitCents: number;
+        count: number;
+      }
+    >();
 
     const signalsOut: AgpayPerformanceData["signals"] = [];
 
-    for (const d of deposits ?? []) {
-      const isPaid = d.status === "pago" || d.status === "paid" || !!d.paid_at;
+    for (const d of deposits) {
+      const isRefunded = d.status === "estornado";
+      const isPaid = isRefunded || d.status === "pago" || d.status === "paid" || !!d.paid_at;
       const rev = d.platform_commission_cents ?? 0;
       const gw = d.gateway_fee_cents ?? 0;
       // Lucro = comissão da plataforma gravada no ledger (a tarifa do gateway é descontada do dono).
@@ -150,11 +187,22 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
       if (isPaid) {
         signalCount += 1;
         signalVolumeCents += d.amount_cents;
+        if (isRefunded) {
+          refundedSignalCount += 1;
+          refundedSignalVolumeCents += d.amount_cents;
+        }
         revenueCents += rev;
         gatewayFeeCents += gw;
         estimatedProfitCents += profit;
 
-        const biz = bizAgg.get(d.business_id) ?? { signalCount: 0, volumeCents: 0, revenueCents: 0, profitCents: 0, lastTxAt: null, pendingWithdrawals: 0 };
+        const biz = bizAgg.get(d.business_id) ?? {
+          signalCount: 0,
+          volumeCents: 0,
+          revenueCents: 0,
+          profitCents: 0,
+          lastTxAt: null,
+          pendingWithdrawals: 0,
+        };
         biz.signalCount += 1;
         biz.volumeCents += d.amount_cents;
         biz.revenueCents += rev;
@@ -163,7 +211,13 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
         bizAgg.set(d.business_id, biz);
 
         const day = d.created_at.slice(0, 10);
-        const dd = dailyMap.get(day) ?? { volumeCents: 0, revenueCents: 0, gatewayFeeCents: 0, profitCents: 0, count: 0 };
+        const dd = dailyMap.get(day) ?? {
+          volumeCents: 0,
+          revenueCents: 0,
+          gatewayFeeCents: 0,
+          profitCents: 0,
+          count: 0,
+        };
         dd.volumeCents += d.amount_cents;
         dd.revenueCents += rev;
         dd.gatewayFeeCents += gw;
@@ -181,7 +235,7 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
     let withdrawalFeesCents = 0;
 
     const withdrawalsOut: AgpayPerformanceData["withdrawals"] = [];
-    for (const w of withdrawals ?? []) {
+    for (const w of withdrawals) {
       const biz = bizMap.get(w.business_id);
       withdrawalsOut.push({
         id: w.id,
@@ -210,7 +264,14 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
 
       // pending withdrawals per business
       if (st.includes("pend") || st === "solicitado" || st === "aprovado") {
-        const agg = bizAgg.get(w.business_id) ?? { signalCount: 0, volumeCents: 0, revenueCents: 0, profitCents: 0, lastTxAt: null, pendingWithdrawals: 0 };
+        const agg = bizAgg.get(w.business_id) ?? {
+          signalCount: 0,
+          volumeCents: 0,
+          revenueCents: 0,
+          profitCents: 0,
+          lastTxAt: null,
+          pendingWithdrawals: 0,
+        };
         agg.pendingWithdrawals += 1;
         bizAgg.set(w.business_id, agg);
       }
@@ -240,13 +301,16 @@ export const getAgpayPerformance = createServerFn({ method: "POST" })
       kpi: {
         signalCount,
         signalVolumeCents,
+        refundedSignalCount,
+        refundedSignalVolumeCents,
+        netSignalVolumeCents: signalVolumeCents - refundedSignalVolumeCents,
         revenueCents,
         gatewayFeeCents,
         estimatedProfitCents,
         avgSignalCents: signalCount ? Math.round(signalVolumeCents / signalCount) : 0,
         avgRevenuePerTx: signalCount ? Math.round(revenueCents / signalCount) : 0,
         businessesWithSignals: bizAgg.size,
-        totalBusinesses: businesses?.length ?? 0,
+        totalBusinesses: businesses.length,
         pendingWithdrawalsCount,
         pendingWithdrawalsCents,
         completedWithdrawalsCount,

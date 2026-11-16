@@ -4,14 +4,14 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertValidTimeBlockRange } from "@/lib/time-blocks";
 
 export const createTimeBlockInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   recurring: z.boolean(),
   weekday: z.number().int().min(0).max(6).nullable(),
   blockDate: z.string().date().nullable(),
   startsAt: z.string(),
   endsAt: z.string(),
   reason: z.string().max(500).nullable(),
-  professionalId: z.string().uuid().nullable().optional(),
+  professionalId: z.string().guid().nullable().optional(),
 });
 
 export const createTimeBlock = createServerFn({ method: "POST" })
@@ -25,9 +25,23 @@ export const createTimeBlock = createServerFn({ method: "POST" })
       .from("businesses")
       .select("id")
       .eq("id", data.businessId)
-      .eq("owner_id", context.userId)
       .maybeSingle();
     if (businessError || !business) throw new Error("Não foi possível validar o negócio.");
+    const schedulePermission = await context.supabase.rpc("has_business_permission", {
+      _business_id: data.businessId,
+      _permission: "block_schedule",
+    });
+    if (schedulePermission.error) throw new Error(schedulePermission.error.message);
+    let allowed = schedulePermission.data;
+    if (!allowed) {
+      const legacyPermission = await context.supabase.rpc("has_business_permission", {
+        _business_id: data.businessId,
+        _permission: "block_agenda",
+      });
+      if (legacyPermission.error) throw new Error(legacyPermission.error.message);
+      allowed = legacyPermission.data;
+    }
+    if (!allowed) throw new Error("Permissao insuficiente para criar bloqueios nesta agenda.");
     if (data.professionalId) {
       const { data: professional } = await context.supabase
         .from("professionals")

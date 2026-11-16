@@ -173,11 +173,25 @@ describe("resumo de sinais Pix", () => {
         created_at: iso(-1),
         paid_at: null,
       },
+      {
+        id: "d3",
+        status: "estornado",
+        amount_cents: 1500,
+        net_amount_cents: 1400,
+        gateway_fee_cents: 100,
+        platform_commission_cents: 250,
+        created_at: iso(-2),
+        paid_at: iso(-2),
+      },
     ]);
     expect(result.paid).toBe(1);
     expect(result.pending).toBe(1);
+    expect(result.refunded).toBe(1);
     expect(result.paidVolumeCents).toBe(5000);
-    expect(result.platformCommissionCents).toBe(250);
+    expect(result.grossPaidVolumeCents).toBe(6500);
+    expect(result.refundedVolumeCents).toBe(1500);
+    expect(result.netCents).toBe(4900);
+    expect(result.platformCommissionCents).toBe(500);
   });
 });
 

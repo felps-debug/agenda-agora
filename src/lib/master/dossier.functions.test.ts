@@ -46,6 +46,7 @@ vi.mock("@/integrations/supabase/client.server", () => {
       const filters: unknown[][] = [];
       let insertRow: Record<string, unknown> | null = null;
       let patch: Record<string, unknown> | null = null;
+      let rangeBounds: [number, number] | null = null;
       const query = {
         select: () => query,
         insert: (row: Record<string, unknown>) => {
@@ -78,6 +79,10 @@ vi.mock("@/integrations/supabase/client.server", () => {
         },
         order: () => query,
         limit: () => query,
+        range: (from: number, to: number) => {
+          rangeBounds = [from, to];
+          return query;
+        },
         maybeSingle: async () => {
           if (table === "user_roles") {
             return { data: runtime.superAdminRow, error: null };
@@ -114,7 +119,8 @@ vi.mock("@/integrations/supabase/client.server", () => {
               return true;
             }),
           );
-          return Promise.resolve({ data: matching, error: null }).then(resolve);
+          const data = rangeBounds ? matching.slice(rangeBounds[0], rangeBounds[1] + 1) : matching;
+          return Promise.resolve({ data, error: null }).then(resolve);
         },
       };
       return query;
@@ -262,7 +268,7 @@ describe("ficha do estabelecimento no Painel 3", () => {
   it("monta a ficha com dados reais do banco", async () => {
     const dossier = await getBusinessDossier({
       data: { businessId: BUSINESS_ID, periodDays: 30 },
-      context: { userId: "admin-1" },
+      context: { userId: "admin-1", claims: { aal: "aal2" } },
     });
     expect(dossier.usage.total).toBe(1);
     expect(dossier.usage.usageCount).toBe(1);
@@ -277,7 +283,7 @@ describe("ficha do estabelecimento no Painel 3", () => {
     await expect(
       addBusinessNote({
         data: { businessId: BUSINESS_ID, body: "Cliente pediu ajuda com o link." },
-        context: { userId: "admin-1" },
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
       }),
     ).resolves.toEqual({ ok: true });
     expect(runtime.inserted.map((entry) => entry.table)).toEqual([
@@ -301,7 +307,7 @@ describe("ficha do estabelecimento no Painel 3", () => {
     await expect(
       updateBusinessCommercial({
         data: { businessId: BUSINESS_ID, leadSource: "Indicação" },
-        context: { userId: "admin-1" },
+        context: { userId: "admin-1", claims: { aal: "aal2" } },
       }),
     ).resolves.toEqual({ ok: true });
     expect(runtime.updated[0]?.patch).toMatchObject({ lead_source: "Indicação" });

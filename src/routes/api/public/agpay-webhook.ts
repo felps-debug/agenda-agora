@@ -2,11 +2,56 @@ import { createFileRoute } from "@tanstack/react-router";
 import { verifyAgpayWebhookSignature } from "@/lib/agpay.server";
 import { persistAgpayWebhookEvent } from "@/lib/agpay-events.server";
 
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
+
+async function readBoundedBody(request: Request): Promise<string | null> {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null) {
+    if (!/^\d+$/.test(declaredLength)) throw new Error("Invalid Content-Length");
+    if (Number(declaredLength) > MAX_WEBHOOK_BODY_BYTES) return null;
+  }
+
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_WEBHOOK_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 export const Route = createFileRoute("/api/public/agpay-webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const rawBody = await request.text();
+        let rawBody: string | null;
+        try {
+          rawBody = await readBoundedBody(request);
+        } catch {
+          return Response.json({ error: "Invalid Content-Length" }, { status: 400 });
+        }
+        if (rawBody === null) {
+          return Response.json({ error: "Payload too large" }, { status: 413 });
+        }
         const signature = request.headers.get("x-webhook-signature");
 
         let authorized: boolean;

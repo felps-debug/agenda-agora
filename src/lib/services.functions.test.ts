@@ -28,6 +28,7 @@ const input = (overrides: Partial<SaveServiceInput> = {}): SaveServiceInput => (
   showService: true,
   imagePath: null,
   availableDays: [1, 2, 3, 4, 5, 6],
+  professionalIds: [],
   ...overrides,
 });
 
@@ -158,6 +159,10 @@ function fakeSupabase(options: {
   imageBytes?: Uint8Array;
 }) {
   const writes: Array<{ op: string; row: Record<string, unknown>; filters: unknown[][] }> = [];
+  const rpc = vi.fn(async () => ({
+    data: options.serviceFound === false ? null : SERVICE,
+    error: null,
+  }));
   const from = vi.fn((table: string) => {
     const filters: unknown[][] = [];
     let op = "select";
@@ -185,9 +190,10 @@ function fakeSupabase(options: {
     error: options.imageBytes ? null : new Error("Imagem não encontrada"),
   }));
   return {
-    client: { from, storage: { from: () => ({ download }) } } as never,
+    client: { from, rpc, storage: { from: () => ({ download }) } } as never,
     writes,
     download,
+    rpc,
   };
 }
 
@@ -201,7 +207,11 @@ describe("saveServiceForOwner", () => {
       input({ imagePath: BUSINESS + "/services/photo.png" }),
     );
     expect(db.download).toHaveBeenCalledWith(BUSINESS + "/services/photo.png");
-    expect(db.writes).toHaveLength(1);
+    expect(db.rpc).toHaveBeenCalledWith(
+      "save_service_with_professionals",
+      expect.objectContaining({ _image_path: BUSINESS + "/services/photo.png" }),
+    );
+    expect(db.writes).toEqual([]);
   });
 
   it("recusa no servidor imagem de serviço com bytes inválidos", async () => {
@@ -229,18 +239,46 @@ describe("saveServiceForOwner", () => {
     await saveServiceForOwner(
       db.client,
       "user-dono",
-      input({ id: SERVICE, depositMode: "percent", depositPercentBps: 1_000 }),
+      input({
+        id: SERVICE,
+        depositMode: "percent",
+        depositPercentBps: 1_000,
+        professionalIds: ["0e000000-0000-4000-8000-0000000000a1"],
+      }),
     );
-    expect(db.writes[0]?.op).toBe("update");
-    expect(db.writes[0]?.filters).toEqual([
-      ["id", SERVICE],
-      ["business_id", BUSINESS],
-    ]);
-    expect(db.writes[0]?.row).toMatchObject({
-      deposit_mode: "percent",
-      deposit_percent_bps: 1_000,
-      deposit_cents: 1_000,
+    expect(db.rpc).toHaveBeenCalledWith("save_service_with_professionals", {
+      _service_id: SERVICE,
+      _business_id: BUSINESS,
+      _name: "Corte",
+      _duration_minutes: 30,
+      _price_cents: 10_000,
+      _requires_deposit: true,
+      _deposit_mode: "percent",
+      _deposit_percent_bps: 1_000,
+      _deposit_cents: 1_000,
+      _description: null,
+      _is_combo: false,
+      _available_days: [1, 2, 3, 4, 5, 6],
+      _show_price: true,
+      _show_duration: true,
+      _show_service: true,
+      _image_path: null,
+      _professional_ids: ["0e000000-0000-4000-8000-0000000000a1"],
     });
+    expect(db.writes).toEqual([]);
+  });
+
+  it("encaminha falha da transação atômica sem afirmar sucesso", async () => {
+    const db = fakeSupabase({ owner: true });
+    db.rpc.mockResolvedValueOnce({ data: null, error: { message: "link insert failed" } } as never);
+    await expect(
+      saveServiceForOwner(
+        db.client,
+        "user-dono",
+        input({ professionalIds: ["0e000000-0000-4000-8000-0000000000a1"] }),
+      ),
+    ).rejects.toThrow("Não foi possível salvar o serviço e seus profissionais.");
+    expect(db.writes).toEqual([]);
   });
 
   it("serviço de outro negócio não é atualizado", async () => {
@@ -259,10 +297,12 @@ describe("dias de atendimento do serviço (US9)", () => {
   });
 
   it("o dono pode marcar o domingo e desmarcar qualquer dia", () => {
-    expect(saveServiceInput.parse(input({ availableDays: [0, 1, 2, 3, 4, 5, 6] })).availableDays).toEqual([
-      0, 1, 2, 3, 4, 5, 6,
-    ]);
-    expect(buildServiceRow(input({ availableDays: [0, 6] }))).toMatchObject({ available_days: [0, 6] });
+    expect(
+      saveServiceInput.parse(input({ availableDays: [0, 1, 2, 3, 4, 5, 6] })).availableDays,
+    ).toEqual([0, 1, 2, 3, 4, 5, 6]);
+    expect(buildServiceRow(input({ availableDays: [0, 6] }))).toMatchObject({
+      available_days: [0, 6],
+    });
     expect(buildServiceRow(input({ availableDays: [1, 2, 3, 4, 5] }))).toMatchObject({
       available_days: [1, 2, 3, 4, 5],
     });
@@ -272,5 +312,8 @@ describe("dias de atendimento do serviço (US9)", () => {
     expect(() => saveServiceInput.parse(input({ availableDays: [7] }))).toThrow();
     expect(() => saveServiceInput.parse(input({ availableDays: [-1] }))).toThrow();
   });
-});
 
+  it("recusa listas de atendimento maiores que os sete dias da semana", () => {
+    expect(() => saveServiceInput.parse(input({ availableDays: Array(8).fill(1) }))).toThrow();
+  });
+});

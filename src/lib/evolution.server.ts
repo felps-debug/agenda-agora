@@ -170,15 +170,19 @@ export async function sendTextMessage(
 }
 
 /** Registra o webhook de mensagens recebidas da instância (saudação automática). */
-export async function setInstanceWebhook(instanceToken: string, url: string, secret = ""): Promise<void> {
+export async function setInstanceWebhook(
+  instanceToken: string,
+  url: string,
+  secret = "",
+): Promise<void> {
   await call(`/webhook/set/${encodeURIComponent(instanceToken)}`, {
     method: "POST",
     body: JSON.stringify({
       webhook: {
         enabled: true,
         url,
-        webhook_by_events: false,
-        webhook_base64: false,
+        byEvents: false,
+        base64: false,
         events: ["MESSAGES_UPSERT"],
         headers: secret ? { "X-Webhook-Secret": secret } : {},
       },

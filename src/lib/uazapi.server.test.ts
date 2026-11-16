@@ -3,6 +3,7 @@ import {
   createBusinessInstance,
   normalizePairingPhone,
   sendTextMessage,
+  setInstanceWebhook,
   startWhatsappConnection,
 } from "./uazapi.server";
 
@@ -13,6 +14,26 @@ afterEach(() => {
 });
 
 describe("cliente UazAPI", () => {
+  it("configura o webhook conforme o schema oficial, sem campo de headers não suportado", async () => {
+    process.env["UAZAPI_BASE_URL"] = "https://uazapi.test";
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await setInstanceWebhook(
+      "token-instancia",
+      "https://app.test/api/public/whatsapp-incoming",
+      "segredo-global",
+    );
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://uazapi.test/webhook");
+    expect(JSON.parse(init.body as string)).toEqual({
+      url: "https://app.test/api/public/whatsapp-incoming",
+      events: ["messages"],
+      enabled: true,
+    });
+  });
+
   it("aplica timeout nas requisições", async () => {
     process.env["UAZAPI_BASE_URL"] = "https://uazapi.test";
     const fetchMock = vi.fn((_url: string, init: RequestInit) => {

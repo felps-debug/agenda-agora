@@ -5,7 +5,12 @@ import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 export type SidebarMasterStats = {
   signupsToday: number;
   recentSignups: Array<{ id: string; name: string; createdAt: string }>;
-  recentPayments: Array<{ id: string; businessName: string; amountCents: number; createdAt: string }>;
+  recentPayments: Array<{
+    id: string;
+    businessName: string;
+    amountCents: number;
+    createdAt: string;
+  }>;
 };
 
 export const getSidebarMasterStats = createServerFn({ method: "GET" })

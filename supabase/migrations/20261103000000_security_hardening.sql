@@ -174,6 +174,9 @@ VALUES
 ON CONFLICT (key) DO NOTHING;
 
 -- Owners may update only fields written directly by the owner-facing UI.
+ALTER TABLE public.businesses
+  ADD COLUMN IF NOT EXISTS logo_url text,
+  ADD COLUMN IF NOT EXISTS brand_background_image text;
 REVOKE UPDATE ON public.businesses FROM anon, authenticated;
 GRANT UPDATE (
   logo_url, brand_background_image, reminder_enabled, reminder_hours_before,

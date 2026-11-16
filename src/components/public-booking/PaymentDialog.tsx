@@ -6,6 +6,9 @@ import QRCode from "qrcode";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/format";
+import { copyPixCode } from "@/lib/copy-pix-code";
+import { getDepositStatusPollDelay } from "@/lib/deposit-status-polling";
+import { getPendingDepositCancelFeedback } from "@/lib/pending-deposit-cancel-feedback";
 import {
   cancelDepositBooking,
   generateDepositPix,
@@ -43,7 +46,13 @@ export default function PaymentDialog({
   const [copied, setCopied] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [paid, setPaid] = useState(false);
+  const [statusCheckFailed, setStatusCheckFailed] = useState(false);
   const [left, setLeft] = useState(300);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   const expiresAt = booking?.expiresAt ? new Date(booking.expiresAt).getTime() : null;
 
@@ -59,20 +68,41 @@ export default function PaymentDialog({
 
   useEffect(() => {
     if (paid) return;
-    const id = setInterval(async () => {
+    let stopped = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    let consecutiveFailures = 0;
+
+    const poll = async () => {
       try {
         const r = await statusFn({ data: { chargeId } });
-        if (r.status === "pago") setPaid(true);
+        consecutiveFailures = 0;
+        setStatusCheckFailed(false);
+        if (r.status === "pago") {
+          setPaid(true);
+          return;
+        }
         if (r.status === "expirado") {
+          stopped = true;
           toast.error("O prazo do Pix acabou e o agendamento foi cancelado.");
-          onClose();
+          onCloseRef.current();
+          return;
         }
       } catch {
-        /* tenta de novo */
+        consecutiveFailures += 1;
+        setStatusCheckFailed(true);
       }
-    }, 5000);
-    return () => clearInterval(id);
-  }, [chargeId, paid, statusFn, onClose]);
+
+      if (!stopped) {
+        timeout = setTimeout(() => void poll(), getDepositStatusPollDelay(consecutiveFailures));
+      }
+    };
+
+    timeout = setTimeout(() => void poll(), 5000);
+    return () => {
+      stopped = true;
+      clearTimeout(timeout);
+    };
+  }, [chargeId, paid, statusFn]);
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -113,18 +143,41 @@ export default function PaymentDialog({
     generate.mutate();
   };
 
-  const handleCopyPix = () => {
+  const handleCopyPix = async () => {
     if (!pix) return;
-    void navigator.clipboard.writeText(pix.qrCode);
+    const copiedSuccessfully = await copyPixCode(() => navigator.clipboard.writeText(pix.qrCode));
+    if (!copiedSuccessfully) {
+      setCopied(false);
+      toast.error("Não foi possível copiar o código Pix. Use o QR Code ou copie o código exibido.");
+      return;
+    }
     setCopied(true);
     toast.success("Código Pix copiado!");
   };
 
   const cancel = useMutation({
     mutationFn: () => cancelFn({ data: { chargeId } }),
-    onSuccess: () => {
-      toast.success("Agendamento cancelado.");
-      onClose();
+    onSuccess: ({ status }) => {
+      setConfirmCancel(false);
+      const feedback = getPendingDepositCancelFeedback(status);
+      if (feedback.kind === "cancelled") {
+        toast.success("Agendamento cancelado.");
+        onClose();
+      } else if (feedback.kind === "paid") {
+        toast.warning(
+          "O sinal foi confirmado enquanto você cancelava. Seu agendamento está confirmado.",
+        );
+        setPaid(true);
+      } else if (feedback.kind === "paid_unconfirmed") {
+        toast.error(
+          "O pagamento foi confirmado, mas a reserva precisa ser conferida com o estabelecimento.",
+        );
+        onClose();
+      } else {
+        toast.error(
+          "A cobrança continua pendente. O cancelamento não foi confirmado; tente novamente.",
+        );
+      }
     },
     onError: (e: Error) => toast.error(friendlyError(e)),
   });
@@ -256,6 +309,11 @@ export default function PaymentDialog({
         <p className="font-display text-lg font-bold" style={{ color: accent }}>
           Tempo restante: {mm}:{ss}
         </p>
+        {statusCheckFailed && (
+          <p role="status" className="text-sm" style={{ color: titleColor }}>
+            Não foi possível atualizar o pagamento agora. Continuaremos tentando automaticamente.
+          </p>
+        )}
         <Button
           className="mx-auto w-fit rounded-xl"
           style={{ backgroundColor: accent, color: accentText }}

@@ -57,7 +57,9 @@ async function getRoles(userId: string) {
 /** Role confirmada em `user_roles`, nunca por metadata do usuário. */
 async function destinationFor(userId: string) {
   const roles = await getRoles(userId);
-  return postLoginDestination({ roles });
+  const { data, error } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (error) throw new Error("Não foi possível confirmar o nível de autenticação.");
+  return postLoginDestination({ roles, aal: data.currentLevel });
 }
 
 function AuthPage() {
@@ -85,8 +87,8 @@ function AuthPage() {
     if (isLocalAppHost(window.location.hostname)) return true;
     if (surface === "public") return false;
     return surface !== "admin"
-      ? destination !== "/painel/master"
-      : destination === "/painel/master";
+      ? destination !== "/painel/master" && destination !== "/painel/master-auth"
+      : destination === "/painel/master" || destination === "/painel/master-auth";
   };
 
   useEffect(() => {

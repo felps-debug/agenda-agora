@@ -58,22 +58,25 @@ type AppointmentRow = {
 
 async function loadContext(appointmentId: string) {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: appt } = await supabaseAdmin
+  const { data: appt, error: appointmentError } = await supabaseAdmin
     .from("appointments")
     .select(
       "id, business_id, customer_name, customer_phone, starts_at, service_id, professional_id",
     )
     .eq("id", appointmentId)
     .maybeSingle();
+  if (appointmentError)
+    throw new Error("Não foi possível consultar o agendamento para notificação.");
   if (!appt?.customer_phone) return null;
 
-  const { data: business } = await supabaseAdmin
+  const { data: business, error: businessError } = await supabaseAdmin
     .from("businesses")
     .select(
       "id, name, timezone, greeting, whatsapp_instance, whatsapp_status, whatsapp_instance_token, confirmation_template, reminder_template, payment_confirmation_template, slug, saudacao_template",
     )
     .eq("id", appt.business_id)
     .maybeSingle();
+  if (businessError) throw new Error("Não foi possível consultar a configuração de WhatsApp.");
   if (!business?.whatsapp_instance) return null;
   const { readWhatsappCredential } = await import("./whatsapp-credentials.server");
   const privateCredential = await readWhatsappCredential(supabaseAdmin, business.id);
@@ -83,8 +86,13 @@ async function loadContext(appointmentId: string) {
   // whatsapp_status no banco só é atualizado quando o dono visita /painel/integracoes;
   // checar a sessão ao vivo aqui evita descartar notificações por status desatualizado.
   const { isConnected } = await loadWhatsappProvider();
-  const online = await isConnected(instanceToken).catch(() => false);
-  if (!online) return null;
+  let online = false;
+  try {
+    online = await isConnected(instanceToken);
+  } catch {
+    throw new Error("Não foi possível verificar a conexão de WhatsApp.");
+  }
+  if (!online) throw new Error("WhatsApp desconectado; a notificação será tentada novamente.");
   if (business.whatsapp_status !== "conectado") {
     await supabaseAdmin
       .from("businesses")
@@ -199,17 +207,14 @@ export async function sendExtraBookingReminder(appointmentId: string, template: 
   );
 }
 
-export async function sendPaymentConfirmation(appointmentId: string) {
-  try {
-    const ctx = await loadContext(appointmentId);
-    if (!ctx) return;
-    const template = ctx.business.payment_confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
-    await sendTextMessage(
-      ctx.instanceToken,
-      ctx.row.customer_phone!,
-      [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
-    );
-  } catch (err) {
-    console.error("Falha ao enviar confirmação de pagamento pelo WhatsApp:", err);
-  }
+export async function sendPaymentConfirmation(appointmentId: string): Promise<boolean> {
+  const ctx = await loadContext(appointmentId);
+  if (!ctx) return false;
+  const template = ctx.business.payment_confirmation_template || DEFAULT_CONFIRMATION_MESSAGE;
+  await sendTextMessage(
+    ctx.instanceToken,
+    ctx.row.customer_phone!,
+    [ctx.greeting?.trim(), renderMessage(template, ctx.vars)].filter(Boolean).join("\n\n"),
+  );
+  return true;
 }

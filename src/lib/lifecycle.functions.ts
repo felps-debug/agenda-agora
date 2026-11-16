@@ -19,6 +19,8 @@ import { masterReturnPinMatches } from "@/lib/impersonation-pin.server";
 import { summarizeSetup } from "@/lib/master/business-intelligence";
 import { trialInfo } from "@/lib/trial-store";
 import { getAllowedAppOrigins } from "@/lib/env-security.server";
+import { RECEIVABLES_HISTORY_LIMIT_DAYS } from "@/lib/receivables-history-limit";
+import { fetchAllPages } from "@/lib/fetch-all-pages.server";
 
 const DAY_MS = 86_400_000;
 
@@ -69,41 +71,73 @@ export const getSubscriptionLifecycle = createServerFn({ method: "GET" })
     const now = new Date();
 
     const [
-      businessesRes,
-      profilesRes,
-      paymentsRes,
-      appointmentsRes,
-      servicesRes,
-      professionalsRes,
-      hoursRes,
+      businessesResRows,
+      profilesResRows,
+      paymentsResRows,
+      appointmentsResRows,
+      servicesResRows,
+      professionalsResRows,
+      hoursResRows,
     ] = await Promise.all([
-      supabaseAdmin
-        .from("businesses")
-        .select(
-          "id, name, phone, category, status, created_at, owner_id, monthly_fee_cents, trial_days, trial_created_at, slug, cancel_requested_at, cancelled_at, sales_owner, access_until",
-        )
-        .order("created_at", { ascending: false }),
-      supabaseAdmin.from("profiles").select("id, full_name, email"),
-      supabaseAdmin
-        .from("subscription_payments")
-        .select("business_id, reference_month, status, amount_cents, paid_at, created_at"),
-      supabaseAdmin.from("appointments").select("id, business_id").limit(20000),
-      supabaseAdmin.from("services").select("id, business_id").limit(20000),
-      supabaseAdmin.from("professionals").select("id, business_id").limit(20000),
-      supabaseAdmin.from("business_hours").select("id, business_id").limit(20000),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("businesses")
+            .select(
+              "id, name, phone, category, status, created_at, owner_id, monthly_fee_cents, trial_days, trial_created_at, slug, cancel_requested_at, cancelled_at, sales_owner, access_until",
+            )
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar estabelecimentos do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("profiles").select("id, full_name, email").order("id").range(from, to),
+        "Falha ao carregar responsáveis do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("subscription_payments")
+            .select("business_id, reference_month, status, amount_cents, paid_at, created_at")
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar pagamentos do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("appointments").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar agendamentos do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("services").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar serviços do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("professionals").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar profissionais do lifecycle.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("business_hours")
+            .select("id, business_id")
+            .order("id")
+            .range(from, to),
+        "Falha ao carregar horários do lifecycle.",
+      ),
     ]);
-    for (const [label, result] of [
-      ["estabelecimentos", businessesRes],
-      ["responsáveis", profilesRes],
-      ["pagamentos", paymentsRes],
-      ["agendamentos", appointmentsRes],
-      ["serviços", servicesRes],
-      ["profissionais", professionalsRes],
-      ["horários", hoursRes],
-    ] as const) {
-      if (result.error) throw new Error(`Falha ao carregar ${label}: ${result.error.message}`);
-    }
-
+    const businessesRes = { data: businessesResRows, error: null };
+    const profilesRes = { data: profilesResRows, error: null };
+    const paymentsRes = { data: paymentsResRows, error: null };
+    const appointmentsRes = { data: appointmentsResRows, error: null };
+    const servicesRes = { data: servicesResRows, error: null };
+    const professionalsRes = { data: professionalsResRows, error: null };
+    const hoursRes = { data: hoursResRows, error: null };
     const businesses = businessesRes.data ?? [];
     const profiles = new Map((profilesRes.data ?? []).map((p) => [p.id, p]));
     const payments = paymentsRes.data ?? [];
@@ -216,8 +250,7 @@ export const getSubscriptionLifecycle = createServerFn({ method: "GET" })
         ownerEmail: profiles.get(business.owner_id)?.email ?? null,
         category_: lifecycle.category,
         reason: lifecycle.reason,
-        reasonLabel:
-          lifecycle.reason != null ? ATTENTION_REASON_LABEL[lifecycle.reason] : null,
+        reasonLabel: lifecycle.reason != null ? ATTENTION_REASON_LABEL[lifecycle.reason] : null,
         isTrial,
         trialDays: business.trial_days,
         accessUntil: business.access_until,
@@ -260,7 +293,7 @@ export const extendBusinessTrial = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         days: z.number().int().min(1).max(90),
       })
       .parse(input),
@@ -286,17 +319,13 @@ export const extendBusinessTrial = createServerFn({ method: "POST" })
       .eq("id", business.id);
     if (updateError) throw new Error(updateError.message);
 
-    try {
-      await supabaseAdmin.from("master_business_events").insert({
-        business_id: business.id,
-        actor_id: context.userId,
-        type: "assinatura",
-        title: "Teste estendido",
-        description: `+${data.days} dias — novo fim do teste: ${new Date(end).toLocaleDateString("pt-BR")}`,
-      });
-    } catch (eventError) {
-      console.error("Falha ao registrar evento de auditoria:", eventError);
-    }
+    await recordRequiredMasterEvent(supabaseAdmin, {
+      business_id: business.id,
+      actor_id: context.userId,
+      type: "assinatura",
+      title: "Teste estendido",
+      description: `+${data.days} dias — novo fim do teste: ${new Date(end).toLocaleDateString("pt-BR")}`,
+    });
     return { trialDays: data.days, trialEnd: end };
   });
 
@@ -324,28 +353,44 @@ export const getReceivablesCalendar = createServerFn({ method: "GET" })
     const supabaseAdmin = await assertSuperAdmin(context);
     const now = new Date();
 
-    const [businessesRes, profilesRes, paymentsRes, professionalsRes] = await Promise.all([
-      supabaseAdmin
-        .from("businesses")
-        .select(
-          "id, name, status, monthly_fee_cents, created_at, trial_days, access_until, cancel_requested_at, cancelled_at, agpay_split_status, agpay_auto_first_key",
-        )
-        .order("created_at", { ascending: false }),
-      supabaseAdmin.from("profiles").select("id, full_name, email"),
-      supabaseAdmin
-        .from("subscription_payments")
-        .select("id, business_id, reference_month, status, amount_cents, paid_at, created_at"),
-      supabaseAdmin.from("professionals").select("id, business_id").limit(20000),
+    const [businessesRows, profilesRows, paymentsRows, professionalsRows] = await Promise.all([
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("businesses")
+            .select(
+              "id, name, status, monthly_fee_cents, created_at, trial_days, access_until, cancel_requested_at, cancelled_at, agpay_split_status, agpay_auto_first_key",
+            )
+            .order("created_at", { ascending: false })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar estabelecimentos dos recebíveis.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("profiles").select("id, full_name, email").order("id").range(from, to),
+        "Falha ao carregar responsáveis dos recebíveis.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin
+            .from("subscription_payments")
+            .select("id, business_id, reference_month, status, amount_cents, paid_at, created_at")
+            .order("created_at", { ascending: true })
+            .order("id", { ascending: true })
+            .range(from, to),
+        "Falha ao carregar pagamentos dos recebíveis.",
+      ),
+      fetchAllPages(
+        (from, to) =>
+          supabaseAdmin.from("professionals").select("id, business_id").order("id").range(from, to),
+        "Falha ao carregar profissionais dos recebíveis.",
+      ),
     ]);
-    for (const [label, result] of [
-      ["estabelecimentos", businessesRes],
-      ["responsáveis", profilesRes],
-      ["pagamentos", paymentsRes],
-      ["profissionais", professionalsRes],
-    ] as const) {
-      if (result.error) throw new Error(`Falha ao carregar ${label}: ${result.error.message}`);
-    }
-
+    const businessesRes = { data: businessesRows, error: null };
+    const profilesRes = { data: profilesRows, error: null };
+    const paymentsRes = { data: paymentsRows, error: null };
+    const professionalsRes = { data: professionalsRows, error: null };
     const professionalsByBusiness = new Map<string, number>();
     for (const professional of professionalsRes.data ?? []) {
       professionalsByBusiness.set(
@@ -363,7 +408,9 @@ export const getReceivablesCalendar = createServerFn({ method: "GET" })
     }
 
     const paidMonthsByBusiness = new Map<string, boolean>();
-    const windowStart = new Date(now.getTime() - 120 * DAY_MS).toISOString();
+    const windowStart = new Date(
+      now.getTime() - RECEIVABLES_HISTORY_LIMIT_DAYS * DAY_MS,
+    ).toISOString();
     const received = (paymentsRes.data ?? [])
       .filter((p) => p.status === "pago" && (p.paid_at ?? p.created_at) >= windowStart)
       .map((p) => ({
@@ -431,52 +478,50 @@ export const getReceivablesCalendar = createServerFn({ method: "GET" })
 /** Ciclo de acesso de um estabelecimento: dias restantes, vencimento e estágio atual. */
 export const getBusinessAccessCycle = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z.object({ businessId: z.string().uuid() }).parse(input),
-  )
-    .handler(async ({ context, data }) => {
-      const supabaseAdmin = await assertSuperAdmin(context);
-      const { data: business, error } = await supabaseAdmin
-        .from("businesses")
-        .select(
-          "id, name, status, trial_days, monthly_fee_cents, cancel_requested_at, cancelled_at, access_until",
-        )
-        .eq("id", data.businessId)
-        .maybeSingle();
-      if (error) throw new Error(error.message);
-      if (!business) throw new Error("Estabelecimento não encontrado.");
+  .inputValidator((input: unknown) => z.object({ businessId: z.string().guid() }).parse(input))
+  .handler(async ({ context, data }) => {
+    const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: business, error } = await supabaseAdmin
+      .from("businesses")
+      .select(
+        "id, name, status, trial_days, monthly_fee_cents, cancel_requested_at, cancelled_at, access_until",
+      )
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!business) throw new Error("Estabelecimento não encontrado.");
 
-      const { data: payments } = await supabaseAdmin
-        .from("subscription_payments")
-        .select("id, paid_at, amount_cents, created_at")
-        .eq("business_id", business.id)
-        .eq("status", "pago")
-        .order("paid_at", { ascending: true });
+    const { data: payments } = await supabaseAdmin
+      .from("subscription_payments")
+      .select("id, paid_at, amount_cents, created_at")
+      .eq("business_id", business.id)
+      .eq("status", "pago")
+      .order("paid_at", { ascending: true });
 
-      const everPaid = (payments ?? []).length > 0;
-      const isTrial = business.trial_days != null && !everPaid;
-      const now = new Date();
-      const cycle = computeAccessCycle({ accessUntil: business.access_until, now });
-      const lifecycle = classifyLifecycle({
-        status: business.status,
-        isTrial,
-        accessUntil: business.access_until,
-        cancelRequestedAt: business.cancel_requested_at,
-        cancelledAt: business.cancelled_at,
-        now,
-      });
+    const everPaid = (payments ?? []).length > 0;
+    const isTrial = business.trial_days != null && !everPaid;
+    const now = new Date();
+    const cycle = computeAccessCycle({ accessUntil: business.access_until, now });
+    const lifecycle = classifyLifecycle({
+      status: business.status,
+      isTrial,
+      accessUntil: business.access_until,
+      cancelRequestedAt: business.cancel_requested_at,
+      cancelledAt: business.cancelled_at,
+      now,
+    });
 
-      const lastPaymentAt = (payments ?? []).at(-1)?.paid_at ?? null;
-      const lastPaymentCents = (payments ?? []).at(-1)?.amount_cents ?? 0;
-      // Valor da assinatura: base + R$ 10 por profissional adicional (1º é grátis).
-      const { count: professionalsCount } = await supabaseAdmin
-        .from("professionals")
-        .select("id", { count: "exact", head: true })
-        .eq("business_id", business.id);
-      const amountCents = subscriptionTotalCents(
-        business.monthly_fee_cents ?? 8990,
-        professionalsCount ?? 0,
-      );
+    const lastPaymentAt = (payments ?? []).at(-1)?.paid_at ?? null;
+    const lastPaymentCents = (payments ?? []).at(-1)?.amount_cents ?? 0;
+    // Valor da assinatura: base + R$ 10 por profissional adicional (1º é grátis).
+    const { count: professionalsCount } = await supabaseAdmin
+      .from("professionals")
+      .select("id", { count: "exact", head: true })
+      .eq("business_id", business.id);
+    const amountCents = subscriptionTotalCents(
+      business.monthly_fee_cents ?? 8990,
+      professionalsCount ?? 0,
+    );
 
     return {
       id: business.id,
@@ -484,8 +529,7 @@ export const getBusinessAccessCycle = createServerFn({ method: "GET" })
       status: business.status,
       category: lifecycle.category,
       reason: lifecycle.reason,
-      reasonLabel:
-        lifecycle.reason != null ? ATTENTION_REASON_LABEL[lifecycle.reason] : null,
+      reasonLabel: lifecycle.reason != null ? ATTENTION_REASON_LABEL[lifecycle.reason] : null,
       everPaid,
       isTrial,
       stage: cycle.stage,
@@ -512,7 +556,7 @@ export const setBusinessAccessDays = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         action: z.enum(["adicionar", "remover"]),
         days: z.number().int().min(1).max(36500),
         motivo: z.string().trim().max(500).optional(),
@@ -547,17 +591,13 @@ export const setBusinessAccessDays = createServerFn({ method: "POST" })
       data.action === "adicionar" ? "Dias de acesso adicionados" : "Dias de acesso removidos";
     const description = `${data.action === "adicionar" ? "+" : "-"}${data.days} dias — novo vencimento: ${new Date(newUntil).toLocaleDateString("pt-BR")}${data.motivo?.trim() ? ` · Motivo: ${data.motivo.trim()}` : ""}`;
 
-    try {
-      await supabaseAdmin.from("master_business_events").insert({
-        business_id: business.id,
-        actor_id: context.userId,
-        type: "assinatura",
-        title,
-        description,
-      });
-    } catch (eventError) {
-      console.error("Falha ao registrar evento de auditoria:", eventError);
-    }
+    await recordRequiredMasterEvent(supabaseAdmin, {
+      business_id: business.id,
+      actor_id: context.userId,
+      type: "assinatura",
+      title,
+      description,
+    });
     return {
       ok: true as const,
       description,
@@ -570,14 +610,16 @@ export const setBusinessAccessDays = createServerFn({ method: "POST" })
 export const impersonateBusinessOwner = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z
-      .object({ businessId: z.string().uuid(), origin: z.string().min(1) })
-      .parse(input),
+    z.object({ businessId: z.string().guid(), origin: z.string().min(1) }).parse(input),
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     let origin: string;
-    try { origin = new URL(data.origin).origin; } catch { throw new Error("ORIGIN_NOT_ALLOWED"); }
+    try {
+      origin = new URL(data.origin).origin;
+    } catch {
+      throw new Error("ORIGIN_NOT_ALLOWED");
+    }
     if (!getAllowedAppOrigins().has(origin)) throw new Error("ORIGIN_NOT_ALLOWED");
     const { data: business, error } = await supabaseAdmin
       .from("businesses")
@@ -643,12 +685,14 @@ export const impersonateBusinessOwner = createServerFn({ method: "POST" })
       createHash("sha256").update(crypto.randomUUID()).digest("hex");
     // Sessão de impersonação: permite o banner "Voltar ao Painel Master" no
     // Painel 2 (com PIN) e vincula o retorno ao master que iniciou o acesso.
-    const { error: sessionError } = await supabaseAdmin.from("master_impersonation_sessions").insert({
-      business_id: business.id,
-      master_user_id: context.userId,
-      token: impersonationToken,
-      expires_at: new Date(Date.now() + 12 * 60 * 60_000).toISOString(),
-    });
+    const { error: sessionError } = await supabaseAdmin
+      .from("master_impersonation_sessions")
+      .insert({
+        business_id: business.id,
+        master_user_id: context.userId,
+        token: impersonationToken,
+        expires_at: new Date(Date.now() + 12 * 60 * 60_000).toISOString(),
+      });
     if (sessionError) throw new Error("Não foi possível iniciar a sessão de acesso direto.");
 
     return { accessToken, refreshToken, ownerEmail, impersonationToken };
@@ -685,9 +729,7 @@ async function tokensDaSessaoViaLink(
  */
 export const validateImpersonationSession = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z.object({ token: z.string().min(32) }).parse(input),
-  )
+  .inputValidator((input: unknown) => z.object({ token: z.string().min(32) }).parse(input))
   .handler(async ({ context, data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: session, error } = await supabaseAdmin
@@ -735,7 +777,11 @@ export const returnToMasterSession = createServerFn({ method: "POST" })
     // + vínculo com o dono do negócio + PIN fixo da equipe (server-only).
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     let origin: string;
-    try { origin = new URL(data.origin).origin; } catch { throw new Error("ORIGIN_NOT_ALLOWED"); }
+    try {
+      origin = new URL(data.origin).origin;
+    } catch {
+      throw new Error("ORIGIN_NOT_ALLOWED");
+    }
     if (!getAllowedAppOrigins().has(origin)) throw new Error("ORIGIN_NOT_ALLOWED");
 
     const { data: session, error } = await supabaseAdmin
@@ -758,25 +804,26 @@ export const returnToMasterSession = createServerFn({ method: "POST" })
     if (!masterReturnPinMatches(data.pin)) {
       const attempts = (session.attempts ?? 0) + 1;
       if (attempts >= 3) {
-        // Três erros encerram a sessão de impersonação por segurança.
-        await supabaseAdmin
+        const { error: deleteError } = await supabaseAdmin
           .from("master_impersonation_sessions")
           .delete()
           .eq("id", session.id);
+        if (deleteError) throw new Error("Could not end the impersonation session.");
         throw new Error("PIN incorreto. Sessão de acesso encerrada por segurança.");
       }
-      await supabaseAdmin
+      const { error: updateError } = await supabaseAdmin
         .from("master_impersonation_sessions")
         .update({ attempts })
         .eq("id", session.id);
+      if (updateError) throw new Error("Could not record the PIN attempt.");
       throw new Error("PIN incorreto.");
     }
 
-    // PIN correto: encerra a sessão (uso único) e devolve a sessão do master.
-    await supabaseAdmin
+    const { error: consumeError } = await supabaseAdmin
       .from("master_impersonation_sessions")
       .delete()
       .eq("id", session.id);
+    if (consumeError) throw new Error("Could not consume the impersonation session.");
 
     const { data: masterProfile } = await supabaseAdmin
       .from("profiles")
@@ -802,39 +849,39 @@ export const returnToMasterSession = createServerFn({ method: "POST" })
     return { accessToken, refreshToken };
   });
 
-/** Registra pedido de cancelamento, efetiva ou reverte (ação do master). */export const setBusinessCancellation = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) =>
-    z
-      .object({
-        businessId: z.string().uuid(),
-        action: z.enum(["solicitar", "efetivar", "reverter"]),
-      })
-      .parse(input),
-  )
-  .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const now = new Date().toISOString();
-    const patch =
-      data.action === "solicitar"
-        ? { cancel_requested_at: now }
-        : data.action === "efetivar"
-          ? { cancelled_at: now }
-          : { cancel_requested_at: null, cancelled_at: null };
-    const { error } = await supabaseAdmin
-      .from("businesses")
-      .update(patch)
-      .eq("id", data.businessId);
-    if (error) throw new Error(error.message);
+/** Registra pedido de cancelamento, efetiva ou reverte (ação do master). */ export const setBusinessCancellation =
+  createServerFn({ method: "POST" })
+    .middleware([requireSupabaseAuth])
+    .inputValidator((input: unknown) =>
+      z
+        .object({
+          businessId: z.string().guid(),
+          action: z.enum(["solicitar", "efetivar", "reverter"]),
+        })
+        .parse(input),
+    )
+    .handler(async ({ context, data }) => {
+      const supabaseAdmin = await assertSuperAdmin(context);
+      const now = new Date().toISOString();
+      const patch =
+        data.action === "solicitar"
+          ? { cancel_requested_at: now }
+          : data.action === "efetivar"
+            ? { cancelled_at: now }
+            : { status: "ativo", cancel_requested_at: null, cancelled_at: null };
+      const { error } = await supabaseAdmin
+        .from("businesses")
+        .update(patch)
+        .eq("id", data.businessId);
+      if (error) throw new Error(error.message);
 
-    const title =
-      data.action === "solicitar"
-        ? "Cancelamento solicitado"
-        : data.action === "efetivar"
-          ? "Cancelamento efetivado"
-          : "Cancelamento revertido";
-    try {
-      await supabaseAdmin.from("master_business_events").insert({
+      const title =
+        data.action === "solicitar"
+          ? "Cancelamento solicitado"
+          : data.action === "efetivar"
+            ? "Cancelamento efetivado"
+            : "Cancelamento revertido";
+      await recordRequiredMasterEvent(supabaseAdmin, {
         business_id: data.businessId,
         actor_id: context.userId,
         type: "assinatura",
@@ -844,11 +891,8 @@ export const returnToMasterSession = createServerFn({ method: "POST" })
             ? "Assinatura reativada pelo master."
             : "Registrado automaticamente pelo ciclo de assinaturas.",
       });
-    } catch (eventError) {
-      console.error("Falha ao registrar evento de auditoria:", eventError);
-    }
-    return { ok: true as const };
-  });
+      return { ok: true as const };
+    });
 
 /** Contadores de badges da sidebar master (Pix em análise + assinantes do dia). */
 export const getPlatformNavCounts = createServerFn({ method: "GET" })
@@ -858,10 +902,7 @@ export const getPlatformNavCounts = createServerFn({ method: "GET" })
     const dayStart = new Date();
     dayStart.setHours(0, 0, 0, 0);
     const [pixRes, paymentsRes] = await Promise.all([
-      supabaseAdmin
-        .from("pix_key_approvals")
-        .select("business_id")
-        .eq("status", "pendente"),
+      supabaseAdmin.from("pix_key_approvals").select("business_id").eq("status", "pendente"),
       supabaseAdmin
         .from("subscription_payments")
         .select("business_id")
@@ -875,3 +916,15 @@ export const getPlatformNavCounts = createServerFn({ method: "GET" })
     const novosAssinantes = new Set((paymentsRes.data ?? []).map((r) => r.business_id)).size;
     return { pixPendentes, novosAssinantes };
   });
+async function recordRequiredMasterEvent(
+  supabaseAdmin: Awaited<ReturnType<typeof assertSuperAdmin>>,
+  event: Record<string, unknown>,
+) {
+  try {
+    const { error } = await supabaseAdmin.from("master_business_events").insert(event as never);
+    if (error) throw error;
+  } catch (error) {
+    console.error("Falha ao registrar evento de auditoria:", error);
+    throw new Error("A alteração foi aplicada, mas não foi possível registrar a auditoria.");
+  }
+}

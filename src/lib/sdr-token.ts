@@ -11,14 +11,25 @@ const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
 const toBase64Url = (value: Buffer) => value.toString("base64url");
 
-export function signSdrToken(sdrId: string, secret: string, now = Date.now()): string {
-  const body = toBase64Url(Buffer.from(JSON.stringify({ sid: sdrId, exp: now + TOKEN_TTL_MS })));
+export function signSdrToken(
+  sdrId: string,
+  secret: string,
+  now = Date.now(),
+  sessionVersion = 0,
+): string {
+  const body = toBase64Url(
+    Buffer.from(JSON.stringify({ sid: sdrId, exp: now + TOKEN_TTL_MS, sv: sessionVersion })),
+  );
   const signature = toBase64Url(createHmac("sha256", secret).update(body).digest());
   return `${body}.${signature}`;
 }
 
 /** Retorna o `sdrId` quando o token é válido e não expirou; `null` caso contrário. */
-export function verifySdrToken(token: string, secret: string, now = Date.now()): string | null {
+export function verifySdrTokenClaims(
+  token: string,
+  secret: string,
+  now = Date.now(),
+): { sdrId: string; sessionVersion: number } | null {
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [body, signature] = parts;
@@ -35,11 +46,18 @@ export function verifySdrToken(token: string, secret: string, now = Date.now()):
     const payload = JSON.parse(Buffer.from(body, "base64url").toString()) as {
       sid?: unknown;
       exp?: unknown;
+      sv?: unknown;
     };
     if (typeof payload.sid !== "string" || typeof payload.exp !== "number") return null;
     if (payload.exp <= now) return null;
-    return payload.sid;
+    const sessionVersion = payload.sv ?? 0;
+    if (!Number.isSafeInteger(sessionVersion) || Number(sessionVersion) < 0) return null;
+    return { sdrId: payload.sid, sessionVersion: Number(sessionVersion) };
   } catch {
     return null;
   }
+}
+
+export function verifySdrToken(token: string, secret: string, now = Date.now()): string | null {
+  return verifySdrTokenClaims(token, secret, now)?.sdrId ?? null;
 }

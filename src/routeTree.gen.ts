@@ -34,6 +34,7 @@ import { Route as AuthenticatedPainelFuncionamentoRouteImport } from './routes/_
 import { Route as AuthenticatedPainelIntegracoesRouteImport } from './routes/_authenticated/painel.integracoes'
 import { Route as AuthenticatedPainelLembretesRouteImport } from './routes/_authenticated/painel.lembretes'
 import { Route as AuthenticatedPainelMasterRouteImport } from './routes/_authenticated/painel.master'
+import { Route as AuthenticatedPainelMasterAuthRouteImport } from './routes/_authenticated/painel.master-auth'
 import { Route as AuthenticatedPainelNegociosRouteImport } from './routes/_authenticated/painel.negocios'
 import { Route as AuthenticatedPainelNotificacoesAlertasRouteImport } from './routes/_authenticated/painel.notificacoes-alertas'
 import { Route as AuthenticatedPainelPixAprovacaoRouteImport } from './routes/_authenticated/painel.pix-aprovacao'
@@ -192,6 +193,12 @@ const AuthenticatedPainelMasterRoute =
     path: '/master',
     getParentRoute: () => AuthenticatedPainelRoute,
   } as any)
+const AuthenticatedPainelMasterAuthRoute =
+  AuthenticatedPainelMasterAuthRouteImport.update({
+    id: '/master-auth',
+    path: '/master-auth',
+    getParentRoute: () => AuthenticatedPainelRoute,
+  } as any)
 const AuthenticatedPainelNegociosRoute =
   AuthenticatedPainelNegociosRouteImport.update({
     id: '/negocios',
@@ -312,6 +319,7 @@ export interface FileRoutesByFullPath {
   '/painel/integracoes': typeof AuthenticatedPainelIntegracoesRoute
   '/painel/lembretes': typeof AuthenticatedPainelLembretesRoute
   '/painel/master': typeof AuthenticatedPainelMasterRoute
+  '/painel/master-auth': typeof AuthenticatedPainelMasterAuthRoute
   '/painel/negocios': typeof AuthenticatedPainelNegociosRoute
   '/painel/notificacoes-alertas': typeof AuthenticatedPainelNotificacoesAlertasRoute
   '/painel/pix-aprovacao': typeof AuthenticatedPainelPixAprovacaoRoute
@@ -353,6 +361,7 @@ export interface FileRoutesByTo {
   '/painel/integracoes': typeof AuthenticatedPainelIntegracoesRoute
   '/painel/lembretes': typeof AuthenticatedPainelLembretesRoute
   '/painel/master': typeof AuthenticatedPainelMasterRoute
+  '/painel/master-auth': typeof AuthenticatedPainelMasterAuthRoute
   '/painel/negocios': typeof AuthenticatedPainelNegociosRoute
   '/painel/notificacoes-alertas': typeof AuthenticatedPainelNotificacoesAlertasRoute
   '/painel/pix-aprovacao': typeof AuthenticatedPainelPixAprovacaoRoute
@@ -397,6 +406,7 @@ export interface FileRoutesById {
   '/_authenticated/painel/integracoes': typeof AuthenticatedPainelIntegracoesRoute
   '/_authenticated/painel/lembretes': typeof AuthenticatedPainelLembretesRoute
   '/_authenticated/painel/master': typeof AuthenticatedPainelMasterRoute
+  '/_authenticated/painel/master-auth': typeof AuthenticatedPainelMasterAuthRoute
   '/_authenticated/painel/negocios': typeof AuthenticatedPainelNegociosRoute
   '/_authenticated/painel/notificacoes-alertas': typeof AuthenticatedPainelNotificacoesAlertasRoute
   '/_authenticated/painel/pix-aprovacao': typeof AuthenticatedPainelPixAprovacaoRoute
@@ -441,6 +451,7 @@ export interface FileRouteTypes {
     | '/painel/integracoes'
     | '/painel/lembretes'
     | '/painel/master'
+    | '/painel/master-auth'
     | '/painel/negocios'
     | '/painel/notificacoes-alertas'
     | '/painel/pix-aprovacao'
@@ -482,6 +493,7 @@ export interface FileRouteTypes {
     | '/painel/integracoes'
     | '/painel/lembretes'
     | '/painel/master'
+    | '/painel/master-auth'
     | '/painel/negocios'
     | '/painel/notificacoes-alertas'
     | '/painel/pix-aprovacao'
@@ -525,6 +537,7 @@ export interface FileRouteTypes {
     | '/_authenticated/painel/integracoes'
     | '/_authenticated/painel/lembretes'
     | '/_authenticated/painel/master'
+    | '/_authenticated/painel/master-auth'
     | '/_authenticated/painel/negocios'
     | '/_authenticated/painel/notificacoes-alertas'
     | '/_authenticated/painel/pix-aprovacao'
@@ -735,6 +748,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPainelMasterRouteImport
       parentRoute: typeof AuthenticatedPainelRoute
     }
+    '/_authenticated/painel/master-auth': {
+      id: '/_authenticated/painel/master-auth'
+      path: '/master-auth'
+      fullPath: '/painel/master-auth'
+      preLoaderRoute: typeof AuthenticatedPainelMasterAuthRouteImport
+      parentRoute: typeof AuthenticatedPainelRoute
+    }
     '/_authenticated/painel/negocios': {
       id: '/_authenticated/painel/negocios'
       path: '/negocios'
@@ -866,6 +886,7 @@ interface AuthenticatedPainelRouteChildren {
   AuthenticatedPainelIntegracoesRoute: typeof AuthenticatedPainelIntegracoesRoute
   AuthenticatedPainelLembretesRoute: typeof AuthenticatedPainelLembretesRoute
   AuthenticatedPainelMasterRoute: typeof AuthenticatedPainelMasterRoute
+  AuthenticatedPainelMasterAuthRoute: typeof AuthenticatedPainelMasterAuthRoute
   AuthenticatedPainelNegociosRoute: typeof AuthenticatedPainelNegociosRoute
   AuthenticatedPainelNotificacoesAlertasRoute: typeof AuthenticatedPainelNotificacoesAlertasRoute
   AuthenticatedPainelPixAprovacaoRoute: typeof AuthenticatedPainelPixAprovacaoRoute
@@ -899,6 +920,7 @@ const AuthenticatedPainelRouteChildren: AuthenticatedPainelRouteChildren = {
   AuthenticatedPainelIntegracoesRoute: AuthenticatedPainelIntegracoesRoute,
   AuthenticatedPainelLembretesRoute: AuthenticatedPainelLembretesRoute,
   AuthenticatedPainelMasterRoute: AuthenticatedPainelMasterRoute,
+  AuthenticatedPainelMasterAuthRoute: AuthenticatedPainelMasterAuthRoute,
   AuthenticatedPainelNegociosRoute: AuthenticatedPainelNegociosRoute,
   AuthenticatedPainelNotificacoesAlertasRoute:
     AuthenticatedPainelNotificacoesAlertasRoute,

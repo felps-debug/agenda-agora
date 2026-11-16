@@ -7,6 +7,7 @@ import {
   DEFAULT_PANEL1_APPEARANCE,
   PANEL1_FONTS,
   PANEL1_LOGO_FITS,
+  PANEL1_TIMEZONES,
   type Panel1Appearance,
   type Panel1Preferences,
   type Panel1VisualPreferences,
@@ -16,7 +17,7 @@ import {
   savePanel1Config as savePanel1ConfigFile,
 } from "@/lib/panel1-config.storage";
 
-const businessIdInput = z.object({ businessId: z.string().uuid() });
+const businessIdInput = z.object({ businessId: z.string().guid() });
 
 async function assertBusinessPermission(supabase: SupabaseClient<Database>, businessId: string) {
   const { data: allowed, error } = await supabase.rpc("has_business_permission", {
@@ -44,7 +45,16 @@ const appearanceColorKeys = Object.keys(DEFAULT_PANEL1_APPEARANCE).filter(
     key !== "brand_tagline" &&
     key !== "page_gradient_enabled" &&
     key !== "page_gradient_direction",
-) as Array<Exclude<keyof Panel1Appearance, "font_family" | "logo_fit" | "brand_tagline" | "page_gradient_enabled" | "page_gradient_direction">>;
+) as Array<
+  Exclude<
+    keyof Panel1Appearance,
+    | "font_family"
+    | "logo_fit"
+    | "brand_tagline"
+    | "page_gradient_enabled"
+    | "page_gradient_direction"
+  >
+>;
 const colorField = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 export const appearancePatch = z
   .object({
@@ -65,7 +75,7 @@ export const preferencesPatch = z
     reminder_hours_before: z.number().int().min(1).max(168),
     extra_reminder_minutes: z.number().int().min(0).max(1440),
     extra_reminder_template: z.string().max(800),
-    timezone: z.string().min(1).max(80),
+    timezone: z.enum(PANEL1_TIMEZONES),
     list_dates_days: z.number().int().min(7).max(365),
     cancellations_enabled: z.boolean().default(true),
     cancellation_notice_minutes: z.number().int().min(0).max(1440),
@@ -87,6 +97,7 @@ export const visualPreferencesPatch = z
     niche_id: z.enum(["barbearia", "salao", "consultorio", "estetica", "pet", "outro"]),
     layout_media: z
       .record(
+        z.string(),
         z.object({
           logoPath: z.string().max(512).nullable(),
           backgroundPath: z.string().max(512).nullable(),
@@ -98,7 +109,7 @@ export const visualPreferencesPatch = z
   .strict();
 
 const patchInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   patch: z
     .object({
       appearance: appearancePatch.optional(),

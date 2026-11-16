@@ -1,4 +1,5 @@
 import { getRequest } from "@tanstack/react-start/server";
+import { isIP } from "node:net";
 
 /**
  * Limitador de taxa para os endpoints públicos.
@@ -66,9 +67,9 @@ export function resetRateLimits(now = Date.now()) {
 }
 
 /**
- * IP de quem chamou. Atrás do Caddy (`ops/vps/Caddyfile`) o IP real chega em
- * `x-forwarded-for`; as demais fontes existem para o caso de o app rodar atrás
- * de outro proxy.
+ * O Traefik do EasyPanel acrescenta o IP da conexão ao final de
+ * `x-forwarded-for` por padrão. Usar o último item evita aceitar um endereço
+ * falsificado no início da lista ou em cabeçalhos alternativos enviados pelo cliente.
  */
 export function clientIp(): string {
   let headers: Headers | undefined;
@@ -80,16 +81,9 @@ export function clientIp(): string {
     return "sem-request";
   }
   if (!headers) return "desconhecido";
-  const candidates = [
-    headers.get("cf-connecting-ip"),
-    headers.get("x-real-ip"),
-    headers.get("x-forwarded-for")?.split(",")[0],
-  ];
-  for (const raw of candidates) {
-    const value = raw?.trim();
-    if (value) return value;
-  }
-  return "desconhecido";
+  const forwardedFor = headers.get("x-forwarded-for");
+  const address = forwardedFor?.split(",").at(-1)?.trim();
+  return address && isIP(address) ? address : "desconhecido";
 }
 
 export type RateLimitRule = { scope: string; limit: number; windowMs: number };

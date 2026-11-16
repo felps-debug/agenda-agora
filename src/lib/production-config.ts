@@ -1,6 +1,13 @@
 export type ProductionConfig = Partial<
   Record<
-    "PUBLIC_APP_URL" | "ALLOWED_APP_ORIGINS" | "MASTER_SECURITY_PIN" | "MASTER_RETURN_PIN",
+    | "NODE_ENV"
+    | "PUBLIC_APP_URL"
+    | "ALLOWED_APP_ORIGINS"
+    | "MASTER_SECURITY_PIN"
+    | "MASTER_RETURN_PIN"
+    | "SDR_TOKEN_SECRET"
+    | "WHATSAPP_WEBHOOK_SECRET"
+    | "AGENDA_CRON_SECRET",
     string
   >
 >;
@@ -9,13 +16,33 @@ export function validateProductionConfig(env: ProductionConfig): {
   problems: string[];
 } {
   const problems: string[] = [];
+  const isProduction = env.NODE_ENV === "production";
+  const isAllowedProtocol = (url: URL) =>
+    url.protocol === "https:" ||
+    (!isProduction &&
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname));
   for (const key of ["MASTER_SECURITY_PIN", "MASTER_RETURN_PIN"] as const) {
     if (!/^\d{6,12}$/.test(env[key] ?? "")) problems.push(key + " deve conter de 6 a 12 dígitos.");
+  }
+  if (isProduction) {
+    for (const key of [
+      "SDR_TOKEN_SECRET",
+      "WHATSAPP_WEBHOOK_SECRET",
+      "AGENDA_CRON_SECRET",
+    ] as const) {
+      if (!env[key]?.trim()) problems.push(`${key} precisa ser configurada.`);
+    }
+    for (const key of ["SDR_TOKEN_SECRET", "WHATSAPP_WEBHOOK_SECRET"] as const) {
+      const value = env[key];
+      if (value !== undefined && value.length < 32)
+        problems.push(`${key} deve conter ao menos 32 caracteres.`);
+    }
   }
   let publicOrigin: string | undefined;
   try {
     const url = new URL(env.PUBLIC_APP_URL ?? "");
-    if (!["https:", "http:"].includes(url.protocol)) throw Error();
+    if (!isAllowedProtocol(url)) throw Error();
     publicOrigin = url.origin;
   } catch {
     problems.push("PUBLIC_APP_URL deve ser uma URL HTTP válida.");
@@ -27,7 +54,7 @@ export function validateProductionConfig(env: ProductionConfig): {
     .filter(Boolean)) {
     try {
       const url = new URL(entry);
-      if (!["https:", "http:"].includes(url.protocol)) throw Error();
+      if (!isAllowedProtocol(url)) throw Error();
       allowed.add(url.origin);
     } catch {
       problems.push("ALLOWED_APP_ORIGINS contém uma origem inválida.");

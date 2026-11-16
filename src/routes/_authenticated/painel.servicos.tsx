@@ -17,6 +17,7 @@ import {
 } from "@/lib/logo";
 import { effectiveDepositCents, percentToBps, type DepositMode } from "@/lib/deposit-amount";
 import { saveService } from "@/lib/services.functions";
+import { nextDeleteConfirmation } from "@/lib/delete-confirmation";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { ImageCropDialog } from "@/components/painel/ImageCropDialog";
 import { Button } from "@/components/ui/button";
@@ -249,20 +250,10 @@ function ServicosPage() {
           showService: form.showService,
           imagePath: form.imagePath,
           availableDays: [...form.availableDays].sort((a, b) => a - b),
+          professionalIds: form.professionalIds,
         },
       });
-      const removed = await supabase.from("service_professionals").delete().eq("service_id", id);
-      if (removed.error) throw removed.error;
-      if (form.professionalIds.length) {
-        const added = await supabase.from("service_professionals").insert(
-          form.professionalIds.map((professional_id) => ({
-            business_id: businessId!,
-            service_id: id,
-            professional_id,
-          })),
-        );
-        if (added.error) throw added.error;
-      }
+      return { id };
     },
     onSuccess: () => {
       toast.success(form.id ? "Serviço atualizado!" : "Serviço cadastrado!");
@@ -296,9 +287,14 @@ function ServicosPage() {
       const { error } = await supabase.from("services").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_result, id) => {
       toast.success("Serviço removido.");
       void refresh();
+      setServiceToRemove((current) => nextDeleteConfirmation(current, id, true));
+    },
+    onError: (error: Error, id: string) => {
+      setServiceToRemove((current) => nextDeleteConfirmation(current, id, false));
+      toast.error(friendlyError(error));
     },
   });
 
@@ -764,8 +760,7 @@ function ServicosPage() {
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
-                if (serviceToRemove)
-                  remove.mutate(serviceToRemove, { onSettled: () => setServiceToRemove(null) });
+                if (serviceToRemove) remove.mutate(serviceToRemove);
               }}
               disabled={remove.isPending}
             >

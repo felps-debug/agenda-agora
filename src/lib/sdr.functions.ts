@@ -1,10 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
-import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
-import { signSdrToken, verifySdrToken } from "@/lib/sdr-token";
+import { signSdrToken, verifySdrTokenClaims } from "@/lib/sdr-token";
 import { conversionRate, monthKey, percentChange, weeklyBuckets } from "@/lib/sdr-stats";
 import { getSdrTokenSecret } from "@/lib/env-security.server";
 import { checkLock, registerFailure, registerSuccess } from "@/lib/login-attempts.server";
@@ -13,13 +13,13 @@ import { clientIp } from "@/lib/rate-limit.server";
 const onlyDigits = (value: string) => value.replace(/\D/g, "");
 const phoneLogin = (phone: string) => `${onlyDigits(phone)}@agenda.local`;
 const phonePassword = (senha: string) => `agendaagora:${senha}`;
+export const createSdrTemporaryPassword = (randomSuffix = randomBytes(18).toString("base64url")) =>
+  `Aa1${randomSuffix}`;
 const isExistingAuthUserError = (error: { code?: string | undefined; message: string }) =>
   ["email_exists", "user_already_exists", "identity_already_exists"].includes(error.code ?? "") ||
   /already (registered|exists)|already been registered/i.test(error.message);
 
-/** PIN de quatro dígitos é armazenado com scrypt; SHA-256 legado só para migração no login. */
-const sha256Pin = (pin: string, email: string) =>
-  createHash("sha256").update(`${email.trim().toLowerCase()}::${pin}`).digest("hex");
+/** PIN SDR só autentica com scrypt; hashes legados exigem redefinição pelo Master. */
 const scrypt = promisify(scryptCallback);
 
 async function hashPin(pin: string, email: string) {
@@ -29,11 +29,15 @@ async function hashPin(pin: string, email: string) {
 }
 
 async function verifyPin(stored: string, pin: string, email: string) {
-  if (!stored.startsWith("scrypt$")) return stored === sha256Pin(pin, email) ? "legacy" : false;
+  if (!stored.startsWith("scrypt$")) return false;
   const [, salt, expectedHex] = stored.split("$");
   if (!salt || !expectedHex) return false;
   const expected = Buffer.from(expectedHex, "hex");
-  const actual = (await scrypt(`${email.trim().toLowerCase()}::${pin}`, salt, expected.length)) as Buffer;
+  const actual = (await scrypt(
+    `${email.trim().toLowerCase()}::${pin}`,
+    salt,
+    expected.length,
+  )) as Buffer;
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
@@ -53,17 +57,20 @@ async function getSdrSecret(_supabaseAdmin: AdminClient) {
 async function requireSdr(token: string) {
   const supabaseAdmin = await adminClient();
   const secret = await getSdrSecret(supabaseAdmin);
-  const sdrId = verifySdrToken(token, secret);
-  if (!sdrId) throw new Error("Sessão expirada. Entre novamente com seu e-mail e senha.");
+  const tokenClaims = verifySdrTokenClaims(token, secret);
+  if (!tokenClaims)
+    throw new Error("Sess\u00e3o expirada. Entre novamente com seu e-mail e senha.");
   const { data: sdr, error } = await supabaseAdmin
     .from("sdrs")
     .select(
-      "id, name, email, active, signup_goal, sales_goal, commission_cents, preset_scripts, script_notes",
+      "id, name, email, active, session_version, signup_goal, sales_goal, commission_cents, preset_scripts, script_notes",
     )
-    .eq("id", sdrId)
+    .eq("id", tokenClaims.sdrId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!sdr || !sdr.active) throw new Error("Conta inativa. Fale com o administrador.");
+  if (Number(sdr.session_version ?? 0) !== tokenClaims.sessionVersion)
+    throw new Error("Sess\u00e3o expirada. Entre novamente com seu e-mail e senha.");
   return {
     supabaseAdmin,
     sdr: sdr as {
@@ -71,6 +78,7 @@ async function requireSdr(token: string) {
       name: string;
       email: string;
       active: boolean;
+      session_version: number;
       signup_goal: number | null;
       sales_goal: number | null;
       commission_cents: number | null;
@@ -81,9 +89,7 @@ async function requireSdr(token: string) {
 }
 
 const emailField = z.string().trim().toLowerCase().min(5).email("Informe um e-mail válido.");
-const pinField = z
-  .string()
-  .regex(/^\d{4}$/, "A senha deve ter exatamente 4 dígitos numéricos.");
+const pinField = z.string().regex(/^\d{4}$/, "A senha deve ter exatamente 4 dígitos numéricos.");
 
 const sdrFormSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome do SDR."),
@@ -99,26 +105,38 @@ const sdrFormSchema = z.object({
 /* ------------------------------------------------------------------ */
 
 export const sdrLogin = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) =>
-    z.object({ email: emailField, pin: pinField }).parse(input),
-  )
+  .inputValidator((input: unknown) => z.object({ email: emailField, pin: pinField }).parse(input))
   .handler(async ({ data }) => {
     const supabaseAdmin = await adminClient();
     const emailKey = `sdr:${data.email}`;
     const ipKey = `ip:${clientIp()}`;
     const [lock, ipLock] = await Promise.all([checkLock(emailKey), checkLock(ipKey)]);
     if (lock.locked || ipLock.locked)
-      throw new Error(`TOO_MANY_ATTEMPTS:${Math.max(lock.retryAfterSeconds, ipLock.retryAfterSeconds)}`);
+      throw new Error(
+        `TOO_MANY_ATTEMPTS:${Math.max(lock.retryAfterSeconds, ipLock.retryAfterSeconds)}`,
+      );
     const { data: sdr, error } = await supabaseAdmin
       .from("sdrs")
-      .select("id, name, pin, active")
+      .select("id, name, pin, active, session_version")
       .eq("email", data.email)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    const verification = sdr?.active ? await verifyPin(sdr.pin as string, data.pin, data.email) : false;
+    const legacyPin = Boolean(
+      sdr?.active && typeof sdr.pin === "string" && !sdr.pin.startsWith("scrypt$"),
+    );
+    const verification =
+      sdr?.active && !legacyPin ? await verifyPin(sdr.pin as string, data.pin, data.email) : false;
     if (!sdr || !sdr.active || !verification) {
-      const result = await registerFailure(emailKey, { limit: 5, windowMs: 15 * 60_000, lockMs: 30 * 60_000 });
-      const ipResult = await registerFailure(ipKey, { limit: 30, windowMs: 60 * 60_000, lockMs: 60 * 60_000 });
+      const result = await registerFailure(emailKey, {
+        limit: 5,
+        windowMs: 15 * 60_000,
+        lockMs: 30 * 60_000,
+      });
+      const ipResult = await registerFailure(ipKey, {
+        limit: 30,
+        windowMs: 60 * 60_000,
+        lockMs: 60 * 60_000,
+      });
       if (sdr?.id && (result.locked || ipResult.locked)) {
         const { data: business } = await supabaseAdmin
           .from("businesses")
@@ -134,27 +152,44 @@ export const sdrLogin = createServerFn({ method: "POST" })
             title: "Bloqueio temporário de acesso SDR",
             description: "O limite de tentativas inválidas de acesso do SDR foi atingido.",
           });
-          if (auditError) console.error("Falha ao registrar bloqueio de acesso SDR:", auditError.message);
+          if (auditError)
+            console.error("Falha ao registrar bloqueio de acesso SDR:", auditError.message);
         }
       }
       if (result.locked || ipResult.locked)
-        throw new Error(`TOO_MANY_ATTEMPTS:${Math.max(result.retryAfterSeconds, ipResult.retryAfterSeconds)}`);
+        throw new Error(
+          `TOO_MANY_ATTEMPTS:${Math.max(result.retryAfterSeconds, ipResult.retryAfterSeconds)}`,
+        );
+      if (legacyPin)
+        throw new Error(
+          "PIN_RESET_REQUIRED: Peça ao administrador para definir uma nova senha do SDR.",
+        );
       throw new Error("E-mail ou senha incorretos.");
     }
     await registerSuccess(emailKey);
     await registerSuccess(ipKey);
-    if (verification === "legacy") {
-      const { error: migrationError } = await supabaseAdmin
-        .from("sdrs")
-        .update({ pin: await hashPin(data.pin, data.email) })
-        .eq("id", sdr.id);
-      if (migrationError) throw new Error("Não foi possível atualizar a proteção do PIN.");
-    }
     const secret = await getSdrSecret(supabaseAdmin);
     return {
-      token: signSdrToken(sdr.id as string, secret),
+      token: signSdrToken(sdr.id as string, secret, Date.now(), Number(sdr.session_version ?? 0)),
       name: sdr.name as string,
     };
+  });
+
+export const sdrLogout = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) => z.object({ token: z.string().min(10) }).parse(input))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin, sdr } = await requireSdr(data.token);
+    const currentVersion = Number(sdr.session_version ?? 0);
+    const { data: updated, error } = await supabaseAdmin
+      .from("sdrs")
+      .update({ session_version: currentVersion + 1 })
+      .eq("id", sdr.id)
+      .eq("session_version", currentVersion)
+      .select("id")
+      .maybeSingle();
+    if (error) throw new Error("Could not revoke the SDR session.");
+    if (!updated) throw new Error("SDR session changed; sign in again before retrying logout.");
+    return { ok: true as const };
   });
 
 /* ------------------------------------------------------------------ */
@@ -224,9 +259,7 @@ export const getSdrTeam = createServerFn({ method: "GET" })
     }>;
 
     const sdrIdByBusiness = new Map(
-      businesses
-        .filter((b) => b.sdr_id)
-        .map((b) => [b.id, b.sdr_id as string]),
+      businesses.filter((b) => b.sdr_id).map((b) => [b.id, b.sdr_id as string]),
     );
 
     const paidBySdr = new Map<string, Array<{ month: string; paidAt: string | null }>>();
@@ -248,9 +281,7 @@ export const getSdrTeam = createServerFn({ method: "GET" })
       ).length;
       const vendas = paid.filter((p) => p.month === current).length;
       const vendasPrev = paid.filter((p) => p.month === previous).length;
-      const vendas30 = paid.filter(
-        (p) => p.paidAt != null && p.paidAt >= thirtyDaysAgo,
-      ).length;
+      const vendas30 = paid.filter((p) => p.paidAt != null && p.paidAt >= thirtyDaysAgo).length;
       return {
         id: sdr.id,
         name: sdr.name,
@@ -292,7 +323,10 @@ export const getSdrTeam = createServerFn({ method: "GET" })
       sdrs: rows,
       kpis: {
         activeSdrs: rows.filter((row) => row.active).length,
-        cadastros: { value: totalCadastros, delta: percentChange(totalCadastros, totalCadastrosPrev) },
+        cadastros: {
+          value: totalCadastros,
+          delta: percentChange(totalCadastros, totalCadastrosPrev),
+        },
         vendas: { value: totalVendas, delta: percentChange(totalVendas, totalVendasPrev) },
         conversao: { value: conversao, delta: percentChange(conversao, conversaoPrev) },
       },
@@ -333,7 +367,7 @@ export const updateSdr = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     sdrFormSchema
       .extend({
-        id: z.string().uuid(),
+        id: z.string().guid(),
         pin: z.union([pinField, z.literal("")]),
         active: z.boolean(),
         presetScripts: z.string().max(20000).optional(),
@@ -342,6 +376,23 @@ export const updateSdr = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
+    const { data: existing, error: lookupError } = await supabaseAdmin
+      .from("sdrs")
+      .select("email, active, session_version, pin")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (lookupError) throw new Error("Could not verify the SDR login credentials.");
+    if (!existing) throw new Error("SDR not found.");
+    const legacyPin = typeof existing.pin === "string" && !existing.pin.startsWith("scrypt$");
+    const emailChanged =
+      String(existing.email).trim().toLowerCase() !== data.email.trim().toLowerCase();
+    if (emailChanged && !data.pin)
+      throw new Error("A new PIN is required when changing the login email.");
+    if (legacyPin && !data.pin)
+      throw new Error("A legacy PIN must be reset before saving the SDR profile.");
+
+    const currentVersion = Number(existing.session_version ?? 0);
+    const credentialsChanged = emailChanged || !!data.pin || existing.active !== data.active;
     const patch: {
       name: string;
       email: string;
@@ -349,6 +400,7 @@ export const updateSdr = createServerFn({ method: "POST" })
       sales_goal: number;
       commission_cents: number;
       active: boolean;
+      session_version?: number;
       pin?: string;
       preset_scripts?: string;
     } = {
@@ -359,13 +411,21 @@ export const updateSdr = createServerFn({ method: "POST" })
       commission_cents: data.commissionCents,
       active: data.active,
     };
+    if (credentialsChanged) patch.session_version = currentVersion + 1;
     if (data.pin) patch.pin = await hashPin(data.pin, data.email);
     if (data.presetScripts !== undefined) patch.preset_scripts = data.presetScripts;
-    const { error } = await supabaseAdmin.from("sdrs").update(patch).eq("id", data.id);
+    const { data: updated, error } = await supabaseAdmin
+      .from("sdrs")
+      .update(patch)
+      .eq("id", data.id)
+      .eq("session_version", currentVersion)
+      .select("id")
+      .maybeSingle();
     if (error) {
-      if (error.code === "23505") throw new Error("Já existe um SDR com este e-mail.");
+      if (error.code === "23505") throw new Error("J\u00e1 existe um SDR com este e-mail.");
       throw new Error(error.message);
     }
+    if (!updated) throw new Error("SDR data changed concurrently; reload before saving.");
     return { ok: true as const };
   });
 
@@ -374,14 +434,14 @@ export const updateSdr = createServerFn({ method: "POST" })
 /* ------------------------------------------------------------------ */
 
 const ideaSchema = z.object({
-  sdrId: z.string().uuid(),
+  sdrId: z.string().guid(),
   title: z.string().trim().min(1, "Informe o título da ideia.").max(160),
   details: z.string().max(4000).optional(),
 });
 
 export const getSdrIdeas = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ sdrId: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ sdrId: z.string().guid() }).parse(input))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { data: rows, error } = await supabaseAdmin
@@ -416,7 +476,7 @@ export const addSdrIdea = createServerFn({ method: "POST" })
 
 export const removeSdrIdea = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ ideaId: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ ideaId: z.string().guid() }).parse(input))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin.from("sdr_ideas").delete().eq("id", data.ideaId);
@@ -453,9 +513,7 @@ export const getSdrScriptKit = createServerFn({ method: "POST" })
 
 export const sdrSaveScriptNotes = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
-    z
-      .object({ token: z.string().min(10), notes: z.string().max(20000) })
-      .parse(input),
+    z.object({ token: z.string().min(10), notes: z.string().max(20000) }).parse(input),
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin, sdr } = await requireSdr(data.token);
@@ -491,7 +549,7 @@ export const sdrAddIdea = createServerFn({ method: "POST" })
 
 export const sdrDeleteIdea = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
-    z.object({ token: z.string().min(10), ideaId: z.string().uuid() }).parse(input),
+    z.object({ token: z.string().min(10), ideaId: z.string().guid() }).parse(input),
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin, sdr } = await requireSdr(data.token);
@@ -600,7 +658,9 @@ export const getSdrCadastros = createServerFn({ method: "POST" })
   });
 
 export const resetSdrOwnerPassword = createServerFn({ method: "POST" })
-  .inputValidator((input: unknown) => z.object({ token: z.string().min(10), businessId: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({ token: z.string().min(10), businessId: z.string().guid() }).parse(input),
+  )
   .handler(async ({ data }) => {
     const { supabaseAdmin, sdr } = await requireSdr(data.token);
     const { data: business, error } = await supabaseAdmin
@@ -618,7 +678,7 @@ export const resetSdrOwnerPassword = createServerFn({ method: "POST" })
       description: `Reset temporário solicitado pelo SDR ${sdr.name}.`,
     });
     if (auditError) throw new Error("Não foi possível registrar a auditoria do reset.");
-    const temporaryPassword = randomBytes(18).toString("base64url");
+    const temporaryPassword = createSdrTemporaryPassword();
     const { error: resetError } = await supabaseAdmin.auth.admin.updateUserById(business.owner_id, {
       password: phonePassword(temporaryPassword),
     });
@@ -643,7 +703,8 @@ export const sdrCreateBusiness = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { supabaseAdmin, sdr } = await requireSdr(data.token);
     const digits = onlyDigits(data.phone);
-    if (digits.length < 10 || digits.length > 11) throw new Error("Informe um telefone brasileiro com DDD.");
+    if (digits.length < 10 || digits.length > 11)
+      throw new Error("Informe um telefone brasileiro com DDD.");
     const email = phoneLogin(digits);
     let ownerId: string | null = null;
     const created = await supabaseAdmin.auth.admin.createUser({
@@ -657,9 +718,15 @@ export const sdrCreateBusiness = createServerFn({ method: "POST" })
       throw new Error("Não foi possível criar o acesso do dono.");
     } else ownerId = created.data.user?.id ?? null;
     if (!ownerId) throw new Error("Não foi possível criar o acesso do dono.");
-    await supabaseAdmin
+    const { error: roleError } = await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: ownerId, role: "owner" }, { onConflict: "user_id,role" });
+    if (roleError) {
+      const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(ownerId);
+      if (cleanupError)
+        throw new Error("Owner role assignment failed and the Auth account could not be removed.");
+      throw new Error("Could not assign owner access.");
+    }
     const base = data.businessName
       .toLowerCase()
       .normalize("NFD")
@@ -686,7 +753,27 @@ export const sdrCreateBusiness = createServerFn({ method: "POST" })
       })
       .select("id, slug")
       .single();
-    if (error) throw new Error(error.message);
+    if (error) {
+      // The INSERT response can be lost after Postgres commits the row.
+      // Preserve Auth and role unless absence of the business is confirmed.
+      const existing = await supabaseAdmin
+        .from("businesses")
+        .select("id")
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (existing.error || existing.data)
+        throw new Error("Business creation needs reconciliation; the owner account was preserved.");
+
+      const { error: roleCleanupError } = await supabaseAdmin
+        .from("user_roles")
+        .delete()
+        .eq("user_id", ownerId)
+        .eq("role", "owner");
+      const { error: authCleanupError } = await supabaseAdmin.auth.admin.deleteUser(ownerId);
+      if (roleCleanupError || authCleanupError)
+        throw new Error("Business creation failed and compensation was incomplete.");
+      throw new Error(error.message);
+    }
     return {
       businessId: business.id as string,
       slug: business.slug as string,

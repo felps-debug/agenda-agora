@@ -2,14 +2,14 @@
  * Banco de ensaio das migrations (Spec 010, T090).
  *
  * Sobe um Postgres 17 real e descartável (sem Docker), cria o stub do Supabase
- * (`supabase/test-support/auth-stub.sql`) e aplica TODAS as migrations de
- * `supabase/migrations/` em ordem, a partir de um banco vazio.
+ * (`supabase/test-support/auth-stub.sql`) e aplica a baseline atualmente registrada
+ * no Supabase mais as migrations locais posteriores a ela, em ordem.
  *
  * Uso:
- *   node scripts/ensaio/db.mjs up       sobe, aplica tudo, imprime DATABASE_URL_TEST e fica rodando (Ctrl+C encerra)
- *   node scripts/ensaio/db.mjs check    sobe, aplica tudo, mede o tempo e encerra (código 1 se alguma migration falhar)
+ *   node scripts/ensaio/db.mjs up       sobe, aplica baseline + pendentes, imprime DATABASE_URL_TEST e fica rodando (Ctrl+C encerra)
+ *   node scripts/ensaio/db.mjs check    sobe, aplica baseline + pendentes, mede o tempo e encerra (código 1 se alguma migration falhar)
  *
- * Como biblioteca: `startEnsaio({ port, migrations })` devolve `{ url, query, stop }`.
+ * Como biblioteca: `startEnsaio({ port, migrations })` devolve `{ url, pg, applied, failures, stop }`.
  */
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -42,11 +42,20 @@ export function loadPg() {
 }
 
 export function migrationFiles(dir = path.join(appRoot, "supabase", "migrations")) {
-  return fs
+  const baselinePath = path.join(appRoot, "supabase", "test-support", "migration-baseline.json");
+  const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
+  const appliedVersions = new Set(baseline.appliedVersions);
+  const allFiles = fs
     .readdirSync(dir)
     .filter((name) => name.endsWith(".sql"))
     .sort()
     .map((name) => ({ name, path: path.join(dir, name) }));
+  const byVersion = new Map(allFiles.map((file) => [file.name.slice(0, 14), file]));
+  const missingBaseline = [...appliedVersions].filter((version) => !byVersion.has(version));
+  if (missingBaseline.length) {
+    throw new Error(`Migrations da baseline sem arquivo local: ${missingBaseline.join(", ")}`);
+  }
+  return allFiles.filter((file) => file.name.slice(0, 14) > baseline.latestAppliedVersion);
 }
 
 export async function startEnsaio(options = {}) {
@@ -78,6 +87,27 @@ export async function startEnsaio(options = {}) {
   try {
     await client.query(
       fs.readFileSync(path.join(appRoot, "supabase", "test-support", "auth-stub.sql"), "utf8"),
+    );
+    await client.query("CREATE EXTENSION IF NOT EXISTS btree_gist");
+    // Snapshot ACLs must describe the captured production objects exactly. The Supabase-like
+    // defaults from auth-stub would otherwise grant access to objects as they are imported,
+    // and pg_dump's later REVOKEs cannot remove those direct grants.
+    await client.query(`
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated, service_role;
+    `);
+    await client.query(
+      fs.readFileSync(
+        path.join(appRoot, "supabase", "test-support", "production-schema-baseline.sql"),
+        "utf8",
+      ),
+    );
+    await client.query(
+      fs.readFileSync(
+        path.join(appRoot, "supabase", "test-support", "production-baseline-fixtures.sql"),
+        "utf8",
+      ),
     );
     for (const file of options.migrations ?? migrationFiles()) {
       try {

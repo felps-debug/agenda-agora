@@ -57,6 +57,15 @@ describe("normalização de aparência do painel", () => {
     expect(config.appearance.logo_fit).toBe("quadrado");
   });
 
+  it("normaliza timezone legado fora das opções para o fuso padrão", () => {
+    expect(
+      normalizePanel1Config({ preferences: { timezone: "America/New_York" } }).preferences.timezone,
+    ).toBe("America/Sao_Paulo");
+    expect(
+      normalizePanel1Config({ preferences: { timezone: "America/Recife" } }).preferences.timezone,
+    ).toBe("America/Recife");
+  });
+
   it("normaliza modelo e nicho visuais sem quebrar documentos antigos", () => {
     expect(normalizePanel1Config({}).visual).toEqual({
       layout_key: "elegance",
@@ -136,4 +145,3 @@ describe("compatibilidade de layout antigo (US9, FR-031)", () => {
     expect(normalizePanel1Config(once)).toEqual(once);
   });
 });
-

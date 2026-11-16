@@ -17,6 +17,11 @@ export type AttentionReason =
   | "cancelamento_solicitado"
   | "cancelado";
 
+/** Trial é uma condição de quem tem dias de teste e ainda não pagou a assinatura. */
+export function isBusinessTrial(trialDays: number | null, everPaid: boolean): boolean {
+  return trialDays != null && !everPaid;
+}
+
 export const ATTENTION_REASON_LABEL: Record<AttentionReason, string> = {
   teste_expirado: "Teste expirado",
   pagamento_pendente: "Pagamento pendente",
@@ -59,9 +64,7 @@ export type LifecycleResult = {
 export function classifyLifecycle(input: LifecycleInput): LifecycleResult {
   const now = startOfDay(input.now ? new Date(input.now) : new Date());
   const until = input.accessUntil ? startOfDay(new Date(input.accessUntil)) : null;
-  const daysLeft = until
-    ? Math.round((until.getTime() - now.getTime()) / DAY_MS)
-    : -1; // sem vencimento registrado: tratado como expirado
+  const daysLeft = until ? Math.round((until.getTime() - now.getTime()) / DAY_MS) : -1; // sem vencimento registrado: tratado como expirado
   const daysLate = Math.max(-daysLeft, 0);
 
   let category: LifecycleCategory;
@@ -138,7 +141,8 @@ export function shouldAutoCancel(input: {
   accessUntil: string | null;
   now?: Date | string;
 }): boolean {
-  if (!input.autoCancelEnabled || input.isTrial || input.cancelledAt || !input.accessUntil) return false;
+  if (!input.autoCancelEnabled || input.isTrial || input.cancelledAt || !input.accessUntil)
+    return false;
   const now = input.now ? new Date(input.now).getTime() : Date.now();
   const overdueDays = Math.floor((now - new Date(input.accessUntil).getTime()) / DAY_MS);
   return overdueDays >= AUTO_CANCEL_AFTER_DAYS;

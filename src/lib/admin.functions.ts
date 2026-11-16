@@ -30,7 +30,7 @@ export const listAllBusinesses = createServerFn({ method: "GET" })
     const { data, error } = await supabaseAdmin
       .from("businesses")
       .select(
-        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, agpay_split_email, agpay_split_status, agpay_commission_percent, agpay_auto_first_key, trial_days, trial_registration_name, trial_created_at",
+        "id, name, slug, category, phone, owner_id, created_at, status, monthly_fee_cents, agpay_commission_percent, agpay_auto_first_key, trial_days, trial_registration_name, trial_created_at",
       )
       .order("created_at", { ascending: false });
     let businesses = (data ?? []).map((business) => ({ ...business, agpay_schema_ready: true }));
@@ -46,8 +46,6 @@ export const listAllBusinesses = createServerFn({ method: "GET" })
       if (legacy.error) throw new Error(legacy.error.message);
       businesses = (legacy.data ?? []).map((business) => ({
         ...business,
-        agpay_split_email: null,
-        agpay_split_status: "pendente",
         agpay_commission_percent: 0,
         agpay_auto_first_key: false,
         agpay_schema_ready: false,
@@ -110,9 +108,15 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
       throw new Error("Não foi possível criar o acesso do dono.");
     } else ownerId = created.data.user?.id ?? null;
     if (!ownerId) throw new Error("Não foi possível criar o acesso do dono.");
-    await supabaseAdmin
+    const { error: roleError } = await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: ownerId, role: "owner" }, { onConflict: "user_id,role" });
+    if (roleError) {
+      const { error: cleanupError } = await supabaseAdmin.auth.admin.deleteUser(ownerId);
+      if (cleanupError)
+        throw new Error("Owner role assignment failed and the Auth account could not be removed.");
+      throw new Error("Could not assign owner access.");
+    }
     const base = data.businessName
       .toLowerCase()
       .normalize("NFD")
@@ -142,8 +146,33 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
       })
       .select("id, slug")
       .single();
-    if (error) throw new Error(error.message);
-    return { businessId: business.id, slug: business.slug, phone: digits, initialPassword: accountPassword };
+    if (error) {
+      // The INSERT response can be lost after Postgres commits the row.
+      // Preserve Auth and role unless absence of the business is confirmed.
+      const existing = await supabaseAdmin
+        .from("businesses")
+        .select("id")
+        .eq("owner_id", ownerId)
+        .maybeSingle();
+      if (existing.error || existing.data)
+        throw new Error("Business creation needs reconciliation; the owner account was preserved.");
+
+      const { error: roleCleanupError } = await supabaseAdmin
+        .from("user_roles")
+        .delete()
+        .eq("user_id", ownerId)
+        .eq("role", "owner");
+      const { error: authCleanupError } = await supabaseAdmin.auth.admin.deleteUser(ownerId);
+      if (roleCleanupError || authCleanupError)
+        throw new Error("Business creation failed and compensation was incomplete.");
+      throw new Error(error.message);
+    }
+    return {
+      businessId: business.id,
+      slug: business.slug,
+      phone: digits,
+      initialPassword: accountPassword,
+    };
   });
 
 /** T033: estabelecimentos com saldo disponível negativo (revisão manual, FR-014). */
@@ -180,7 +209,7 @@ const LEDGER_HISTORY_MESSAGE = "Este negócio tem histórico financeiro e não p
 
 export const deleteBusiness = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ id: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin.from("businesses").delete().eq("id", data.id);
@@ -195,7 +224,7 @@ export const deleteBusiness = createServerFn({ method: "POST" })
 export const setBusinessStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ id: z.string().uuid(), status: z.enum(["ativo", "suspenso"]) }).parse(data),
+    z.object({ id: z.string().guid(), status: z.enum(["ativo", "suspenso"]) }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
@@ -209,7 +238,7 @@ export const setBusinessStatus = createServerFn({ method: "POST" })
 export const setMonthlyFee = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ id: z.string().uuid(), amountCents: z.number().int().min(0) }).parse(data),
+    z.object({ id: z.string().guid(), amountCents: z.number().int().min(0) }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
@@ -221,45 +250,13 @@ export const setMonthlyFee = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const setBusinessAgpaySplit = createServerFn({ method: "POST" })
+export const setBusinessPlatformCommission = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
-        splitEmail: z.string().email().optional(),
+        businessId: z.string().guid(),
         commissionPercent: z.number().min(0).max(99.99),
-        autoFirstKey: z.boolean().optional(),
-      })
-      .parse(data),
-  )
-  .handler(async ({ context, data }) => {
-    const supabaseAdmin = await assertSuperAdmin(context);
-    const patch: {
-      agpay_commission_percent: number;
-      agpay_split_email?: string;
-      agpay_auto_first_key?: boolean;
-    } = { agpay_commission_percent: data.commissionPercent };
-    // E-mail ficou opcional: sem valor, o campo atual da conta é preservado.
-    if (data.splitEmail != null && data.splitEmail.trim().length > 0) {
-      patch.agpay_split_email = data.splitEmail;
-    }
-    if (data.autoFirstKey != null) patch.agpay_auto_first_key = data.autoFirstKey;
-    const { error: businessError } = await supabaseAdmin
-      .from("businesses")
-      .update(patch)
-      .eq("id", data.businessId);
-    if (businessError) throw new Error(businessError.message);
-    return { ok: true };
-  });
-
-export const setAgpaySplitStatus = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) =>
-    z
-      .object({
-        businessId: z.string().uuid(),
-        status: z.enum(["pendente", "aprovada", "bloqueada"]),
       })
       .parse(data),
   )
@@ -267,9 +264,8 @@ export const setAgpaySplitStatus = createServerFn({ method: "POST" })
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin
       .from("businesses")
-      .update({ agpay_split_status: data.status })
-      .eq("id", data.businessId)
-      .not("agpay_split_email", "is", null);
+      .update({ agpay_commission_percent: data.commissionPercent })
+      .eq("id", data.businessId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -279,7 +275,7 @@ export const registerSubscriptionCharge = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         month: z.string().regex(monthRegex),
         status: z.enum(["pago", "pendente"]),
       })
@@ -390,7 +386,7 @@ export const getPlatformMetrics = createServerFn({ method: "GET" })
 
 export const getDepositPaymentDiagnostics = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ chargeId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ chargeId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { data: charge, error: chargeError } = await supabaseAdmin
@@ -429,23 +425,70 @@ export const listAdminWithdrawals = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
+    const withdrawalColumns =
+      "id, business_id, amount_cents, status, pix_key_snapshot, provider_ref, created_at, updated_at";
     const { data: rows, error } = await supabaseAdmin
       .from("withdrawals")
-      .select(
-        "id, business_id, amount_cents, status, pix_key_snapshot, provider_ref, created_at, updated_at",
-      )
+      .select(withdrawalColumns)
       .in("status", ["requested", "processing", "failed", "paid"])
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) throw new Error("Não foi possível carregar os saques.");
-    const businessIds: string[] = [
-      ...new Set<string>((rows ?? []).map((row: { business_id: string }) => row.business_id)),
-    ];
+    const { data: activeRows, error: activeError } = await supabaseAdmin
+      .from("withdrawals")
+      .select(withdrawalColumns)
+      .in("status", ["requested", "processing"])
+      .order("created_at", { ascending: false });
+    if (activeError) throw new Error("Não foi possível carregar os saques em aberto.");
+    type AdminWithdrawalRow = NonNullable<typeof rows>[number];
+    const withdrawalsById = new Map<string, AdminWithdrawalRow>();
+    for (const row of [...(rows ?? []), ...(activeRows ?? [])]) {
+      withdrawalsById.set(row.id, row);
+    }
+    const withdrawals = [...withdrawalsById.values()].sort(
+      (left, right) => Date.parse(right.created_at) - Date.parse(left.created_at),
+    );
+    const businessIds: string[] = [...new Set<string>(withdrawals.map((row) => row.business_id))];
     const { data: businesses } = businessIds.length
       ? await supabaseAdmin.from("businesses").select("id, name").in("id", businessIds)
       : { data: [] };
     const names = new Map((businesses ?? []).map((business) => [business.id, business.name]));
-    return (rows ?? []).map(
+    const activeWithdrawalIds = withdrawals
+      .filter((row) => row.status === "requested" || row.status === "processing")
+      .map((row) => row.id);
+    let reviewEvents: Array<{
+      event_type: string;
+      payload: unknown;
+      last_error: string | null;
+      received_at: string;
+    }> = [];
+    if (activeWithdrawalIds.length) {
+      const { data, error: reviewEventsError } = await supabaseAdmin
+        .from("agpay_webhook_events")
+        .select("event_type, payload, last_error, received_at")
+        .in("event_type", ["cashout.response_ambiguous", "cashout.reference_persist_failed"])
+        .eq("status", "error")
+        .in("payload->>withdrawal_id", activeWithdrawalIds)
+        .order("received_at", { ascending: false });
+      if (reviewEventsError) throw new Error("Não foi possível carregar revisões de saque.");
+      reviewEvents = data ?? [];
+    }
+    const manualReviewByWithdrawal = new Map<
+      string,
+      { event_type: string; last_error: string | null; received_at: string }
+    >();
+    for (const event of reviewEvents ?? []) {
+      const payload = event.payload as { withdrawal_id?: unknown } | null;
+      const withdrawalId = payload?.withdrawal_id;
+      if (typeof withdrawalId === "string" && !manualReviewByWithdrawal.has(withdrawalId)) {
+        manualReviewByWithdrawal.set(withdrawalId, {
+          event_type: event.event_type,
+          last_error: event.last_error,
+          received_at: event.received_at,
+        });
+      }
+    }
+    return withdrawals.map(
       (row: {
         id: string;
         business_id: string;
@@ -455,17 +498,35 @@ export const listAdminWithdrawals = createServerFn({ method: "GET" })
         provider_ref: string | null;
         created_at: string;
         updated_at: string;
-      }) => ({
-        ...row,
-        business_name: names.get(row.business_id) ?? "Negócio",
-      }),
+      }) => {
+        const recordedReview = manualReviewByWithdrawal.get(row.id) ?? null;
+        const referencePersistFailed =
+          row.status === "requested" &&
+          recordedReview?.event_type === "cashout.reference_persist_failed";
+        return {
+          ...row,
+          business_name: names.get(row.business_id) ?? "Negócio",
+          manual_review: referencePersistFailed
+            ? recordedReview
+            : row.status !== "processing"
+              ? null
+              : (recordedReview ??
+                (row.provider_ref
+                  ? null
+                  : {
+                      event_type: "cashout.response_ambiguous",
+                      last_error: "Saque em processamento sem referência confirmada do provedor.",
+                      received_at: row.updated_at,
+                    })),
+        };
+      },
     );
   });
 
 export const updateAdminWithdrawalStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ withdrawalId: z.string().uuid(), status: z.enum(["paid", "failed"]) }).parse(data),
+    z.object({ withdrawalId: z.string().guid(), status: z.enum(["paid", "failed"]) }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
@@ -513,7 +574,10 @@ export const getLedgerReconciliation = createServerFn({ method: "GET" })
     const platformRevenueCents = (payments ?? [])
       .filter(
         (payment: { status: string; paid_at: string | null }) =>
-          payment.status === "pago" || payment.status === "paid" || !!payment.paid_at,
+          payment.status === "pago" ||
+          payment.status === "paid" ||
+          payment.status === "estornado" ||
+          !!payment.paid_at,
       )
       .reduce(
         (sum: number, payment: { platform_commission_cents: number | null }) =>

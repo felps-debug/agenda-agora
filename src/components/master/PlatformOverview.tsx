@@ -29,6 +29,7 @@ import { Input } from "@/components/ui/input";
 import { BusinessQuickCard } from "@/components/master/BusinessQuickCard";
 import { LifecycleAutoCancelControl } from "@/components/master/LifecycleAutoCancelControl";
 import { matchesBusinessSearch } from "@/lib/master/business-search";
+import { isBusinessActive } from "@/lib/master/business-status";
 import { formatPrice } from "@/lib/format";
 import { categoryLabel } from "@/lib/format";
 import type { PlatformBusinessRow } from "@/lib/master/platform-overview.functions";
@@ -139,8 +140,6 @@ type LegacyBusinessRow = {
   name: string;
   slug: string;
   status: string;
-  agpay_split_status: string;
-  agpay_split_email: string | null;
   agpay_commission_percent: number;
   agpay_schema_ready: boolean;
 };
@@ -265,7 +264,7 @@ export function PlatformOverview({
       const matchesSearch = matchesBusinessSearch(row, search);
       const matchesStatus =
         statusFilter === "todos" ||
-        (statusFilter === "ativo" ? row.status !== "suspenso" : row.status === "suspenso");
+        (statusFilter === "ativo" ? isBusinessActive(row.status) : row.status === "suspenso");
       return matchesSearch && matchesStatus;
     });
   }, [overview?.rows, search, statusFilter]);
@@ -388,11 +387,7 @@ export function PlatformOverview({
 
       {/* Resumo do ciclo de assinaturas — mesmos critérios dos três menus. */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <LifecycleChip
-          to="/painel/em-teste"
-          label="Em teste"
-          value={kpis.lifecycle.emTeste}
-        />
+        <LifecycleChip to="/painel/em-teste" label="Em teste" value={kpis.lifecycle.emTeste} />
         <LifecycleChip
           to="/painel/assinantes"
           label="Assinantes"
@@ -854,7 +849,9 @@ export function PlatformOverview({
                           )}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-[var(--c-e6e9ee)]">{alert.title}</p>
+                          <p className="text-sm font-medium text-[var(--c-e6e9ee)]">
+                            {alert.title}
+                          </p>
                           <p className="text-xs text-[#777d87]">{alert.description}</p>
                         </div>
                         <span className="shrink-0 rounded-full bg-white/[0.06] px-2 py-0.5 text-xs font-bold text-[var(--c-e6e9ee)]">
@@ -901,33 +898,31 @@ export function PlatformOverview({
               </button>
             </div>
             <ul className="relative z-10 mt-3 space-y-2">
-              {overview.recentEvents
-                .slice(0, showAllEvents ? undefined : 5)
-                .map((event) => (
-                  <li
-                    key={event.id}
-                    className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-black/25 p-3"
-                  >
-                    <span className="mt-0.5 shrink-0">{eventIcon(event.type)}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-[var(--c-e6e9ee)]">
-                        {event.title}
-                      </p>
-                      <p className="truncate text-xs text-[#777d87]">
-                        {event.businessName}
-                        {event.description ? ` · ${event.description}` : ""}
-                      </p>
-                    </div>
-                    <span className="shrink-0 text-[10px] text-[#626872]">
-                      {new Date(event.createdAt).toLocaleString("pt-BR", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                  </li>
-                ))}
+              {overview.recentEvents.slice(0, showAllEvents ? undefined : 5).map((event) => (
+                <li
+                  key={event.id}
+                  className="flex items-start gap-3 rounded-lg border border-white/[0.06] bg-black/25 p-3"
+                >
+                  <span className="mt-0.5 shrink-0">{eventIcon(event.type)}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-[var(--c-e6e9ee)]">
+                      {event.title}
+                    </p>
+                    <p className="truncate text-xs text-[#777d87]">
+                      {event.businessName}
+                      {event.description ? ` · ${event.description}` : ""}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-[#626872]">
+                    {new Date(event.createdAt).toLocaleString("pt-BR", {
+                      day: "2-digit",
+                      month: "2-digit",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </li>
+              ))}
               {!overview.recentEvents.length && (
                 <li className="rounded-lg border border-white/[0.06] bg-black/25 p-3 text-center text-xs text-[#777d87]">
                   Nenhuma atividade registrada ainda.
@@ -1014,7 +1009,8 @@ function eventIcon(type: string) {
   return <CreditCard className="size-4 text-[var(--c-69a2ff)]" />;
 }
 
-function Trash2Icon() {  return (
+function Trash2Icon() {
+  return (
     <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

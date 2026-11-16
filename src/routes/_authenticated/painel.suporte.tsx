@@ -13,13 +13,21 @@ import {
   ShieldAlert,
   LifeBuoy,
 } from "lucide-react";
+import { supportQueryState } from "@/lib/support-query-state";
+import { submitSupportDraft } from "@/lib/support-draft";
 import { requireMasterAccess } from "@/lib/master.functions";
 import {
   getSupportThreadForMaster,
   listSupportConversations,
   replySupportAsMaster,
 } from "@/lib/agpay-support.functions";
-import { KpiCard, TONE_BLUE, TONE_GREEN, TONE_RED, TONE_VIOLET } from "@/components/master/PlatformOverview";
+import {
+  KpiCard,
+  TONE_BLUE,
+  TONE_GREEN,
+  TONE_RED,
+  TONE_VIOLET,
+} from "@/components/master/PlatformOverview";
 
 export const Route = createFileRoute("/_authenticated/painel/suporte")({
   loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
@@ -66,6 +74,11 @@ function SuportePage() {
     refetchInterval: 4000,
   });
   const conversations = list.data?.conversations ?? [];
+  const listViewState = supportQueryState({
+    isPending: list.isPending,
+    isError: list.isError,
+    hasData: list.data !== undefined,
+  });
   const [selected, setSelected] = useState<string | null>(null);
 
   const threadFn = useServerFn(getSupportThreadForMaster);
@@ -76,11 +89,15 @@ function SuportePage() {
     refetchInterval: 3000,
   });
   const messages: PopMessage[] = thread.data?.messages ?? [];
+  const threadViewState = supportQueryState({
+    isPending: thread.isPending,
+    isError: thread.isError,
+    hasData: thread.data !== undefined,
+  });
 
   const replyFn = useServerFn(replySupportAsMaster);
   const reply = useMutation({
-    mutationFn: (input: { businessId: string; message: string }) =>
-      replyFn({ data: input }),
+    mutationFn: (input: { businessId: string; message: string }) => replyFn({ data: input }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({
         queryKey: ["support-thread-master", variables.businessId],
@@ -177,9 +194,7 @@ function SuportePage() {
           label="Aguardando há 3h+"
           value={String(
             conversations.filter(
-              (c) =>
-                c.unread > 0 &&
-                Date.now() - new Date(c.lastAt).getTime() > 3 * 60 * 60 * 1000,
+              (c) => c.unread > 0 && Date.now() - new Date(c.lastAt).getTime() > 3 * 60 * 60 * 1000,
             ).length,
           )}
           hint="prioridade de resposta"
@@ -193,12 +208,23 @@ function SuportePage() {
             <MessagesSquare className="size-4" style={{ color: TONE_BLUE.color }} />
             Conversas
           </p>
+          {listViewState === "error" && (
+            <div
+              role="alert"
+              className="mb-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200"
+            >
+              Nao foi possivel carregar as conversas.
+              <button type="button" onClick={() => void list.refetch()} className="ml-2 underline">
+                Tentar novamente
+              </button>
+            </div>
+          )}
           <div className="max-h-[560px] overflow-y-auto">
-            {list.isPending ? (
+            {listViewState === "loading" ? (
               <div className="flex items-center justify-center gap-2 px-4 py-10 text-sm text-[#9aa1ab]">
                 <Loader2 className="size-4 animate-spin" /> Carregando conversas…
               </div>
-            ) : conversations.length === 0 ? (
+            ) : listViewState === "error" ? null : conversations.length === 0 ? (
               <p className="px-4 py-10 text-center text-[13px] text-[#9aa1ab]">
                 Nenhuma conversa ainda. As perguntas enviadas no pop-up de suporte do Painel 2
                 aparecem aqui.
@@ -222,8 +248,7 @@ function SuportePage() {
                           className="grid size-9 shrink-0 place-items-center rounded-full text-sm font-bold"
                           style={{
                             color: c.unread > 0 ? TONE_RED.color : TONE_BLUE.color,
-                            background:
-                              c.unread > 0 ? TONE_RED.background : TONE_BLUE.background,
+                            background: c.unread > 0 ? TONE_RED.background : TONE_BLUE.background,
                             border: `1px solid ${c.unread > 0 ? TONE_RED.border : TONE_BLUE.border}`,
                           }}
                         >
@@ -268,11 +293,13 @@ function SuportePage() {
         <ChatPanel
           active={active ? { ...active } : null}
           messages={messages}
-          loading={!!selected && thread.isPending}
+          loading={!!selected && threadViewState === "loading"}
+          error={threadViewState === "error"}
+          onRetry={() => void thread.refetch()}
           sending={reply.isPending}
           onSend={(message) => {
-            if (!active) return;
-            reply.mutate({ businessId: active.businessId, message });
+            if (!active) return Promise.resolve();
+            return reply.mutateAsync({ businessId: active.businessId, message });
           }}
         />
       </div>
@@ -280,12 +307,18 @@ function SuportePage() {
   );
 }
 
-const TONE_AMBER_SAFE = { color: "#f0b429", background: "rgba(250, 204, 21, 0.09)", border: "rgba(250, 204, 21, 0.28)" };
+const TONE_AMBER_SAFE = {
+  color: "#f0b429",
+  background: "rgba(250, 204, 21, 0.09)",
+  border: "rgba(250, 204, 21, 0.28)",
+};
 
 function ChatPanel({
   active,
   messages,
   loading,
+  error,
+  onRetry,
   sending,
   onSend,
 }: {
@@ -298,8 +331,10 @@ function ChatPanel({
   } | null;
   messages: PopMessage[];
   loading: boolean;
+  error: boolean;
+  onRetry: () => void;
   sending: boolean;
-  onSend: (message: string) => void;
+  onSend: (message: string) => Promise<unknown>;
 }) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLSpanElement>(null);
@@ -322,10 +357,12 @@ function ChatPanel({
   }
 
   const send = () => {
-    const value = draft.trim();
-    if (!value || sending) return;
-    onSend(value);
-    setDraft("");
+    if (!draft.trim() || sending) return;
+    void submitSupportDraft(draft, onSend, (submittedDraft) =>
+      setDraft((currentDraft) => (currentDraft === submittedDraft ? "" : currentDraft)),
+    ).catch(() => {
+      // A mutação apresenta o erro; manter o texto permite editar ou tentar novamente.
+    });
   };
 
   return (
@@ -352,11 +389,22 @@ function ChatPanel({
       </div>
 
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto py-4">
+        {error && (
+          <div
+            role="alert"
+            className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200"
+          >
+            Nao foi possivel carregar as mensagens.
+            <button type="button" onClick={onRetry} className="ml-2 underline">
+              Tentar novamente
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-10 text-sm text-[#9aa1ab]">
             <Loader2 className="size-4 animate-spin" /> Carregando…
           </div>
-        ) : messages.length === 0 ? (
+        ) : error && messages.length === 0 ? null : messages.length === 0 ? (
           <p className="py-10 text-center text-[13px] text-[#9aa1ab]">
             Nenhuma mensagem nesta conversa.
           </p>

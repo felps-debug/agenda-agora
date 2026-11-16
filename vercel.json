@@ -1,4 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "tanstack-start"
+  "framework": "tanstack-start",
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" }
+      ]
+    }
+  ]
 }

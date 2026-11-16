@@ -1,17 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { authenticateCronRequest } from "@/integrations/supabase/cron-auth";
-import { classifyLifecycle, shouldAutoCancel } from "@/lib/subscription-lifecycle";
+import { classifyLifecycle, isBusinessTrial, shouldAutoCancel } from "@/lib/subscription-lifecycle";
 import { getSetting } from "@/lib/platform-settings.server";
-
+import { fetchAllPages } from "@/lib/fetch-all-pages.server";
 
 /**
  * Varredura automática do ciclo de assinaturas (Painel 3 Master).
  *
- * Chamada pelo agendador externo (mesmo mecanismo dos lembretes de WhatsApp:
- * POST com `Authorization: Bearer AGENDA_CRON_SECRET`). Idempotente: cada aviso
- * só é gravado uma vez por (estabelecimento, título) — duas execuções
- * simultâneas não duplicam movimentações, pois as categorias são derivadas das
- * datas reais e os avisos são deduplicados contra `master_business_events`.
+ * Chamada pelo agendador externo com `Authorization: Bearer AGENDA_CRON_SECRET`. Os avisos são únicos por estabelecimento, vencimento e estágio; a chave única do banco evita duplicatas concorrentes sem suprimir avisos do próximo ciclo.
  *
  * Regras de aviso (dias calculados das datas reais):
  * - Em teste: 3 dias restantes, 1 dia, último dia.
@@ -31,39 +27,72 @@ export const Route = createFileRoute("/api/public/hooks/subscription-lifecycle")
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const db = supabaseAdmin;
 
-        const [businessesRes, autoCancelEnabled] = await Promise.all([
-          supabaseAdmin
-            .from("businesses")
-            .select(
-              "id, status, trial_days, access_until, cancel_requested_at, cancelled_at",
-            ),
-          getSetting<boolean>("lifecycle_auto_cancel_enabled", false),
+        let businesses;
+        try {
+          businesses = await fetchAllPages(
+            (from, to) =>
+              supabaseAdmin
+                .from("businesses")
+                .select("id, status, trial_days, access_until, cancel_requested_at, cancelled_at")
+                .order("id", { ascending: true })
+                .range(from, to),
+            "Falha ao carregar estabelecimentos.",
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "Falha ao carregar estabelecimentos.";
+          return Response.json({ error: message }, { status: 500 });
+        }
+        const autoCancelEnabled = await getSetting<boolean>("lifecycle_auto_cancel_enabled", false);
+        const scannedBusinessIds = businesses.map((business) => business.id);
+        const [paymentsRes, chargesRes] = await Promise.all([
+          db
+            .from("subscription_payments")
+            .select("business_id")
+            .eq("status", "pago")
+            .in("business_id", scannedBusinessIds),
+          db
+            .from("subscription_charges")
+            .select("business_id")
+            .eq("status", "paid")
+            .in("business_id", scannedBusinessIds),
         ]);
-        if (businessesRes.error) return Response.json({ error: businessesRes.error.message }, { status: 500 });
+        if (paymentsRes.error)
+          return Response.json({ error: paymentsRes.error.message }, { status: 500 });
+        if (chargesRes.error)
+          return Response.json({ error: chargesRes.error.message }, { status: 500 });
+        const paidBusinessIds = new Set([
+          ...(paymentsRes.data ?? []).map((payment) => payment.business_id),
+          ...(chargesRes.data ?? []).map((charge) => charge.business_id),
+        ]);
 
         type Notice = { businessId: string; title: string };
         const notices: Notice[] = [];
         let cancellationsCreated = 0;
 
-        for (const business of businessesRes.data ?? []) {
+        for (const business of businesses) {
+          const isTrial = isBusinessTrial(business.trial_days, paidBusinessIds.has(business.id));
           if (
             shouldAutoCancel({
               autoCancelEnabled,
-              isTrial: business.trial_days != null,
+              isTrial,
               cancelledAt: business.cancelled_at,
               accessUntil: business.access_until,
             })
           ) {
-            const { data: cancelled, error: cancelError } = await supabaseAdmin.rpc("cancel_overdue_business", {
-              p_business_id: business.id,
-            });
+            const { data: cancelled, error: cancelError } = await supabaseAdmin.rpc(
+              "cancel_overdue_business",
+              {
+                p_business_id: business.id,
+              },
+            );
             if (cancelError) return Response.json({ error: cancelError.message }, { status: 500 });
             if (cancelled) cancellationsCreated += 1;
             continue;
           }
           const lifecycle = classifyLifecycle({
             status: business.status,
-            isTrial: business.trial_days != null,
+            isTrial,
             accessUntil: business.access_until,
             cancelRequestedAt: business.cancel_requested_at,
             cancelledAt: business.cancelled_at,
@@ -114,37 +143,31 @@ export const Route = createFileRoute("/api/public/hooks/subscription-lifecycle")
         let created = 0;
         let skipped = 0;
 
-        const businessIds = [...new Set(notices.map((n) => n.businessId))];
-        const since = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000).toISOString();
-        const { data: existingEvents, error: eventsError } = await supabaseAdmin
-          .from("master_business_events")
-          .select("business_id, title")
-          .in("business_id", businessIds)
-          .gte("created_at", since);
-        if (eventsError) return Response.json({ error: eventsError.message }, { status: 500 });
-
-        const existing = new Set(
-          (existingEvents ?? []).map((e) => `${e.business_id}|${e.title}`),
+        const accessUntilByBusiness = new Map(
+          businesses.map((business) => [business.id, business.access_until]),
         );
-
-        const toInsert = notices
-          .filter((notice) => !existing.has(`${notice.businessId}|${notice.title}`))
-          .map((notice) => ({
+        const toInsert = notices.map((notice) => {
+          const accessUntil = accessUntilByBusiness.get(notice.businessId);
+          const cycle = accessUntil ? new Date(accessUntil).toISOString() : "sem-vencimento";
+          return {
             business_id: notice.businessId,
             actor_id: null,
             type: "assinatura",
             title: notice.title,
-          }));
+            dedupe_key: `${cycle}|${notice.title}`,
+          };
+        });
 
         if (toInsert.length) {
-          const { error: insertError } = await supabaseAdmin
+          const { data: inserted, error: insertError } = await supabaseAdmin
             .from("master_business_events")
-            .insert(toInsert);
+            .upsert(toInsert, { onConflict: "business_id,dedupe_key", ignoreDuplicates: true })
+            .select("id");
           if (insertError) return Response.json({ error: insertError.message }, { status: 500 });
+          created = inserted?.length ?? 0;
         }
 
-        created = toInsert.length;
-        skipped = notices.length - toInsert.length;
+        skipped = notices.length - created;
 
         const { count: cleanedAttempts, error: cleanupError } = await db
           .from("auth_attempts")
@@ -152,19 +175,22 @@ export const Route = createFileRoute("/api/public/hooks/subscription-lifecycle")
           .lt("updated_at", new Date(Date.now() - 7 * 86_400_000).toISOString());
         if (cleanupError) return Response.json({ error: cleanupError.message }, { status: 500 });
         const completedAt = Date.now();
-        const { error: runError } = await db
-          .from("subscription_lifecycle_runs")
-          .insert({
-            started_at: new Date(startedAt).toISOString(),
-            completed_at: new Date(completedAt).toISOString(),
-            elapsed_ms: completedAt - startedAt,
-            businesses_scanned: businessesRes.data?.length ?? 0,
-            notices_created: created,
-            cancellations_created: cancellationsCreated,
-            auth_attempts_cleaned: cleanedAttempts ?? 0,
-          });
+        const { error: runError } = await db.from("subscription_lifecycle_runs").insert({
+          started_at: new Date(startedAt).toISOString(),
+          completed_at: new Date(completedAt).toISOString(),
+          elapsed_ms: completedAt - startedAt,
+          businesses_scanned: businesses.length,
+          notices_created: created,
+          cancellations_created: cancellationsCreated,
+          auth_attempts_cleaned: cleanedAttempts ?? 0,
+        });
         if (runError) return Response.json({ error: runError.message }, { status: 500 });
-        return Response.json({ created, skipped, cancellationsCreated, cleanedAttempts: cleanedAttempts ?? 0 });
+        return Response.json({
+          created,
+          skipped,
+          cancellationsCreated,
+          cleanedAttempts: cleanedAttempts ?? 0,
+        });
       },
     },
   },

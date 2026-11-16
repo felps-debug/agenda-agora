@@ -1,3 +1,4 @@
+import { cancellationSuccessMessage } from "@/lib/cancellation-feedback";
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,13 +8,12 @@ import { AlertTriangle, Search } from "lucide-react";
 import { setBusinessStatus } from "@/lib/admin.functions";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { getSubscriptionLifecycle, setBusinessCancellation } from "@/lib/lifecycle.functions";
-import {
-  ATTENTION_REASON_LABEL,
-  type AttentionReason,
-} from "@/lib/subscription-lifecycle";
+import { LifecycleQueryNotice } from "@/components/master/LifecycleQueryNotice";
+import { ATTENTION_REASON_LABEL, type AttentionReason } from "@/lib/subscription-lifecycle";
 import { BusinessDossier } from "@/components/master/BusinessDossier";
 import { TONE_RED } from "@/components/master/PlatformOverview";
 import { formatPrice } from "@/lib/format";
+import { attentionEmptyState } from "@/lib/attention-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -96,6 +96,12 @@ function PrecisaDeAtencaoPage() {
         item.name.toLowerCase().includes(search.toLowerCase()) ||
         (item.ownerName ?? "").toLowerCase().includes(search.toLowerCase())),
   );
+  const emptyState = attentionEmptyState({
+    allCount: all.length,
+    filteredCount: filtered.length,
+    hasActiveFilters: reasonFilter !== "todas" || !!search.trim(),
+    isReady: !lifecycle.isPending && !lifecycle.isError,
+  });
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ["subscription-lifecycle"] });
@@ -115,13 +121,7 @@ function PrecisaDeAtencaoPage() {
     mutationFn: (input: { businessId: string; action: "solicitar" | "efetivar" | "reverter" }) =>
       cancelFn({ data: input }),
     onSuccess: (_result, variables) => {
-      toast.success(
-        variables.action === "solicitar"
-          ? "Cancelamento solicitado registrado."
-          : variables.action === "efetivar"
-            ? "Cancelamento efetivado."
-            : "Cancelamento revertido — conta reativada.",
-      );
+      toast.success(cancellationSuccessMessage(variables.action));
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -146,8 +146,8 @@ function PrecisaDeAtencaoPage() {
         <div>
           <h1 className="text-2xl font-extrabold uppercase tracking-tight">Precisa de atenção</h1>
           <p className="text-sm text-muted-foreground">
-            Contas com teste expirado, pagamentos pendentes, assinaturas vencidas, acessos
-            suspensos ou cancelamentos — saem daqui automaticamente após a regularização.
+            Contas com teste expirado, pagamentos pendentes, assinaturas vencidas, acessos suspensos
+            ou cancelamentos — saem daqui automaticamente após a regularização.
           </p>
         </div>
       </div>
@@ -185,11 +185,20 @@ function PrecisaDeAtencaoPage() {
                   : "border-border bg-secondary text-muted-foreground hover:text-foreground"
               }`}
             >
-              {ATTENTION_REASON_LABEL[reason]} ({counts.get(reason) ?? 0})
+              {ATTENTION_REASON_LABEL[reason]} (
+              {lifecycle.isError || lifecycle.isLoading ? "—" : (counts.get(reason) ?? 0)})
             </button>
           ))}
         </div>
       </div>
+
+      <LifecycleQueryNotice
+        isLoading={lifecycle.isLoading}
+        isError={lifecycle.isError}
+        isFetching={lifecycle.isFetching}
+        hasData={lifecycle.data !== undefined}
+        onRetry={() => void lifecycle.refetch()}
+      />
 
       <section className="mt-6 overflow-x-auto report-x-scroll rounded-2xl border border-border bg-card report-luminous-card report-effect-strong">
         <table className="w-full min-w-[1180px] text-sm">
@@ -206,10 +215,26 @@ function PrecisaDeAtencaoPage() {
             </tr>
           </thead>
           <tbody>
-            {!filtered.length && (
+            {emptyState && (
               <tr>
                 <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground">
-                  Nenhum cliente precisando de atenção no momento. 🎉
+                  {emptyState === "global-empty" ? (
+                    "Nenhum cliente precisando de atenção no momento."
+                  ) : (
+                    <div className="space-y-3">
+                      <p>Nenhum resultado para a busca e os filtros atuais.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setSearch("");
+                          setReasonFilter("todas");
+                        }}
+                      >
+                        Limpar filtros
+                      </Button>
+                    </div>
+                  )}
                 </td>
               </tr>
             )}

@@ -168,14 +168,21 @@ describe("mensagens automáticas de WhatsApp", () => {
   it("não envia quando a sessão do WhatsApp está offline, mesmo com status conectado no banco", async () => {
     runtime.whatsappStatus = "conectado";
     runtime.isConnected.mockResolvedValue(false);
-    await sendPaymentConfirmation("appt-1");
+    await expect(sendPaymentConfirmation("appt-1")).rejects.toThrow(
+      /notificação será tentada novamente/i,
+    );
     expect(runtime.sendTextMessage).not.toHaveBeenCalled();
   });
 
-  it("não envia (e não lança) quando a checagem da sessão falha", async () => {
+  it("propaga falha transitória ao verificar a sessão para habilitar retry", async () => {
     runtime.isConnected.mockRejectedValue(new Error("timeout"));
-    await expect(sendPaymentConfirmation("appt-1")).resolves.toBeUndefined();
+    await expect(sendPaymentConfirmation("appt-1")).rejects.toThrow(/verificar a conexão/i);
     expect(runtime.sendTextMessage).not.toHaveBeenCalled();
+  });
+
+  it("propaga falha do provider no envio da confirmação de pagamento", async () => {
+    runtime.sendTextMessage.mockRejectedValueOnce(new Error("provider offline"));
+    await expect(sendPaymentConfirmation("appt-1")).rejects.toThrow("provider offline");
   });
 
   it("resolve os campos do resumo (profissional, valor, data e hora)", async () => {

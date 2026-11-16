@@ -59,7 +59,12 @@ function titleFromFilename(filename: string) {
   return words.join(" ") || "Arte";
 }
 
-function readFolder(root: string, nicheId: string, folder: string, kind: NicheAssetKind): NicheAsset[] {
+function readFolder(
+  root: string,
+  nicheId: string,
+  folder: string,
+  kind: NicheAssetKind,
+): NicheAsset[] {
   const absolute = join(root, nicheId, folder);
   let entries: string[];
   try {
@@ -70,7 +75,10 @@ function readFolder(root: string, nicheId: string, folder: string, kind: NicheAs
   }
 
   return entries
-    .filter((name) => !name.startsWith(".") && ASSET_EXTENSIONS.has(`.${name.split(".").pop()?.toLowerCase()}`))
+    .filter(
+      (name) =>
+        !name.startsWith(".") && ASSET_EXTENSIONS.has(`.${name.split(".").pop()?.toLowerCase()}`),
+    )
     .sort((a, b) => a.localeCompare(b, "pt-BR"))
     .map((name) => ({
       id: `${kind}-${name}`.replace(/[^a-zA-Z0-9._-]/g, "-"),

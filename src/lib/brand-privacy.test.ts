@@ -6,7 +6,9 @@ function filesUnder(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return filesUnder(path);
-    return /\.[jt]sx?$/.test(entry.name) ? [path] : [];
+    return /\.[jt]sx?$/.test(entry.name) && !/\.(?:test|spec)\.[jt]sx?$/.test(entry.name)
+      ? [path]
+      : [];
   });
 }
 

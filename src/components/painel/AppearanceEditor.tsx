@@ -252,13 +252,23 @@ export function AppearanceEditor(props: Props) {
     <EleganceBookingDialog
       asPreview
       minimalist={false}
-      service={{ name: businessName || "Barber Richard", price_cents: 4500, duration_minutes: 40, show_price: true, show_duration: true, image_url: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='160' height='160' fill='%23f7d9e4'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='24' fill='%23a4556d'%3EServiço%3C/text%3E%3C/svg%3E" }}
+      service={{
+        name: businessName || "Barber Richard",
+        price_cents: 4500,
+        duration_minutes: 40,
+        show_price: true,
+        show_duration: true,
+        image_url:
+          "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Crect width='160' height='160' fill='%23f7d9e4'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='24' fill='%23a4556d'%3EServiço%3C/text%3E%3C/svg%3E",
+      }}
       appearance={appearance}
       pageBackground={appearance.infoPageBackground}
       modalText={accessibleTextColor(appearance.modal_background)}
       modalActiveText={accessibleTextColor(appearance.modal_active_background)}
       onClose={() => setPreviewScreen("principal")}
-      professionals={[{ id: "p1", name: "Profissional Agenda", role: "Barbeiro", avatar_url: null }]}
+      professionals={[
+        { id: "p1", name: "Profissional Agenda", role: "Barbeiro", avatar_url: null },
+      ]}
       professional={{ id: "p1", name: "Profissional Agenda", role: "Barbeiro", avatar_url: null }}
       onProfessionalChange={() => {}}
       days={[
@@ -315,7 +325,7 @@ export function AppearanceEditor(props: Props) {
             onOpenChange={(open) => setOpenSections((current) => ({ ...current, model: open }))}
             icon={<LayoutTemplate className="size-5" />}
             title="Modelo"
-            description="Escolha o visual do painel público e alterne quando quiser."
+            description="Modelo Elegance disponível para o painel público."
           >
             <div className="grid grid-cols-1 gap-2">
               {PANEL_LAYOUT_MODELS.map((model) => {
@@ -332,9 +342,7 @@ export function AppearanceEditor(props: Props) {
                   >
                     <span
                       className={`mb-2 flex h-16 items-end justify-center overflow-hidden rounded-md px-3 pt-2 ${
-                        model.id === "elegance"
-                          ? "bg-[#fff0f3]"
-                          : "bg-[var(--c-eef0f2)]"
+                        model.id === "elegance" ? "bg-[#fff0f3]" : "bg-[var(--c-eef0f2)]"
                       }`}
                       aria-hidden="true"
                     >
@@ -499,7 +507,9 @@ export function AppearanceEditor(props: Props) {
           <EditorSection
             id="backgrounds"
             open={!!openSections["backgrounds"]}
-            onOpenChange={(open) => setOpenSections((current) => ({ ...current, backgrounds: open }))}
+            onOpenChange={(open) =>
+              setOpenSections((current) => ({ ...current, backgrounds: open }))
+            }
             icon={<Layers className="size-5" />}
             title="Fundos da página"
             description="Personalize a cor base e os detalhes de fundo da página."
@@ -527,7 +537,10 @@ export function AppearanceEditor(props: Props) {
                   className="h-10 rounded-lg border bg-background px-2 text-sm"
                   value={appearance.page_gradient_enabled ? "gradiente" : "solido"}
                   onChange={(event) =>
-                    onChange({ ...appearance, page_gradient_enabled: event.target.value === "gradiente" })
+                    onChange({
+                      ...appearance,
+                      page_gradient_enabled: event.target.value === "gradiente",
+                    })
                   }
                 >
                   <option value="solido">Cor Sólida</option>
@@ -551,9 +564,7 @@ export function AppearanceEditor(props: Props) {
                     <select
                       className="h-10 rounded-lg border bg-background px-2 text-sm"
                       value={appearance.page_gradient_direction}
-                      onChange={(event) =>
-                        update("page_gradient_direction", event.target.value)
-                      }
+                      onChange={(event) => update("page_gradient_direction", event.target.value)}
                     >
                       <option value="to bottom">Vertical (cima → baixo)</option>
                       <option value="to right">Horizontal (esq → dir)</option>
@@ -680,7 +691,9 @@ export function AppearanceEditor(props: Props) {
           <EditorSection
             id="informacoes"
             open={!!openSections["informacoes"]}
-            onOpenChange={(open) => setOpenSections((current) => ({ ...current, informacoes: open }))}
+            onOpenChange={(open) =>
+              setOpenSections((current) => ({ ...current, informacoes: open }))
+            }
             icon={<Type className="size-5" />}
             title="Informações"
             description="Cores da tela de agendamento/detalhes."

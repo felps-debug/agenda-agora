@@ -61,10 +61,15 @@ export function fallbackLoginPassword(credentials: LoginCredentials, typed: stri
   return shouldRetry ? phonePassword(typed) : null;
 }
 
-export type PostLoginDestination = "/painel" | "/painel/master";
+export type PostLoginDestination = "/painel" | "/painel/master" | "/painel/master-auth";
 
-/** Destino pela role lida do banco. */
-export function postLoginDestination({ roles }: { roles: string[] }): PostLoginDestination | null {
+/** Destino pela role vigente no banco; Master não exige MFA no produto. */
+export function postLoginDestination({
+  roles,
+}: {
+  roles: string[];
+  aal?: string | null;
+}): PostLoginDestination | null {
   if (roles.includes("super_admin")) return "/painel/master";
   if (roles.includes("owner") || roles.includes("professional")) return "/painel";
   return null;

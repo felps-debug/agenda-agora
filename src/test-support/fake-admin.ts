@@ -17,11 +17,14 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
     updates: [] as Array<{ table: string; patch: Row; filters: string[] }>,
     upserts: [] as Array<{ table: string; row: Row }>,
     deletes: [] as Array<{ table: string; filters: string[] }>,
+    ranges: [] as Array<{ table: string; from: number; to: number }>,
     authCreates: [] as Array<{ email: string; password: string }>,
     authUpdates: [] as Array<{ id: string; attrs: Record<string, unknown> }>,
   };
   /** Erros forçados por `${tabela}:${operação}`. */
   const failures: Record<string, DbError> = {};
+  /** Sequência de resultados para simular falha seguida de retry bem-sucedido. */
+  const failureSequences: Record<string, Array<DbError | null>> = {};
   const authUsers = new Map<string, string>();
   let authCreateFailure: DbError | null = null;
 
@@ -31,14 +34,28 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
     const predicates: Array<(row: Row) => boolean> = [];
     const filterLabels: string[] = [];
     let limitN: number | undefined;
+    let rangeBounds: [number, number] | undefined;
+    let upsertOptions: { onConflict?: string; ignoreDuplicates?: boolean } | undefined;
 
     function run(): { data: Row[]; error: DbError | null; count?: number } {
-      const forced = failures[`${table}:${op}`];
+      const key = `${table}:${op}`;
+      const sequence = failureSequences[key];
+      const forced = sequence?.length ? sequence.shift() : failures[key];
       if (forced) return { data: [], error: forced };
       const rows = (tables[table] ??= []);
       const matches = () => rows.filter((row) => predicates.every((predicate) => predicate(row)));
       if (op === "insert") {
         const batch = (Array.isArray(payload) ? payload : [payload]) as Row[];
+        if (table === "whatsapp_incoming_greeting_events") {
+          const duplicate = batch.some((candidate) =>
+            rows.some((existing) => existing["dedupe_hash"] === candidate["dedupe_hash"]),
+          );
+          if (duplicate)
+            return {
+              data: [],
+              error: { code: "23505", message: "duplicate key value violates unique constraint" },
+            };
+        }
         const inserted = batch.map((value) => {
           const row: Row = {
             id: `${table}-${++idCounter}`,
@@ -52,10 +69,23 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
         return { data: inserted, error: null };
       }
       if (op === "upsert") {
-        const row: Row = { id: `${table}-${++idCounter}`, ...(payload as Row) };
-        rows.push(row);
-        calls.upserts.push({ table, row: { ...row } });
-        return { data: [row], error: null };
+        const conflictColumns = (upsertOptions?.onConflict ?? "").split(",").filter(Boolean);
+        const batch = (Array.isArray(payload) ? payload : [payload]) as Row[];
+        const inserted: Row[] = [];
+        for (const candidate of batch) {
+          const duplicate =
+            upsertOptions?.ignoreDuplicates === true &&
+            conflictColumns.length > 0 &&
+            rows.some((existing) =>
+              conflictColumns.every((column) => existing[column] === candidate[column]),
+            );
+          if (duplicate) continue;
+          const row: Row = { id: `${table}-${++idCounter}`, ...candidate };
+          rows.push(row);
+          calls.upserts.push({ table, row: { ...row } });
+          inserted.push(row);
+        }
+        return { data: inserted, error: null };
       }
       if (op === "update") {
         const targets = matches();
@@ -70,7 +100,11 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
         return { data: targets, error: null, count: targets.length };
       }
       const found = matches();
-      return { data: limitN === undefined ? found : found.slice(0, limitN), error: null };
+      const limited = limitN === undefined ? found : found.slice(0, limitN);
+      return {
+        data: rangeBounds ? limited.slice(rangeBounds[0], rangeBounds[1] + 1) : limited,
+        error: null,
+      };
     }
 
     const query = {
@@ -80,9 +114,13 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
         payload = value;
         return query;
       },
-      upsert: (value: Row) => {
+      upsert: (
+        value: Row | Row[],
+        options?: { onConflict?: string; ignoreDuplicates?: boolean },
+      ) => {
         op = "upsert";
         payload = value;
+        upsertOptions = options;
         return query;
       },
       update: (value: Row) => {
@@ -109,6 +147,11 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
         filterLabels.push(`${column}>=`);
         return query;
       },
+      gt: (column: string, value: unknown) => {
+        predicates.push((row) => Date.parse(String(row[column])) > Date.parse(String(value)));
+        filterLabels.push(`${column}>`);
+        return query;
+      },
       lte: (column: string, value: unknown) => {
         predicates.push((row) => Date.parse(String(row[column])) <= Date.parse(String(value)));
         filterLabels.push(`${column}<=`);
@@ -122,6 +165,11 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
       order: () => query,
       limit: (n: number) => {
         limitN = n;
+        return query;
+      },
+      range: (from: number, to: number) => {
+        rangeBounds = [from, to];
+        calls.ranges.push({ table, from, to });
         return query;
       },
       maybeSingle: async () => {
@@ -180,6 +228,7 @@ export function createFakeAdmin(seed: Record<string, Row[]> = {}) {
     tables,
     calls,
     failures,
+    failureSequences,
     failAuthCreate: (error: DbError | null) => {
       authCreateFailure = error;
     },

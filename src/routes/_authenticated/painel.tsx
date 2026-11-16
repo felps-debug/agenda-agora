@@ -60,8 +60,10 @@ import { broadcastIconOption } from "@/components/painel/BroadcastIcon";
 import { addDismissed, readDismissedIds, readSeenAt, writeSeenAt } from "@/lib/notifications-store";
 import { trialInfo } from "@/lib/trial-store";
 import { getBillingCycle } from "@/lib/subscription.functions";
+import { isMasterCouponActive } from "@/lib/subscription-coupon";
 import type { BillingStage } from "@/lib/billing-cycle";
 import { SubscriptionPixPayment } from "@/components/painel/SubscriptionPixPayment";
+import { SubscriptionPaymentMethodSelector } from "@/components/painel/SubscriptionPaymentMethodSelector";
 import { AvisoCobranca } from "@/components/painel/AvisoCobranca";
 import { dayKey } from "@/lib/day-key";
 import { consumeFreshSupportSession } from "@/lib/support-session";
@@ -1219,14 +1221,6 @@ function PagamentosView({ business }: { business: Business | null }) {
     close: closeCheckout,
   } = useAnimatedModal();
   const [mounted, setMounted] = useState(false);
-  const [payMethod, setPayMethod] = useState<"pix" | "cartao">("pix");
-  const [cardForm, setCardForm] = useState({
-    number: "",
-    expiry: "",
-    cvv: "",
-    holder: "",
-    doc: "",
-  });
 
   useEffect(() => {
     setMounted(true);
@@ -1249,8 +1243,11 @@ function PagamentosView({ business }: { business: Business | null }) {
 
   // Cupom ativo definido pelo master (expira sozinho no banco).
   const masterCoupon = cycle.data?.coupon ?? null;
+  const activeMasterCoupon = isMasterCouponActive(masterCoupon) ? masterCoupon : null;
   const baseTotalCents = cycle.data?.amountCents ?? 8990;
-  const couponDiscountCents = Math.round((baseTotalCents * (masterCoupon?.percent ?? 0)) / 100);
+  const couponDiscountCents = activeMasterCoupon
+    ? Math.round((baseTotalCents * activeMasterCoupon.percent) / 100)
+    : 0;
   const pixDiscountedCents = Math.max(baseTotalCents - couponDiscountCents, 0);
   const statusLabel: Record<string, string> = {
     pago: "Pago",
@@ -1451,7 +1448,7 @@ function PagamentosView({ business }: { business: Business | null }) {
                 className={`fixed inset-0 h-full w-full cursor-default bg-black/60 ${checkoutClosing ? "animate-backdrop-out" : "animate-backdrop"}`}
               />
               {/* Comemoração: cupom do master em vigor → confete ao abrir */}
-              {masterCoupon ? <ConfettiBurst /> : null}
+              {activeMasterCoupon ? <ConfettiBurst /> : null}
               <div className="flex min-h-full items-center justify-center p-4">
                 <div
                   className={`relative w-full max-w-md rounded-2xl border border-[var(--c-272a30)] bg-[var(--c-0b0b0e)] p-6 ${checkoutClosing ? "animate-modal-out" : "animate-modal-in"}`}
@@ -1494,146 +1491,30 @@ function PagamentosView({ business }: { business: Business | null }) {
                     ) : null}
                   </div>
 
-                  <p className="mb-2 mt-4 text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-[#8b8e96]">
-                    Forma de pagamento
-                  </p>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod("pix")}
-                      className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
-                        payMethod === "pix"
-                          ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
-                          : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
-                      }`}
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="21"
-                        height="21"
-                        fill="#32BCAD"
-                        aria-hidden="true"
-                      >
-                        <path d="M5.283 18.36c.85 0 1.647-.331 2.246-.932l3.243-3.242c.228-.228.625-.228.853 0l3.255 3.254a3.152 3.152 0 0 0 2.245.93h.638l-4.106 4.107c-1.282 1.283-3.363 1.283-4.646 0l-4.118-4.117h.39zm12.472-12.72c-.85 0-1.647.33-2.246.93l-3.254 3.255a.604.604 0 0 1-.854 0L8.16 6.573a3.153 3.153 0 0 0-2.246-.932h-.39l4.118-4.117a3.286 3.286 0 0 1 4.646 0l4.106 4.106h-.638zM1.817 9.633l2.492-2.492h.974c.587 0 1.161.238 1.575.652l3.254 3.254a1.55 1.55 0 0 0 1.096.451c.398 0 .796-.15 1.097-.45l3.254-3.255a2.24 2.24 0 0 1 1.575-.652h1.113l2.505 2.505c1.282 1.283 1.282 3.364 0 4.646l-2.505 2.505h-1.113a2.24 2.24 0 0 1-1.575-.651l-3.254-3.254a1.594 1.594 0 0 0-2.193 0l-3.254 3.254a2.24 2.24 0 0 1-1.575.651h-.974l-2.492-2.492c-1.283-1.282-1.283-3.363 0-4.646" />
-                      </svg>
-                      <span className="min-w-0">
-                        <span className="block text-[0.86rem] font-semibold text-white">PIX</span>
-                        <span className="block text-xs text-[#8b8e96]">Liberação imediata</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPayMethod("cartao")}
-                      className={`flex items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors ${
-                        payMethod === "cartao"
-                          ? "border-[var(--c-2f83ff)]/60 bg-[var(--c-rgba-59-130-246-a0d1)]"
-                          : "border-[var(--c-2a2e35)] bg-[var(--c-101218)] hover:border-white/25"
-                      }`}
-                    >
-                      <CreditCard
-                        className="size-[21px] shrink-0 text-[var(--c-69a2ff)]"
-                        aria-hidden="true"
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-[0.86rem] font-semibold text-white">
-                          Cartão
-                        </span>
-                        <span className="block text-xs text-[#8b8e96]">Crédito à vista</span>
-                      </span>
-                    </button>
-                  </div>
+                  <SubscriptionPaymentMethodSelector />
 
                   {/* Cupom — só aparece se o master ativou um cupom para este estabelecimento (auto-expira) */}
-                  {payMethod === "pix" && masterCoupon ? (
+                  {activeMasterCoupon ? (
                     <div className="mt-3">
                       <div className="rounded-[10px] border border-[var(--c-2f83ff)]/50 bg-[var(--c-rgba-59-130-246-a0d1)] px-3 py-2.5">
                         <p className="truncate text-sm text-white">
-                          Cupom <span className="font-bold uppercase">{masterCoupon.code}</span>{" "}
-                          aplicado — {masterCoupon.percent}% de desconto
+                          Cupom{" "}
+                          <span className="font-bold uppercase">{activeMasterCoupon.code}</span>{" "}
+                          aplicado — {activeMasterCoupon.percent}% de desconto
                         </p>
                         <p className="mt-0.5 text-xs text-[#8b8e96]">
-                          Válido até {new Date(masterCoupon.expiresAt).toLocaleDateString("pt-BR")}{" "}
+                          Válido até{" "}
+                          {new Date(activeMasterCoupon.expiresAt).toLocaleDateString("pt-BR")}{" "}
                           (expira sozinho)
                         </p>
                       </div>
                     </div>
                   ) : null}
 
-                  {/* Dados do cartão */}
-                  {payMethod === "cartao" ? (
-                    <div className="mt-2.5 space-y-2.5">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={cardForm.number}
-                        onChange={(e) =>
-                          setCardForm({
-                            ...cardForm,
-                            number: e.target.value.replace(/\D/g, "").slice(0, 16),
-                          })
-                        }
-                        placeholder="Número do cartão"
-                        className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                      />
-                      <div className="grid grid-cols-2 gap-2.5">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={cardForm.expiry}
-                          onChange={(e) => {
-                            const digits = e.target.value.replace(/\D/g, "").slice(0, 4);
-                            setCardForm({
-                              ...cardForm,
-                              expiry:
-                                digits.length > 2
-                                  ? `${digits.slice(0, 2)}/${digits.slice(2)}`
-                                  : digits,
-                            });
-                          }}
-                          placeholder="MM/AA"
-                          className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                        />
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={cardForm.cvv}
-                          onChange={(e) =>
-                            setCardForm({
-                              ...cardForm,
-                              cvv: e.target.value.replace(/\D/g, "").slice(0, 4),
-                            })
-                          }
-                          placeholder="CVV"
-                          className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                        />
-                      </div>
-                      <input
-                        type="text"
-                        value={cardForm.holder}
-                        onChange={(e) => setCardForm({ ...cardForm, holder: e.target.value })}
-                        placeholder="Nome impresso no cartão"
-                        className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                      />
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={cardForm.doc}
-                        onChange={(e) =>
-                          setCardForm({
-                            ...cardForm,
-                            doc: e.target.value.replace(/\D/g, "").slice(0, 14),
-                          })
-                        }
-                        placeholder="CPF do titular"
-                        className="h-11 w-full rounded-[10px] border border-[var(--c-2a2e35)] bg-[var(--c-101218)] px-3 text-sm text-white placeholder:text-[#6d717a] focus:border-[var(--c-2f83ff)]/60 focus:outline-none"
-                      />
-                    </div>
-                  ) : null}
-
                   <div className="mt-3.5 flex items-center justify-between border-t border-white/10 py-3.5">
                     <p className="font-semibold text-white">Total</p>
                     <div className="text-right">
-                      {masterCoupon && payMethod === "pix" ? (
+                      {activeMasterCoupon ? (
                         <>
                           <p className="text-xs text-[#8b8e96]">
                             <span className="line-through">{brlAssinatura(baseTotalCents)}</span> (−
@@ -1651,46 +1532,18 @@ function PagamentosView({ business }: { business: Business | null }) {
                     </div>
                   </div>
 
-                  {payMethod === "cartao" ? (
-                    <>
-                      <button
-                        type="button"
-                        disabled={
-                          cardForm.number.length < 13 ||
-                          cardForm.expiry.length < 5 ||
-                          cardForm.cvv.length < 3 ||
-                          !cardForm.holder.trim() ||
-                          cardForm.doc.length < 11
-                        }
-                        onClick={() =>
-                          toast.info(
-                            "Checkout com cartão em breve. Fale com o suporte para assinar.",
-                          )
-                        }
-                        className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
-                      >
-                        Pagar com cartão
-                      </button>
-                      <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
-                        Cobrança mensal no cartão de crédito — liberação após a confirmação.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      {business ? (
-                        <SubscriptionPixPayment
-                          businessId={business.id}
-                          onPaid={() => {
-                            closeCheckout();
-                            void cycle.refetch();
-                          }}
-                        />
-                      ) : null}
-                      <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
-                        Pagamento via PIX (instantâneo) — liberação automática.
-                      </p>
-                    </>
-                  )}
+                  {business ? (
+                    <SubscriptionPixPayment
+                      businessId={business.id}
+                      onPaid={() => {
+                        closeCheckout();
+                        void cycle.refetch();
+                      }}
+                    />
+                  ) : null}
+                  <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
+                    Pagamento via PIX (instantâneo) — liberação automática.
+                  </p>
                 </div>
               </div>
             </div>,

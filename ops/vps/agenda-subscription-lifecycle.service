@@ -1,7 +1,11 @@
 [Unit]
 Description=Run Agenda Agora subscription lifecycle
 After=agenda-agora.service
+StartLimitIntervalSec=1h
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/agenda-cron subscription-lifecycle
+Restart=on-failure
+RestartSec=5min

@@ -16,6 +16,10 @@ import {
 import { formatPrice } from "@/lib/format";
 import type { Panel1Appearance } from "@/lib/panel1-config";
 import { getAvailability } from "@/lib/booking.functions";
+import {
+  getRescheduleAvailabilityInput,
+  getRescheduleSlotsMessage,
+} from "@/lib/elegance-reschedule";
 
 const sans: CSSProperties = {
   fontFamily:
@@ -33,7 +37,33 @@ export type EleganceHistoryBooking = {
   serviceName: string;
   professionalName: string;
   serviceId: string | null;
+  professionalId: string | null;
 };
+
+export function BookingHistoryLoadError({
+  backgroundColor,
+  borderColor,
+  textColor,
+  onRetry,
+}: {
+  backgroundColor: string;
+  borderColor: string;
+  textColor: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="mt-5 rounded-2xl border p-6 text-center"
+      style={{ backgroundColor, borderColor, color: textColor }}
+    >
+      <p className="font-semibold">Não foi possível carregar seus agendamentos.</p>
+      <button type="button" className="mt-3 underline underline-offset-4" onClick={onRetry}>
+        Tentar novamente
+      </button>
+    </div>
+  );
+}
 
 type StatusVisual = {
   label: "Confirmado" | "Aguardando pagamento" | "Cancelado";
@@ -44,8 +74,7 @@ function statusVisual(b: EleganceHistoryBooking): StatusVisual {
   if (b.appointmentStatus === "cancelado") return { label: "Cancelado", icon: X };
   if (b.chargeStatus === "sem_sinal" || b.chargeStatus === "pago")
     return { label: "Confirmado", icon: CalendarCheck };
-  if (b.chargeStatus === "pendente")
-    return { label: "Aguardando pagamento", icon: CalendarCheck };
+  if (b.chargeStatus === "pendente") return { label: "Aguardando pagamento", icon: CalendarCheck };
   return { label: "Cancelado", icon: X };
 }
 
@@ -68,6 +97,8 @@ export function EleganceHistoryList({
   onCancel,
   onReschedule,
   onOpenCharge,
+  loadError,
+  onRetry,
 }: {
   slug: string;
   bookings: EleganceHistoryBooking[];
@@ -83,6 +114,8 @@ export function EleganceHistoryList({
   onCancel: (publicCode: string) => void;
   onReschedule: (input: { publicCode: string; date: string; time: string }) => Promise<void>;
   onOpenCharge: (chargeId: string) => void;
+  loadError: boolean;
+  onRetry: () => void;
 }) {
   const [filter, setFilter] = useState<"todos" | "proximos">("todos");
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
@@ -143,12 +176,20 @@ export function EleganceHistoryList({
   // Formato da referência no detalhe: "Terça-feira 20/10 às 10:30".
   const detailDate = (booking: EleganceHistoryBooking) => {
     if (!booking.startsAt) return "—";
-    const weekday = new Date(booking.startsAt)
-      .toLocaleDateString("pt-BR", { weekday: "long", timeZone: timezone });
-    const day = new Date(booking.startsAt)
-      .toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: timezone });
-    const time = new Date(booking.startsAt)
-      .toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: timezone });
+    const weekday = new Date(booking.startsAt).toLocaleDateString("pt-BR", {
+      weekday: "long",
+      timeZone: timezone,
+    });
+    const day = new Date(booking.startsAt).toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      timeZone: timezone,
+    });
+    const time = new Date(booking.startsAt).toLocaleString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: timezone,
+    });
     return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${day} às ${time}`;
   };
 
@@ -163,12 +204,10 @@ export function EleganceHistoryList({
         role="tablist"
         aria-label="Filtro de agendamentos"
       >
-        {(
-          [
-            { key: "todos" as const, label: "Todos" },
-            { key: "proximos" as const, label: "Próximos" },
-          ]
-        ).map((tab) => {
+        {[
+          { key: "todos" as const, label: "Todos" },
+          { key: "proximos" as const, label: "Próximos" },
+        ].map((tab) => {
           const active = filter === tab.key;
           return (
             <button
@@ -189,18 +228,24 @@ export function EleganceHistoryList({
           );
         })}
       </div>
-      <p
-        className="mt-3 mb-1 text-center text-[10px]"
-        style={{ color: modalText, opacity: 0.5 }}
-      >
-        {visible.length === 0
-          ? "Nenhum agendamento"
-          : visible.length === 1
-            ? "1 agendamento"
-            : `${visible.length} agendamentos`}
-      </p>
+      {!loadError ? (
+        <p className="mt-3 mb-1 text-center text-[10px]" style={{ color: modalText, opacity: 0.5 }}>
+          {visible.length === 0
+            ? "Nenhum agendamento"
+            : visible.length === 1
+              ? "1 agendamento"
+              : `${visible.length} agendamentos`}
+        </p>
+      ) : null}
 
-      {visible.length === 0 ? (
+      {loadError ? (
+        <BookingHistoryLoadError
+          backgroundColor={cardBackground}
+          borderColor={cardBorder}
+          textColor={modalText}
+          onRetry={onRetry}
+        />
+      ) : visible.length === 0 ? (
         <div
           className="mt-5 flex flex-col items-center rounded-2xl border p-8 text-center"
           style={{ backgroundColor: cardBackground, borderColor: cardBorder, color: modalText }}
@@ -228,11 +273,7 @@ export function EleganceHistoryList({
                 const canceled = booking.appointmentStatus === "cancelado";
                 const image = serviceImageUrl(booking.serviceId);
                 return (
-                  <article
-                    key={key}
-                    className="relative"
-                    style={{ color: modalText }}
-                  >
+                  <article key={key} className="relative" style={{ color: modalText }}>
                     {/* Card resumido */}
                     <div
                       className="flex items-center gap-3 rounded-2xl border p-3"
@@ -285,12 +326,18 @@ export function EleganceHistoryList({
                           <CalendarDays className="size-3.5 shrink-0" style={iconTone} />
                           {shortDate(booking)}
                         </p>
+                        {booking.publicCode ? (
+                          <p
+                            className="m-0 mt-1 break-all text-[10px]"
+                            style={{ color: modalText, opacity: 0.75 }}
+                          >
+                            Código: {booking.publicCode}
+                          </p>
+                        ) : null}
                         <span
                           className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium"
                           style={{
-                            borderColor: canceled
-                              ? "rgba(0,0,0,0.12)"
-                              : `${accent}4D`,
+                            borderColor: canceled ? "rgba(0,0,0,0.12)" : `${accent}4D`,
                             backgroundColor: canceled ? "transparent" : `${accent}1A`,
                             color: canceled ? modalText : accent,
                           }}
@@ -326,87 +373,87 @@ export function EleganceHistoryList({
                       >
                         <div
                           className="mt-2 rounded-2xl border-2 p-3.5 pb-8"
-                        style={{
-                          borderColor: `${accent}59`,
-                          backgroundColor: cardBackground,
-                          boxShadow: `0 10px 26px ${accent}14`,
-                        }}
-                      >
-                        <div
-                          className="rounded-xl border p-3"
-                          style={{ borderColor: cardBorder }}
-                        >
-                          <p
-                            className="m-0 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide"
-                            style={{ color: appearance.service_name_text }}
-                          >
-                            <Info className="size-4 shrink-0" style={iconTone} />
-                            <span className="truncate">{booking.serviceName}</span>
-                          </p>
-                          <p
-                            className="m-0 mt-2 flex items-center gap-2 text-[13px]"
-                            style={{ color: modalText }}
-                          >
-                            <CalendarDays className="size-4 shrink-0" style={iconTone} />
-                            <span className="truncate">{detailDate(booking)}</span>
-                          </p>
-                          <p
-                            className="m-0 mt-2 flex items-center gap-2 text-[13px]"
-                            style={{ color: modalText }}
-                          >
-                            <User className="size-4 shrink-0" style={iconTone} />
-                            <span className="truncate">
-                              Profissional {booking.professionalName}
-                            </span>
-                          </p>
-                        </div>
-
-                        <Timeline
-                          booking={booking}
-                          accent={accent}
-                          activeIconColor={appearance.modal_active_text}
-                          labelColor={`${modalText}99`}
-                        />
-
-                        <EleganceHistoryActions
-                          slug={slug}
-                          booking={booking}
-                          accent={accent}
-                          accentText={appearance.modal_active_text}
-                          modalText={modalText}
-                          cardBorder={cardBorder}
-                          cancellationEnabled={cancellationEnabled}
-                          rescheduleEnabled={rescheduleEnabled}
-                          pending={cancelPending || reschedulePending}
-                          onCancel={onCancel}
-                          onReschedule={onReschedule}
-                          onOpenCharge={onOpenCharge}
-                        />
-
-                        {booking.publicCode ? (
-                          <p
-                            className="mt-2 text-[10px]"
-                            style={{ color: modalText, opacity: 0.45 }}
-                          >
-                            Código {booking.publicCode}
-                          </p>
-                        ) : null}
-
-                        {/* Botão circular de fechar no canto inferior direito */}
-                        <button
-                          type="button"
-                          aria-label="Recolher detalhes"
-                          onClick={() => setExpandedCode(null)}
-                          className="absolute bottom-[-14px] right-3 z-10 grid size-9 cursor-pointer place-items-center rounded-full border shadow-sm"
                           style={{
-                            backgroundColor: appearance.service_background,
-                            borderColor: cardBorder,
-                            color: appearance.service_text,
+                            borderColor: `${accent}59`,
+                            backgroundColor: cardBackground,
+                            boxShadow: `0 10px 26px ${accent}14`,
                           }}
                         >
-                          <X className="size-4" />
-                        </button>
-                      </div>
+                          <div
+                            className="rounded-xl border p-3"
+                            style={{ borderColor: cardBorder }}
+                          >
+                            <p
+                              className="m-0 flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wide"
+                              style={{ color: appearance.service_name_text }}
+                            >
+                              <Info className="size-4 shrink-0" style={iconTone} />
+                              <span className="truncate">{booking.serviceName}</span>
+                            </p>
+                            <p
+                              className="m-0 mt-2 flex items-center gap-2 text-[13px]"
+                              style={{ color: modalText }}
+                            >
+                              <CalendarDays className="size-4 shrink-0" style={iconTone} />
+                              <span className="truncate">{detailDate(booking)}</span>
+                            </p>
+                            <p
+                              className="m-0 mt-2 flex items-center gap-2 text-[13px]"
+                              style={{ color: modalText }}
+                            >
+                              <User className="size-4 shrink-0" style={iconTone} />
+                              <span className="truncate">
+                                Profissional {booking.professionalName}
+                              </span>
+                            </p>
+                          </div>
+
+                          <Timeline
+                            booking={booking}
+                            accent={accent}
+                            activeIconColor={appearance.modal_active_text}
+                            labelColor={`${modalText}99`}
+                          />
+
+                          <EleganceHistoryActions
+                            slug={slug}
+                            booking={booking}
+                            accent={accent}
+                            accentText={appearance.modal_active_text}
+                            modalText={modalText}
+                            cardBorder={cardBorder}
+                            cancellationEnabled={cancellationEnabled}
+                            rescheduleEnabled={rescheduleEnabled}
+                            pending={cancelPending || reschedulePending}
+                            onCancel={onCancel}
+                            onReschedule={onReschedule}
+                            onOpenCharge={onOpenCharge}
+                          />
+
+                          {booking.publicCode ? (
+                            <p
+                              className="mt-2 text-[10px]"
+                              style={{ color: modalText, opacity: 0.45 }}
+                            >
+                              Código {booking.publicCode}
+                            </p>
+                          ) : null}
+
+                          {/* Botão circular de fechar no canto inferior direito */}
+                          <button
+                            type="button"
+                            aria-label="Recolher detalhes"
+                            onClick={() => setExpandedCode(null)}
+                            className="absolute bottom-[-14px] right-3 z-10 grid size-9 cursor-pointer place-items-center rounded-full border shadow-sm"
+                            style={{
+                              backgroundColor: appearance.service_background,
+                              borderColor: cardBorder,
+                              color: appearance.service_text,
+                            }}
+                          >
+                            <X className="size-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </article>
@@ -466,10 +513,7 @@ function Timeline({
             >
               <step.icon className="size-4" strokeWidth={2} />
             </span>
-            <span
-              className="mt-1.5 text-[10px] leading-tight"
-              style={{ color: labelColor }}
-            >
+            <span className="mt-1.5 text-[10px] leading-tight" style={{ color: labelColor }}>
               {step.label}
             </span>
           </div>
@@ -512,23 +556,13 @@ function EleganceHistoryActions({
   const [time, setTime] = useState("");
   const availabilityFn = useServerFn(getAvailability);
   const slots = useQuery({
-    queryKey: [
-      "elegance-reschedule-slots",
-      slug,
-      booking.serviceId,
-      booking.publicCode,
-      date,
-    ],
+    queryKey: ["elegance-reschedule-slots", slug, booking.serviceId, booking.publicCode, date],
     enabled: !!booking.serviceId && !!date,
-    queryFn: () =>
-      availabilityFn({
-        data: {
-          slug,
-          serviceId: booking.serviceId!,
-          date,
-          professionalId: null,
-        },
-      }),
+    queryFn: () => {
+      const data = getRescheduleAvailabilityInput(slug, booking, date);
+      if (!data) throw new Error("Serviço indisponível para remarcação.");
+      return availabilityFn({ data });
+    },
   });
 
   const active = booking.appointmentStatus === "agendado";
@@ -613,13 +647,18 @@ function EleganceHistoryActions({
             aria-label="Novo horário"
             required
             value={time}
-            disabled={!date || slots.isFetching}
+            disabled={!date || slots.isFetching || slots.isError}
             onChange={(event) => setTime(event.target.value)}
             className="rounded-full border bg-transparent px-3 py-2 text-sm"
             style={{ borderColor: cardBorder, color: modalText }}
           >
             <option value="" disabled>
-              {!date ? "Escolha a data" : slots.isFetching ? "Carregando..." : slots.data?.slots.length ? "Selecione" : "Sem horários"}
+              {getRescheduleSlotsMessage({
+                date,
+                isFetching: slots.isFetching,
+                isError: slots.isError,
+                slots: slots.data?.slots,
+              })}
             </option>
             {slots.data?.slots.map((s) => (
               <option key={s} value={s}>
@@ -627,6 +666,18 @@ function EleganceHistoryActions({
               </option>
             ))}
           </select>
+          {date && slots.isError ? (
+            <div className="text-xs sm:col-span-2" role="alert" style={{ color: modalText }}>
+              <span>Não foi possível carregar a agenda. </span>
+              <button
+                type="button"
+                className="cursor-pointer underline"
+                onClick={() => void slots.refetch()}
+              >
+                Tentar novamente
+              </button>
+            </div>
+          ) : null}
           <button
             type="submit"
             disabled={pending || !date || !time}

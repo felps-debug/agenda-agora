@@ -27,13 +27,18 @@ const run = getAgpayPerformance as unknown as (arg: {
     estimatedProfitCents: number;
     revenueCents: number;
     signalCount: number;
+    signalVolumeCents: number;
+    refundedSignalCount: number;
+    refundedSignalVolumeCents: number;
+    netSignalVolumeCents: number;
     gatewayFeeCents: number;
   };
   daily: Array<{ date: string; profitCents: number }>;
   businesses: Array<{ businessId: string; profitCents: number }>;
+  signals: Array<unknown>;
 }>;
 
-const master = { userId: "master-1", claims: {} };
+const master = { userId: "master-1", claims: { aal: "aal2" } };
 const period = { from: "2026-11-01T00:00:00Z", to: "2026-11-30T23:59:59Z" };
 
 beforeEach(() => {
@@ -89,29 +94,43 @@ beforeEach(() => {
         paid_at: null,
         created_at: "2026-11-03T11:00:00Z",
       },
+      {
+        id: "d5",
+        business_id: "b2",
+        amount_cents: 7000,
+        status: "estornado",
+        gateway_fee_cents: 75,
+        platform_commission_cents: 350,
+        paid_at: "2026-11-03T12:00:00Z",
+        created_at: "2026-11-03T11:30:00Z",
+      },
     ],
     withdrawals: [],
   });
 });
 
 describe("performance da carteira: lucro vem do ledger (US5)", () => {
-  it("o lucro é exatamente a soma de platform_commission_cents das cobranças pagas do período", async () => {
+  it("separa volume bruto, estornos e volume líquido sem apagar a comissão retida", async () => {
     const result = await run({ data: period, context: master });
-    expect(result.kpi.estimatedProfitCents).toBe(150 + 250 + 200);
-    expect(result.kpi.revenueCents).toBe(600);
-    expect(result.kpi.signalCount).toBe(3);
+    expect(result.kpi.signalCount).toBe(4);
+    expect(result.kpi.signalVolumeCents).toBe(19_000);
+    expect(result.kpi.refundedSignalCount).toBe(1);
+    expect(result.kpi.refundedSignalVolumeCents).toBe(7_000);
+    expect(result.kpi.netSignalVolumeCents).toBe(12_000);
+    expect(result.kpi.estimatedProfitCents).toBe(950);
+    expect(result.kpi.revenueCents).toBe(950);
   });
 
   it("não subtrai a tarifa do gateway nem usa taxas configuradas no navegador", async () => {
     const result = await run({ data: period, context: master });
-    expect(result.kpi.gatewayFeeCents).toBe(225);
-    expect(result.kpi.estimatedProfitCents).not.toBe(600 - 225);
+    expect(result.kpi.gatewayFeeCents).toBe(300);
+    expect(result.kpi.estimatedProfitCents).not.toBe(950 - 300);
   });
 
   it("a soma por dia e por estabelecimento bate com o total", async () => {
     const result = await run({ data: period, context: master });
-    expect(result.daily.reduce((sum, day) => sum + day.profitCents, 0)).toBe(600);
-    expect(result.businesses.reduce((sum, b) => sum + b.profitCents, 0)).toBe(600);
+    expect(result.daily.reduce((sum, day) => sum + day.profitCents, 0)).toBe(950);
+    expect(result.businesses.reduce((sum, b) => sum + b.profitCents, 0)).toBe(950);
   });
 
   it("dono comum não acessa", async () => {
@@ -119,5 +138,28 @@ describe("performance da carteira: lucro vem do ledger (US5)", () => {
     await expect(run({ data: period, context: { userId: "dono-1", claims: {} } })).rejects.toThrow(
       "Acesso restrito ao painel master.",
     );
+  });
+
+  it("propaga erro de leitura em vez de apresentar relatório parcial como zero", async () => {
+    runtime.fake!.failures["deposit_payments:select"] = { message: "falha simulada" };
+    await expect(run({ data: period, context: master })).rejects.toThrow(
+      "Não foi possível carregar os dados financeiros.",
+    );
+  });
+
+  it("pagina depósitos acima de 5.000 registros", async () => {
+    runtime.fake!.tables["deposit_payments"] = Array.from({ length: 5001 }, (_, index) => ({
+      id: `deposit-${index}`,
+      business_id: "b1",
+      amount_cents: 100,
+      status: "pago",
+      gateway_fee_cents: 0,
+      platform_commission_cents: 10,
+      paid_at: "2026-11-02T10:00:00Z",
+      created_at: "2026-11-02T10:00:00Z",
+    }));
+    const result = await run({ data: period, context: master });
+    expect(result.kpi.signalCount).toBe(5001);
+    expect(result.signals).toHaveLength(5001);
   });
 });

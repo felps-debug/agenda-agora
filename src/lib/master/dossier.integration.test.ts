@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 
 // Depende de banco real: só roda com INTEGRATION_TESTS=1 e um .env do projeto.
-const canRunIntegration = process.env["INTEGRATION_TESTS"] === "1" && existsSync(`${process.cwd()}/.env`);
+const canRunIntegration =
+  process.env["INTEGRATION_TESTS"] === "1" && existsSync(`${process.cwd()}/.env`);
 
 describe.skipIf(!canRunIntegration)("ficha do estabelecimento (integração real)", () => {
   it("carrega a ficha para um negócio real sem erros", async () => {

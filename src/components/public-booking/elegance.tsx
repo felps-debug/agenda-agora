@@ -1,11 +1,5 @@
 import { useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import {
-  CalendarDays,
-  Clock,
-  Heart,
-  House,
-  LogOut,
-} from "lucide-react";
+import { CalendarDays, Clock, Heart, House, LogOut } from "lucide-react";
 import { accessibleTextColor } from "@/lib/contrast";
 import { formatPrice } from "@/lib/format";
 import type { Panel1Appearance } from "@/lib/panel1-config";
@@ -102,9 +96,8 @@ export function ElegancePanel({
   /** Variante sem capa: cabeçalho e conteúdo usam o mesmo fundo contínuo. */
   minimalist?: boolean | undefined;
 }) {
-  const pickTarget =
-    onAppearanceTargetSelect ?
-      (target: AppearanceSelectionTarget, event: MouseEvent) => {
+  const pickTarget = onAppearanceTargetSelect
+    ? (target: AppearanceSelectionTarget, event: MouseEvent) => {
         event.stopPropagation();
         onAppearanceTargetSelect(target);
       }
@@ -123,12 +116,18 @@ export function ElegancePanel({
   ];
 
   return (
-    <div className={`@container relative mx-auto flex w-full max-w-[520px] flex-col overflow-hidden ${fullHeight ? "min-h-screen" : "min-h-[640px]"}`}>
+    <div
+      className={`@container relative mx-auto flex w-full max-w-[520px] flex-col overflow-hidden ${fullHeight ? "min-h-screen" : "min-h-[640px]"}`}
+    >
       <header
         onClick={(event) => {
           if (pickTarget && event.target === event.currentTarget) pickTarget("logo-cover", event);
         }}
-        className={minimalist ? "relative bg-[var(--minimalist-background)] px-2.5 pt-4 @md:px-4" : "relative h-[240px] @md:h-[300px]"}
+        className={
+          minimalist
+            ? "relative bg-[var(--minimalist-background)] px-2.5 pt-4 @md:px-4"
+            : "relative h-[240px] @md:h-[300px]"
+        }
         style={
           (minimalist
             ? { "--minimalist-background": pageBackground }
@@ -155,7 +154,16 @@ export function ElegancePanel({
         </div>
       </header>
 
-      <div className={minimalist ? "relative flex-1 bg-[var(--minimalist-background)] px-2.5 pb-[112px] @md:px-4 @md:pb-[144px]" : "relative -mt-[46px] flex-1 px-2.5 pb-[112px] @md:-mt-[67px] @md:px-4 @md:pb-[144px]"} style={minimalist ? ({ "--minimalist-background": pageBackground } as CSSProperties) : undefined}>
+      <div
+        className={
+          minimalist
+            ? "relative flex-1 bg-[var(--minimalist-background)] px-2.5 pb-[112px] @md:px-4 @md:pb-[144px]"
+            : "relative -mt-[46px] flex-1 px-2.5 pb-[112px] @md:-mt-[67px] @md:px-4 @md:pb-[144px]"
+        }
+        style={
+          minimalist ? ({ "--minimalist-background": pageBackground } as CSSProperties) : undefined
+        }
+      >
         {!minimalist ? (
           <div
             aria-hidden="true"
@@ -165,7 +173,11 @@ export function ElegancePanel({
         ) : null}
 
         <div
-          className={minimalist ? "relative flex flex-col items-center pb-5 pt-5 @md:pb-6 @md:pt-6" : "relative flex flex-col items-center pb-4 pt-[63px] @md:mb-[21px] @md:pt-[65px]"}
+          className={
+            minimalist
+              ? "relative flex flex-col items-center pb-5 pt-5 @md:pb-6 @md:pt-6"
+              : "relative flex flex-col items-center pb-4 pt-[63px] @md:mb-[21px] @md:pt-[65px]"
+          }
           style={minimalist ? { paddingTop: "15%" } : undefined}
         >
           <button
@@ -175,7 +187,11 @@ export function ElegancePanel({
               if (pickTarget) pickTarget("logo-cover", event);
               else event.stopPropagation();
             }}
-            className={minimalist ? "flex h-[138px] w-[201px] cursor-pointer items-center justify-center overflow-hidden rounded-[18px] border-2" : "absolute -top-[76px] flex size-[146px] cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 @md:-top-[75px] @md:size-[160px]"}
+            className={
+              minimalist
+                ? "flex h-[138px] w-[201px] cursor-pointer items-center justify-center overflow-hidden rounded-[18px] border-2"
+                : "absolute -top-[76px] flex size-[146px] cursor-pointer items-center justify-center overflow-hidden rounded-full border-2 @md:-top-[75px] @md:size-[160px]"
+            }
             style={{
               borderColor: appearance.service_background,
               ...(minimalist
@@ -200,7 +216,11 @@ export function ElegancePanel({
               <img
                 src={logoUrl}
                 alt=""
-                className={minimalist ? "absolute inset-[2px] size-[calc(100%-4px)] max-w-[calc(100%-4px)] rounded-[14px] object-cover" : "absolute inset-[2px] size-[calc(100%-4px)] rounded-full object-cover"}
+                className={
+                  minimalist
+                    ? "absolute inset-[2px] size-[calc(100%-4px)] max-w-[calc(100%-4px)] rounded-[14px] object-cover"
+                    : "absolute inset-[2px] size-[calc(100%-4px)] rounded-full object-cover"
+                }
                 style={minimalist ? { width: "197px", height: "134px" } : undefined}
               />
             ) : (
@@ -222,7 +242,10 @@ export function ElegancePanel({
 
           <h1
             className={`${minimalist ? "mt-[14px]" : "mt-3"} m-0 cursor-pointer text-center text-[35px] leading-[1.2] font-normal @md:text-[39px]`}
-            style={{ ...serifDisplay, color: minimalist ? appearance.page_text : appearance.header_title }}
+            style={{
+              ...serifDisplay,
+              color: minimalist ? appearance.page_text : appearance.header_title,
+            }}
             onClick={(event) => {
               if (pickTarget) pickTarget("business-title", event);
               else event.stopPropagation();
@@ -232,7 +255,10 @@ export function ElegancePanel({
           </h1>
           <p
             className="m-0 cursor-pointer text-center text-[19px] leading-snug @md:text-[21px]"
-            style={{ ...serifDisplay, color: minimalist ? appearance.service_price_text : appearance.wave_color }}
+            style={{
+              ...serifDisplay,
+              color: minimalist ? appearance.service_price_text : appearance.wave_color,
+            }}
             onClick={(event) => {
               if (pickTarget) pickTarget("brand-tagline", event);
               else event.stopPropagation();
@@ -240,7 +266,11 @@ export function ElegancePanel({
           >
             {appearance.brand_tagline}
           </p>
-          <Heart className="mt-[5px] size-3.5" fill="currentColor" style={{ color: appearance.wave_color }} />
+          <Heart
+            className="mt-[5px] size-3.5"
+            fill="currentColor"
+            style={{ color: appearance.wave_color }}
+          />
         </div>
 
         {children}
@@ -303,9 +333,9 @@ export function ElegancePanel({
           " slide-up-enter"
         }
         style={{
-            backgroundColor: `${appearance.service_background}A3`,
-            borderColor: appearance.service_background,
-          }}
+          backgroundColor: `${appearance.service_background}A3`,
+          borderColor: appearance.service_background,
+        }}
       >
         {navItems.map((item) => {
           const active = activeTab === item.key;
@@ -315,7 +345,10 @@ export function ElegancePanel({
               type="button"
               onClick={() => onTabSelect?.(item.key)}
               className="flex flex-col items-center justify-center gap-[5px] py-[5px] hover:opacity-80"
-              style={{ color: active ? appearance.modal_active_background : appearance.page_text, opacity: active ? 1 : 0.55 }}
+              style={{
+                color: active ? appearance.modal_active_background : appearance.page_text,
+                opacity: active ? 1 : 0.55,
+              }}
             >
               <item.icon
                 className="size-[25px]"
@@ -345,9 +378,8 @@ export function EleganceServiceList<S extends EleganceService>({
   onAppearanceTargetSelect?: ((target: AppearanceSelectionTarget) => void) | undefined;
   onAgendarPreview?: (() => void) | undefined;
 }) {
-  const pickTarget =
-    onAppearanceTargetSelect ?
-      (target: AppearanceSelectionTarget, event: MouseEvent) => {
+  const pickTarget = onAppearanceTargetSelect
+    ? (target: AppearanceSelectionTarget, event: MouseEvent) => {
         event.stopPropagation();
         onAppearanceTargetSelect(target);
       }
@@ -363,8 +395,15 @@ export function EleganceServiceList<S extends EleganceService>({
           color: appearance.service_text,
         }}
       >
-        <Heart className="mx-auto mb-2 size-5" fill="currentColor" style={{ color: appearance.wave_color }} />
-        <p className="font-semibold" style={{ ...serifDisplay, color: appearance.service_name_text }}>
+        <Heart
+          className="mx-auto mb-2 size-5"
+          fill="currentColor"
+          style={{ color: appearance.wave_color }}
+        />
+        <p
+          className="font-semibold"
+          style={{ ...serifDisplay, color: appearance.service_name_text }}
+        >
           Nenhum serviço disponível no momento.
         </p>
         <p className="mt-2 text-sm">Volte mais tarde para conferir novos horários e serviços.</p>
@@ -376,104 +415,104 @@ export function EleganceServiceList<S extends EleganceService>({
     <>
       <div className="relative grid gap-2 @md:gap-3">
         {services.map((service) => (
-        <article
-          key={service.id}
-          className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[18px] border p-[7px] @md:gap-[18px] @md:p-[9px] bf-enter"
-          style={{
-            backgroundColor: appearance.service_background,
-            borderColor: appearance.service_border,
-            boxShadow: "0 3px 16px rgba(163, 52, 85, 0.05)",
-          }}
-          onClick={() => onSelect(service)}
-        >
-          {service.image_url ? (
-            <img
-              src={service.image_url}
-              alt=""
-              loading="lazy"
-              className="h-[100px] w-[92px] shrink-0 cursor-pointer rounded-xl object-cover @md:h-[116px] @md:w-[130px]"
-              onClick={(event) => {
-                if (pickTarget) pickTarget("service-images", event);
-              }}
-            />
-          ) : (
-            <div
-              aria-hidden="true"
-              className="h-[100px] w-[92px] shrink-0 rounded-xl @md:h-[116px] @md:w-[130px]"
-              style={{
-                background: `linear-gradient(145deg, ${appearance.page_gradient_start}, ${appearance.page_gradient_end})`,
-              }}
-              onClick={(event) => {
-                if (pickTarget) pickTarget("service-images", event);
-              }}
-            />
-          )}
-          <div className="min-w-0 flex-1 pr-0.5">
-            <div
-              className="mb-3 text-[15px] leading-[1.35] font-bold @md:mb-[17px] @md:text-[19px]"
-              style={{ color: appearance.service_name_text }}
-              onClick={(event) => {
-                if (pickTarget) pickTarget("service-name", event);
-              }}
-            >
-              {service.name}
-            </div>
-            {service.description ? (
-              <p
-                className="m-0 mb-2 text-[13.6px] leading-[1.25]"
-                style={{ color: appearance.service_text }}
-              >
-                {service.description}
-              </p>
-            ) : null}
-            <div className="flex items-center justify-between gap-1.5 @md:gap-2.5">
-              <div className="flex flex-col gap-1">
-                {service.show_price ? (
-                  <span
-                    className="cursor-pointer text-base font-bold whitespace-nowrap @md:text-[21px]"
-                    style={{ color: appearance.service_price_text }}
-                    onClick={(event) => {
-                      if (pickTarget) pickTarget("service-price", event);
-                    }}
-                  >
-                    {formatPrice(service.price_cents)}
-                  </span>
-                ) : null}
-                {service.show_duration ? (
-                  <span
-                    className="inline-flex cursor-pointer items-center gap-1.5 text-[13px] font-medium @md:text-[15px]"
-                    style={{ color: appearance.service_price_text }}
-                    onClick={(event) => {
-                      if (pickTarget) pickTarget("service-price", event);
-                    }}
-                  >
-                    <Clock className="size-[17px] shrink-0" strokeWidth={1.8} />
-                    {service.duration_minutes} min
-                  </span>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="flex h-10 shrink-0 items-center gap-2 rounded-[15px] px-3 text-sm font-medium @md:h-11 @md:px-4 @md:text-base"
+          <article
+            key={service.id}
+            className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[18px] border p-[7px] @md:gap-[18px] @md:p-[9px] bf-enter"
+            style={{
+              backgroundColor: appearance.service_background,
+              borderColor: appearance.service_border,
+              boxShadow: "0 3px 16px rgba(163, 52, 85, 0.05)",
+            }}
+            onClick={() => onSelect(service)}
+          >
+            {service.image_url ? (
+              <img
+                src={service.image_url}
+                alt=""
+                loading="lazy"
+                className="h-[100px] w-[92px] shrink-0 cursor-pointer rounded-xl object-cover @md:h-[116px] @md:w-[130px]"
+                onClick={(event) => {
+                  if (pickTarget) pickTarget("service-images", event);
+                }}
+              />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="h-[100px] w-[92px] shrink-0 rounded-xl @md:h-[116px] @md:w-[130px]"
                 style={{
-                  backgroundColor: appearance.modal_active_background,
-                  color: appearance.modal_active_text,
+                  background: `linear-gradient(145deg, ${appearance.page_gradient_start}, ${appearance.page_gradient_end})`,
                 }}
                 onClick={(event) => {
-                  event.stopPropagation();
-                  if (pickTarget) pickTarget("button-background", event);
-                  else if (onAgendarPreview) onAgendarPreview();
-                  else onSelect(service);
+                  if (pickTarget) pickTarget("service-images", event);
+                }}
+              />
+            )}
+            <div className="min-w-0 flex-1 pr-0.5">
+              <div
+                className="mb-3 text-[15px] leading-[1.35] font-bold @md:mb-[17px] @md:text-[19px]"
+                style={{ color: appearance.service_name_text }}
+                onClick={(event) => {
+                  if (pickTarget) pickTarget("service-name", event);
                 }}
               >
-                <CalendarDays className="size-[19px]" />
-                Agendar
-              </button>
+                {service.name}
+              </div>
+              {service.description ? (
+                <p
+                  className="m-0 mb-2 text-[13.6px] leading-[1.25]"
+                  style={{ color: appearance.service_text }}
+                >
+                  {service.description}
+                </p>
+              ) : null}
+              <div className="flex items-center justify-between gap-1.5 @md:gap-2.5">
+                <div className="flex flex-col gap-1">
+                  {service.show_price ? (
+                    <span
+                      className="cursor-pointer text-base font-bold whitespace-nowrap @md:text-[21px]"
+                      style={{ color: appearance.service_price_text }}
+                      onClick={(event) => {
+                        if (pickTarget) pickTarget("service-price", event);
+                      }}
+                    >
+                      {formatPrice(service.price_cents)}
+                    </span>
+                  ) : null}
+                  {service.show_duration ? (
+                    <span
+                      className="inline-flex cursor-pointer items-center gap-1.5 text-[13px] font-medium @md:text-[15px]"
+                      style={{ color: appearance.service_price_text }}
+                      onClick={(event) => {
+                        if (pickTarget) pickTarget("service-price", event);
+                      }}
+                    >
+                      <Clock className="size-[17px] shrink-0" strokeWidth={1.8} />
+                      {service.duration_minutes} min
+                    </span>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="flex h-10 shrink-0 items-center gap-2 rounded-[15px] px-3 text-sm font-medium @md:h-11 @md:px-4 @md:text-base"
+                  style={{
+                    backgroundColor: appearance.modal_active_background,
+                    color: appearance.modal_active_text,
+                  }}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (pickTarget) pickTarget("button-background", event);
+                    else if (onAgendarPreview) onAgendarPreview();
+                    else onSelect(service);
+                  }}
+                >
+                  <CalendarDays className="size-[19px]" />
+                  Agendar
+                </button>
+              </div>
             </div>
-          </div>
-        </article>
-      ))}
-    </div>
+          </article>
+        ))}
+      </div>
     </>
   );
 }

@@ -594,10 +594,13 @@ export function summarizeSubscription(input: SubscriptionSummaryInput): Subscrip
 export type DepositSummary = {
   total: number;
   paid: number;
+  refunded: number;
   pending: number;
   canceled: number;
   volumeCents: number;
   paidVolumeCents: number;
+  grossPaidVolumeCents: number;
+  refundedVolumeCents: number;
   feesCents: number;
   netCents: number;
   platformCommissionCents: number;
@@ -609,6 +612,8 @@ export type DepositSummary = {
  */
 export function summarizeDeposits(rows: MasterDepositRow[]): DepositSummary {
   const paidRows = rows.filter((row) => row.status === "pago" || row.status === "aprovado");
+  const refundedRows = rows.filter((row) => row.status === "estornado");
+  const paidHistoryRows = [...paidRows, ...refundedRows];
   const pendingRows = rows.filter((row) => row.status === "pendente");
   const canceledRows = rows.filter(
     (row) => row.status === "cancelado" || row.status === "estornado",
@@ -616,13 +621,16 @@ export function summarizeDeposits(rows: MasterDepositRow[]): DepositSummary {
   return {
     total: rows.length,
     paid: paidRows.length,
+    refunded: refundedRows.length,
     pending: pendingRows.length,
     canceled: canceledRows.length,
     volumeCents: rows.reduce((sum, row) => sum + (row.amount_cents ?? 0), 0),
     paidVolumeCents: paidRows.reduce((sum, row) => sum + (row.amount_cents ?? 0), 0),
-    feesCents: paidRows.reduce((sum, row) => sum + (row.gateway_fee_cents ?? 0), 0),
+    grossPaidVolumeCents: paidHistoryRows.reduce((sum, row) => sum + (row.amount_cents ?? 0), 0),
+    refundedVolumeCents: refundedRows.reduce((sum, row) => sum + (row.amount_cents ?? 0), 0),
+    feesCents: paidHistoryRows.reduce((sum, row) => sum + (row.gateway_fee_cents ?? 0), 0),
     netCents: paidRows.reduce((sum, row) => sum + (row.net_amount_cents ?? 0), 0),
-    platformCommissionCents: paidRows.reduce(
+    platformCommissionCents: paidHistoryRows.reduce(
       (sum, row) => sum + (row.platform_commission_cents ?? 0),
       0,
     ),

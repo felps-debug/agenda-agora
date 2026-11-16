@@ -1,10 +1,16 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CalendarClock, CalendarDays, ChevronLeft, ChevronRight, List } from "lucide-react";
 import { requireMasterAccess } from "@/lib/master.functions";
 import { getReceivablesCalendar } from "@/lib/lifecycle.functions";
+import { receivablesViewState } from "@/lib/receivables-view-state";
+import { unavailableRejectedChargesMetric } from "@/lib/unavailable-rejected-charges";
+import { pendingCancellationMetric } from "@/lib/pending-cancellation-metric";
+import { calendarWeekDays } from "@/lib/receivables-calendar";
+import { RECEIVABLES_HISTORY_LIMIT_DAYS } from "@/lib/receivables-history-limit";
+import { isInLocalMonth } from "@/lib/receivables-month";
 
 export const Route = createFileRoute("/_authenticated/painel/recebiveis")({
   loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
@@ -50,6 +56,11 @@ function RecebiveisPage() {
     queryKey: ["receivables-calendar"],
     queryFn: () => calendarFn(),
     refetchInterval: 60000,
+  });
+  const queryView = receivablesViewState({
+    isLoading: calendarQuery.isLoading,
+    isError: calendarQuery.isError,
+    hasData: calendarQuery.data !== undefined,
   });
 
   const [period, setPeriod] = useState<Period>("30");
@@ -133,9 +144,8 @@ function RecebiveisPage() {
   const receivedThisMonth = useMemo(() => {
     let totalCents = 0;
     let count = 0;
-    const monthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
     for (const payment of calendarQuery.data?.received ?? []) {
-      if (new Date(payment.paidAt).toISOString().slice(0, 7) === monthKey) {
+      if (isInLocalMonth(payment.paidAt, today.getFullYear(), today.getMonth())) {
         totalCents += payment.amountCents;
         count += 1;
       }
@@ -145,14 +155,10 @@ function RecebiveisPage() {
 
   const rangeLabel = `${today.toLocaleDateString("pt-BR", { day: "numeric", month: "short" })} - ${periodEnd.toLocaleDateString("pt-BR", { day: "numeric", month: "short" })}`;
 
-  const churnPercent =
-    calendarQuery.data &&
-    calendarQuery.data.upcoming.length > 0 &&
-    calendarQuery.data.churn.count > 0
-      ? `${Math.round(
-          (calendarQuery.data.churn.count / calendarQuery.data.upcoming.length) * 100,
-        )}%`
-      : "—";
+  const pendingCancellations = pendingCancellationMetric(
+    calendarQuery.data?.churn.count ?? 0,
+    calendarQuery.data?.churn.monthlyCents ?? 0,
+  );
 
   // Grade do mês: 42 células (6 semanas), começando no domingo.
   const gridStart = useMemo(() => {
@@ -176,10 +182,7 @@ function RecebiveisPage() {
     const totals = { cartao: 0, pix_automatico: 0, pix: 0 };
     for (const item of calendarQuery.data?.upcoming ?? []) {
       const due = new Date(item.nextDue);
-      if (
-        due.getMonth() !== cursor.getMonth() ||
-        due.getFullYear() !== cursor.getFullYear()
-      ) {
+      if (due.getMonth() !== cursor.getMonth() || due.getFullYear() !== cursor.getFullYear()) {
         continue;
       }
       totals[item.method] += item.amountCents;
@@ -251,9 +254,10 @@ function RecebiveisPage() {
         ? [{ label: `Recebido ${brl(received.totalCents)}`, tone: "green" as const }]
         : []),
       ...(!past && charges
-        ? charges.items
-            .slice(0, 2)
-            .map((item) => ({ label: `${item.name} ${brl(item.amountCents)}`, tone: "blue" as const }))
+        ? charges.items.slice(0, 2).map((item) => ({
+            label: `${item.name} ${brl(item.amountCents)}`,
+            tone: "blue" as const,
+          }))
         : []),
     ];
     const extra = charges && !past ? Math.max(0, charges.items.length - 2) : 0;
@@ -315,302 +319,332 @@ function RecebiveisPage() {
         </div>
       </div>
 
-      {/* Período */}
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-[#9aa1ab]">Quando cada cobrança de assinatura cai na sua conta</p>
-        <div className="flex flex-wrap items-center gap-2">
-          {(["hoje", "7", "30"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setPeriod(option)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
-                period === option
-                  ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)] text-white"
-                  : "border-white/10 bg-[#10141b] text-[#9aa1ab] hover:text-white"
-              }`}
-            >
-              {option === "hoje" ? "Hoje" : `${option} dias`}
-            </button>
-          ))}
-          <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#10141b] px-3 py-1.5 text-xs font-semibold text-[var(--c-e6e9ee)]">
-            <CalendarDays className="size-3.5 text-[var(--c-69a2ff)]" />
-            {rangeLabel}
-          </span>
+      {queryView === "loading" && (
+        <div
+          className="report-luminous-card mt-6 p-6 text-center text-sm text-[#9aa1ab]"
+          role="status"
+        >
+          Carregando recebíveis…
         </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          label={`A receber nos próximos ${periodDays} dia(s)`}
-          value={brl(aReceber.totalCents)}
-          hint={`${aReceber.count} cobrança(s) prevista(s)`}
-        />
-        <KpiCard
-          label={`Recebido em ${MONTHS[today.getMonth()] ?? "mês"}`}
-          value={brl(receivedThisMonth.totalCents)}
-          hint={`${receivedThisMonth.count} cobrança(s) paga(s)`}
-          valueClass="text-emerald-400"
-        />
-        <KpiCard label="Recusado" value={brl(0)} hint="0 cobranças" />
-        <KpiCard
-          label="Cancelamentos nos próximos 30 dias (churn)"
-          value={`${calendarQuery.data?.churn.count ?? 0} · ${churnPercent}`}
-          hint={`${brl(calendarQuery.data?.churn.monthlyCents ?? 0)} por mês · ${
-            calendarQuery.data?.churn.count ? `${churnPercent} de churn` : "— de churn"
-          }`}
-        />
-      </div>
-
-      {/* Calendário / Lista */}
-      <section className="report-luminous-card report-effect-medium mt-4 p-4">
-        <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--c-eef1f6)]">
-            {MONTHS[cursor.getMonth()] ?? "Mês"} de {cursor.getFullYear()}
-            <span className="ml-2 text-sm font-normal text-[#777d87]">
-              · {brl(monthTotal)} no mês
-            </span>
+      )}
+      {queryView === "error" && (
+        <div
+          className="report-luminous-card mt-6 flex flex-col items-center gap-3 p-6 text-center"
+          role="alert"
+        >
+          <p className="text-sm text-destructive">
+            Não foi possível carregar os recebíveis. Os indicadores não estão disponíveis.
           </p>
-          <div className="flex flex-wrap items-center gap-2">
-            {(["dia", "semana", "mes", "ano"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setGranularity(option)}
-                className={`rounded-lg border px-3 py-1.5 text-xs font-bold capitalize transition ${
-                  granularity === option
-                    ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)] text-white"
-                    : "border-white/10 bg-[#10141b] text-[#9aa1ab] hover:text-white"
-                }`}
-              >
-                {option === "mes"
-                  ? "Mês"
-                  : option === "semana"
-                    ? "Semana"
-                    : option === "ano"
-                      ? "Ano"
-                      : "Dia"}
-              </button>
-            ))}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                aria-label="Anterior"
-                onClick={() => moveCursor(-1)}
-                className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#10141b] text-[#9aa1ab] transition hover:text-white"
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setCursor(new Date(today.getFullYear(), today.getMonth(), 1))
-                }
-                className="rounded-lg border border-white/10 bg-[#10141b] px-3 py-1.5 text-xs font-bold text-[#9aa1ab] transition hover:text-white"
-              >
-                Hoje
-              </button>
-              <button
-                type="button"
-                aria-label="Próximo"
-                onClick={() => moveCursor(1)}
-                className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#10141b] text-[#9aa1ab] transition hover:text-white"
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={() => void calendarQuery.refetch()}
+            disabled={calendarQuery.isFetching}
+            className="rounded-lg border border-white/10 bg-[#10141b] px-4 py-2 text-xs font-semibold text-[#9aa1ab] hover:text-white disabled:opacity-50"
+          >
+            {calendarQuery.isFetching ? "Atualizando…" : "Tentar novamente"}
+          </button>
         </div>
+      )}
 
-        <div className="relative z-10 mt-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                setMethodFilter((current) => (current === "cartao" ? "todos" : "cartao"))
-              }
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
-                methodFilter === "cartao"
-                  ? "border-violet-400 bg-violet-500/15 text-violet-300"
-                  : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
-              }`}
-            >
-              <span className="size-2 rounded-full bg-violet-400" />
-              Cartão <span className="font-bold">{brl(methodTotals.cartao)}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                setMethodFilter((current) =>
-                  current === "pix_automatico" ? "todos" : "pix_automatico",
-                )
-              }
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
-                methodFilter === "pix_automatico"
-                  ? "border-emerald-400 bg-emerald-500/15 text-emerald-300"
-                  : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
-              }`}
-            >
-              <span className="size-2 rounded-full bg-emerald-400" />
-              PIX Automático <span className="font-bold">{brl(methodTotals.pix_automatico)}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setMethodFilter((current) => (current === "pix" ? "todos" : "pix"))}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
-                methodFilter === "pix"
-                  ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)]/15 text-[var(--c-8fb3ff)]"
-                  : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
-              }`}
-            >
-              <span className="size-2 rounded-full bg-[var(--c-1677ff)]" />
-              PIX <span className="font-bold">{brl(methodTotals.pix)}</span>
-            </button>
-          </div>
-          <div className="flex overflow-hidden rounded-lg border border-white/10">
-            {(["calendario", "lista"] as const).map((option) => (
-              <button
-                key={option}
-                type="button"
-                onClick={() => setView(option)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition ${
-                  view === option
-                    ? "bg-[var(--c-1677ff)] text-white"
-                    : "bg-[#10141b] text-[#9aa1ab] hover:text-white"
-                }`}
-              >
-                {option === "calendario" ? (
-                  <CalendarDays className="size-3.5" />
-                ) : (
-                  <List className="size-3.5" />
-                )}
-                {option === "calendario" ? "Calendário" : "Lista"}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {view === "lista" ? (
-          <div className="relative z-10 mt-4 overflow-x-auto rounded-md border border-border">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="bg-white/[0.035] text-left text-xs uppercase text-[#777d87]">
-                <tr>
-                  <th className="px-4 py-3">Data prevista</th>
-                  <th className="px-4 py-3">Estabelecimento</th>
-                  <th className="px-4 py-3">Método</th>
-                  <th className="px-4 py-3 text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {upcomingList.map((item, index) => (
-                  <tr key={`${item.name}-${index}`} className="border-t border-border">
-                    <td className="px-4 py-2.5">
-                      {item.date.toLocaleDateString("pt-BR")}
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {item.date.toLocaleDateString("pt-BR", { weekday: "short" })}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5">{item.name}</td>
-                    <td className="px-4 py-2.5">
-                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--c-e6e9ee)]">
-                        <span
-                          className={`size-2 rounded-full ${
-                            item.method === "cartao"
-                              ? "bg-violet-400"
-                              : item.method === "pix_automatico"
-                                ? "bg-emerald-400"
-                                : "bg-[var(--c-1677ff)]"
-                          }`}
-                        />
-                        {item.method === "cartao"
-                          ? "Cartão"
-                          : item.method === "pix_automatico"
-                            ? "PIX Automático"
-                            : "PIX"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right font-medium text-[var(--c-8fb3ff)]">
-                      {brl(item.amountCents)}
-                    </td>
-                  </tr>
-                ))}
-                {!upcomingList.length && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
-                      Nenhuma cobrança prevista nos próximos 60 dias.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        ) : granularity === "ano" ? (
-          <div className="relative z-10 mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {yearMonths.map((month) => (
-              <div
-                key={month.label}
-                className="rounded-xl border border-white/[0.07] bg-[#10141b] p-4"
-              >
-                <p className="text-sm font-semibold text-[var(--c-eef1f6)]">{month.label}</p>
-                <p className="mt-2 text-xs text-[#777d87]">A receber</p>
-                <p className="text-lg font-bold text-[var(--c-8fb3ff)]">{brl(month.total)}</p>
-                <p className="mt-1 text-xs text-[#777d87]">Recebido</p>
-                <p className="text-sm font-semibold text-emerald-400">{brl(month.received)}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="relative z-10 mt-4">
-            <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-[#626872]">
-              {WEEKDAYS.map((weekday) => (
-                <span key={weekday}>{weekday}</span>
+      {queryView === "ready" && (
+        <>
+          {/* Período */}
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-[#9aa1ab]">
+              Quando cada cobrança de assinatura cai na sua conta
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              {(["hoje", "7", "30"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setPeriod(option)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                    period === option
+                      ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)] text-white"
+                      : "border-white/10 bg-[#10141b] text-[#9aa1ab] hover:text-white"
+                  }`}
+                >
+                  {option === "hoje" ? "Hoje" : `${option} dias`}
+                </button>
               ))}
-            </div>
-            <div className="mt-1.5 grid grid-cols-7 gap-1.5">
-              {granularity === "mes"
-                ? Array.from({ length: 42 }, (_, index) => {
-                    const date = new Date(
-                      gridStart.getFullYear(),
-                      gridStart.getMonth(),
-                      gridStart.getDate() + index,
-                    );
-                    return renderDayCell(date);
-                  })
-                : null}
-              {granularity === "semana"
-                ? (() => {
-                    const weekStart = new Date(today.getTime() - today.getDay() * 86_400_000);
-                    return Array.from({ length: 7 }, (_, index) => {
-                      const date = new Date(weekStart.getTime() + index * 86_400_000);
-                      return renderDayCell(date);
-                    });
-                  })()
-                : null}
-              {granularity === "dia" ? renderDayCell(cursor) : null}
+              <span className="flex items-center gap-2 rounded-lg border border-white/10 bg-[#10141b] px-3 py-1.5 text-xs font-semibold text-[var(--c-e6e9ee)]">
+                <CalendarDays className="size-3.5 text-[var(--c-69a2ff)]" />
+                {rangeLabel}
+              </span>
             </div>
           </div>
-        )}
 
-        {/* Legenda */}
-        <div className="relative z-10 mt-3 flex flex-wrap items-center gap-4 border-t border-white/[0.07] pt-3 text-xs text-[#777d87]">
-          <span className="flex items-center gap-1.5">
-            <span className="size-3 rounded bg-white/10" /> Já passou · valor recebido
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-3 rounded border border-[var(--c-1677ff)]" /> Hoje
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="size-3 rounded bg-[#10141b]" /> A receber
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded bg-emerald-400" /> Recebido
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded bg-[var(--c-1677ff)]" /> Previsto (cobrado no dia)
-          </span>
-        </div>
-      </section>
+          <p className="mt-3 text-xs text-[#777d87]" role="note">
+            O histórico de recebimentos desta visão cobre os últimos{" "}
+            {RECEIVABLES_HISTORY_LIMIT_DAYS} dias; períodos anteriores podem estar incompletos.
+          </p>
+
+          {/* KPIs */}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <KpiCard
+              label={`A receber nos próximos ${periodDays} dia(s)`}
+              value={brl(aReceber.totalCents)}
+              hint={`${aReceber.count} cobrança(s) prevista(s)`}
+            />
+            <KpiCard
+              label={`Recebido em ${MONTHS[today.getMonth()] ?? "mês"}`}
+              value={brl(receivedThisMonth.totalCents)}
+              hint={`${receivedThisMonth.count} cobrança(s) paga(s)`}
+              valueClass="text-emerald-400"
+            />
+            <KpiCard {...unavailableRejectedChargesMetric} />
+            <KpiCard
+              label={pendingCancellations.label}
+              value={String(pendingCancellations.count)}
+              hint={"Mensalidade associada: " + brl(pendingCancellations.monthlyCents)}
+            />
+          </div>
+
+          {/* Calendário / Lista */}
+          <section className="report-luminous-card report-effect-medium mt-4 p-4">
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-[1.05rem] font-semibold tracking-[-0.02em] text-[var(--c-eef1f6)]">
+                {MONTHS[cursor.getMonth()] ?? "Mês"} de {cursor.getFullYear()}
+                <span className="ml-2 text-sm font-normal text-[#777d87]">
+                  · {brl(monthTotal)} no mês
+                </span>
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {(["dia", "semana", "mes", "ano"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setGranularity(option)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-bold capitalize transition ${
+                      granularity === option
+                        ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)] text-white"
+                        : "border-white/10 bg-[#10141b] text-[#9aa1ab] hover:text-white"
+                    }`}
+                  >
+                    {option === "mes"
+                      ? "Mês"
+                      : option === "semana"
+                        ? "Semana"
+                        : option === "ano"
+                          ? "Ano"
+                          : "Dia"}
+                  </button>
+                ))}
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label="Anterior"
+                    onClick={() => moveCursor(-1)}
+                    className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#10141b] text-[#9aa1ab] transition hover:text-white"
+                  >
+                    <ChevronLeft className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCursor(new Date(today.getFullYear(), today.getMonth(), 1))}
+                    className="rounded-lg border border-white/10 bg-[#10141b] px-3 py-1.5 text-xs font-bold text-[#9aa1ab] transition hover:text-white"
+                  >
+                    Hoje
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Próximo"
+                    onClick={() => moveCursor(1)}
+                    className="flex size-8 items-center justify-center rounded-lg border border-white/10 bg-[#10141b] text-[#9aa1ab] transition hover:text-white"
+                  >
+                    <ChevronRight className="size-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative z-10 mt-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMethodFilter((current) => (current === "cartao" ? "todos" : "cartao"))
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+                    methodFilter === "cartao"
+                      ? "border-violet-400 bg-violet-500/15 text-violet-300"
+                      : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
+                  }`}
+                >
+                  <span className="size-2 rounded-full bg-violet-400" />
+                  Cartão <span className="font-bold">{brl(methodTotals.cartao)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMethodFilter((current) =>
+                      current === "pix_automatico" ? "todos" : "pix_automatico",
+                    )
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+                    methodFilter === "pix_automatico"
+                      ? "border-emerald-400 bg-emerald-500/15 text-emerald-300"
+                      : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
+                  }`}
+                >
+                  <span className="size-2 rounded-full bg-emerald-400" />
+                  PIX Automático{" "}
+                  <span className="font-bold">{brl(methodTotals.pix_automatico)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMethodFilter((current) => (current === "pix" ? "todos" : "pix"))
+                  }
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${
+                    methodFilter === "pix"
+                      ? "border-[var(--c-1677ff)] bg-[var(--c-1677ff)]/15 text-[var(--c-8fb3ff)]"
+                      : "border-white/10 bg-black/30 text-[var(--c-e6e9ee)]"
+                  }`}
+                >
+                  <span className="size-2 rounded-full bg-[var(--c-1677ff)]" />
+                  PIX <span className="font-bold">{brl(methodTotals.pix)}</span>
+                </button>
+              </div>
+              <div className="flex overflow-hidden rounded-lg border border-white/10">
+                {(["calendario", "lista"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setView(option)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold transition ${
+                      view === option
+                        ? "bg-[var(--c-1677ff)] text-white"
+                        : "bg-[#10141b] text-[#9aa1ab] hover:text-white"
+                    }`}
+                  >
+                    {option === "calendario" ? (
+                      <CalendarDays className="size-3.5" />
+                    ) : (
+                      <List className="size-3.5" />
+                    )}
+                    {option === "calendario" ? "Calendário" : "Lista"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {view === "lista" ? (
+              <div className="relative z-10 mt-4 overflow-x-auto rounded-md border border-border">
+                <table className="w-full min-w-[560px] text-sm">
+                  <thead className="bg-white/[0.035] text-left text-xs uppercase text-[#777d87]">
+                    <tr>
+                      <th className="px-4 py-3">Data prevista</th>
+                      <th className="px-4 py-3">Estabelecimento</th>
+                      <th className="px-4 py-3">Método</th>
+                      <th className="px-4 py-3 text-right">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {upcomingList.map((item, index) => (
+                      <tr key={`${item.name}-${index}`} className="border-t border-border">
+                        <td className="px-4 py-2.5">
+                          {item.date.toLocaleDateString("pt-BR")}
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {item.date.toLocaleDateString("pt-BR", { weekday: "short" })}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">{item.name}</td>
+                        <td className="px-4 py-2.5">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--c-e6e9ee)]">
+                            <span
+                              className={`size-2 rounded-full ${
+                                item.method === "cartao"
+                                  ? "bg-violet-400"
+                                  : item.method === "pix_automatico"
+                                    ? "bg-emerald-400"
+                                    : "bg-[var(--c-1677ff)]"
+                              }`}
+                            />
+                            {item.method === "cartao"
+                              ? "Cartão"
+                              : item.method === "pix_automatico"
+                                ? "PIX Automático"
+                                : "PIX"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-medium text-[var(--c-8fb3ff)]">
+                          {brl(item.amountCents)}
+                        </td>
+                      </tr>
+                    ))}
+                    {!upcomingList.length && (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
+                          Nenhuma cobrança prevista nos próximos 60 dias.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : granularity === "ano" ? (
+              <div className="relative z-10 mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {yearMonths.map((month) => (
+                  <div
+                    key={month.label}
+                    className="rounded-xl border border-white/[0.07] bg-[#10141b] p-4"
+                  >
+                    <p className="text-sm font-semibold text-[var(--c-eef1f6)]">{month.label}</p>
+                    <p className="mt-2 text-xs text-[#777d87]">A receber</p>
+                    <p className="text-lg font-bold text-[var(--c-8fb3ff)]">{brl(month.total)}</p>
+                    <p className="mt-1 text-xs text-[#777d87]">Recebido</p>
+                    <p className="text-sm font-semibold text-emerald-400">{brl(month.received)}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="relative z-10 mt-4">
+                <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold uppercase tracking-wider text-[#626872]">
+                  {WEEKDAYS.map((weekday) => (
+                    <span key={weekday}>{weekday}</span>
+                  ))}
+                </div>
+                <div className="mt-1.5 grid grid-cols-7 gap-1.5">
+                  {granularity === "mes"
+                    ? Array.from({ length: 42 }, (_, index) => {
+                        const date = new Date(
+                          gridStart.getFullYear(),
+                          gridStart.getMonth(),
+                          gridStart.getDate() + index,
+                        );
+                        return renderDayCell(date);
+                      })
+                    : null}
+                  {granularity === "semana" ? calendarWeekDays(cursor).map(renderDayCell) : null}
+                  {granularity === "dia" ? renderDayCell(cursor) : null}
+                </div>
+              </div>
+            )}
+
+            {/* Legenda */}
+            <div className="relative z-10 mt-3 flex flex-wrap items-center gap-4 border-t border-white/[0.07] pt-3 text-xs text-[#777d87]">
+              <span className="flex items-center gap-1.5">
+                <span className="size-3 rounded bg-white/10" /> Já passou · valor recebido
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-3 rounded border border-[var(--c-1677ff)]" /> Hoje
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-3 rounded bg-[#10141b]" /> A receber
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-4 rounded bg-emerald-400" /> Recebido
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-4 rounded bg-[var(--c-1677ff)]" /> Previsto (cobrado no
+                dia)
+              </span>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }

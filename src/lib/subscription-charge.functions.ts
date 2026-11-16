@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import { hasSuperAdminRole } from "@/lib/auth/require-super-admin";
+import { assertSuperAdmin, MASTER_ACCESS_DENIED } from "@/lib/auth/require-super-admin";
 import { subscriptionTotalCents, nextAccessAfterPayment } from "@/lib/billing-cycle";
 import { isValidCpf } from "@/lib/cpf";
+import { isMasterCouponActive } from "@/lib/subscription-coupon";
 
 /**
  * US7 — Cobrança da assinatura (ciclo de 30 dias) via Ag Pay.
@@ -14,10 +16,20 @@ import { isValidCpf } from "@/lib/cpf";
  *
  * O valor reusa o plano já configurado no sistema:
  *   subscriptionTotalCents(monthly_fee_cents, profissionais) − cupom ativo (se houver).
- * O pagador é o dono: CPF vem de `businesses.owner_cpf` (cadastro) e e-mail do Auth.
+ * O pagador é o dono: CPF vem de `businesses.owner_cpf` e é lido pelo servidor.
  */
 
 const digitsOnly = (value: string) => value.replace(/\D/g, "");
+
+async function hasSuperAdminAccess(session: Parameters<typeof assertSuperAdmin>[0]) {
+  try {
+    await assertSuperAdmin(session);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message === MASTER_ACCESS_DENIED) return false;
+    throw error;
+  }
+}
 
 /**
  * Donos que entram por telefone têm e-mail sintético (`5511999999999@agenda.local`) no Auth.
@@ -39,11 +51,12 @@ export function subscriptionChargeAmountCents(input: {
 }): number {
   const total = subscriptionTotalCents(input.baseCents, input.professionalsCount);
   const now = input.now ?? new Date();
-  const couponActive =
-    input.couponPercent != null &&
-    input.couponPercent > 0 &&
-    input.couponExpiresAt != null &&
-    new Date(input.couponExpiresAt) > now;
+  const couponActive = isMasterCouponActive(
+    input.couponPercent != null && input.couponExpiresAt != null
+      ? { percent: input.couponPercent, expiresAt: input.couponExpiresAt }
+      : null,
+    now,
+  );
   if (!couponActive) return total;
   const discounted = Math.round(total * (1 - input.couponPercent! / 100));
   return Math.max(0, discounted);
@@ -63,7 +76,7 @@ export const saveOwnerCpf = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         cpf: z.string().refine((v) => isValidCpf(v), "Informe um CPF válido."),
       })
       .parse(d),
@@ -76,7 +89,7 @@ export const saveOwnerCpf = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!business) throw new Error("Negócio não encontrado.");
-    if (business.owner_id !== context.userId && !(await hasSuperAdminRole(context.userId))) {
+    if (business.owner_id !== context.userId && !(await hasSuperAdminAccess(context))) {
       throw new Error("Somente o dono pode alterar o CPF deste negócio.");
     }
 
@@ -95,19 +108,26 @@ export const saveOwnerCpf = createServerFn({ method: "POST" })
  */
 export const getOwnerCpfStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ businessId: z.string().uuid() }).parse(d))
+  .inputValidator((d: unknown) => z.object({ businessId: z.string().guid() }).parse(d))
   .handler(async ({ context, data }) => {
     const { data: business, error } = await context.supabase
       .from("businesses")
-      .select("owner_id, owner_cpf")
+      .select("owner_id")
       .eq("id", data.businessId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!business) throw new Error("Negócio não encontrado.");
-    if (business.owner_id !== context.userId && !(await hasSuperAdminRole(context.userId))) {
+    if (business.owner_id !== context.userId && !(await hasSuperAdminAccess(context))) {
       throw new Error("Você não tem permissão para ver este negócio.");
     }
-    const cpf = digitsOnly(business.owner_cpf ?? "");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: privateFields, error: privateError } = await supabaseAdmin
+      .from("businesses")
+      .select("owner_cpf")
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (privateError) throw new Error(privateError.message);
+    const cpf = digitsOnly(privateFields?.owner_cpf ?? "");
     if (cpf.length !== 11) return { hasCpf: false as const, masked: null };
     return { hasCpf: true as const, masked: `***.***.***-${cpf.slice(9)}` };
   });
@@ -115,7 +135,7 @@ export const getOwnerCpfStatus = createServerFn({ method: "GET" })
 /** Status atual de uma cobrança de assinatura (para a UI poll o pagamento). */
 export const getSubscriptionChargeStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((d: unknown) => z.object({ chargeId: z.string().uuid() }).parse(d))
+  .inputValidator((d: unknown) => z.object({ chargeId: z.string().guid() }).parse(d))
   .handler(async ({ context, data }) => {
     const { data: charge, error } = await context.supabase
       .from("subscription_charges")
@@ -124,11 +144,15 @@ export const getSubscriptionChargeStatus = createServerFn({ method: "GET" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!charge) throw new Error("Cobrança não encontrada.");
-    return { status: charge.status, amountCents: charge.amount_cents, periodEnd: charge.period_end };
+    return {
+      status: charge.status,
+      amountCents: charge.amount_cents,
+      periodEnd: charge.period_end,
+    };
   });
 
 const schema = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   method: z.enum(["pix"]).default("pix"),
 });
 
@@ -138,25 +162,29 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     const { data: business, error } = await context.supabase
       .from("businesses")
-      .select(
-        "id, owner_id, owner_cpf, monthly_fee_cents, access_until, coupon_percent, coupon_expires_at",
-      )
+      .select("id, owner_id, monthly_fee_cents, access_until")
       .eq("id", data.businessId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!business) throw new Error("Negócio não encontrado.");
-    if (business.owner_id !== context.userId && !(await hasSuperAdminRole(context.userId))) {
+    if (business.owner_id !== context.userId && !(await hasSuperAdminAccess(context))) {
       throw new Error("Você não tem permissão para pagar esta assinatura.");
     }
 
-    const cpf = digitsOnly(business.owner_cpf ?? "");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: privateFields, error: privateError } = await supabaseAdmin
+      .from("businesses")
+      .select("owner_cpf, coupon_percent, coupon_expires_at")
+      .eq("id", data.businessId)
+      .maybeSingle();
+    if (privateError) throw new Error(privateError.message);
+    const cpf = digitsOnly(privateFields?.owner_cpf ?? "");
     if (cpf.length !== 11) {
       throw new Error(
         "Informe o CPF do responsável em Configurações antes de pagar a assinatura por Pix.",
       );
     }
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { createPixCharge } = await import("@/lib/agpay.server");
 
     // E-mail do pagador (dono) via Auth.
@@ -165,17 +193,19 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
     if (!authEmail) throw new Error("E-mail do responsável não encontrado.");
     const payerEmail = payerEmailForGateway(authEmail);
 
-    const { count: professionalsCount } = await supabaseAdmin
+    const { count: professionalsCount, error: professionalsError } = await supabaseAdmin
       .from("professionals")
       .select("id", { count: "exact", head: true })
       .eq("business_id", data.businessId);
+    if (professionalsError || professionalsCount == null)
+      throw new Error("Não foi possível calcular o valor da assinatura.");
 
     const now = new Date();
     const amountCents = subscriptionChargeAmountCents({
       baseCents: business.monthly_fee_cents ?? 8990,
-      professionalsCount: professionalsCount ?? 0,
-      couponPercent: business.coupon_percent,
-      couponExpiresAt: business.coupon_expires_at,
+      professionalsCount,
+      couponPercent: privateFields?.coupon_percent ?? null,
+      couponExpiresAt: privateFields?.coupon_expires_at ?? null,
       now,
     });
     if (amountCents < 1) throw new Error("Valor da assinatura inválido.");
@@ -220,7 +250,43 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
       })
       .select("id")
       .single();
-    if (insertError) throw new Error(insertError.message);
+    if (insertError) {
+      const message = `Pix criado no AgPay, mas a cobrança não foi salva localmente: ${insertError.message}`;
+      const dedupeHash = createHash("sha256")
+        .update(`subscription.charge_persist_failed:${pix.providerPaymentId}`, "utf8")
+        .digest("hex");
+      try {
+        const { error: reviewError } = await supabaseAdmin.from("agpay_webhook_events").upsert(
+          {
+            dedupe_hash: dedupeHash,
+            event_type: "subscription.charge_persist_failed",
+            transaction_uuid: pix.providerPaymentId,
+            payload: {
+              business_id: data.businessId,
+              amount_cents: amountCents,
+              period_start: now.toISOString(),
+              period_end: periodEnd,
+            },
+            status: "error",
+            attempts: 1,
+            locked_at: null,
+            processed_at: null,
+            last_error: message.slice(0, 1000),
+          },
+          { onConflict: "dedupe_hash" },
+        );
+        if (reviewError) throw reviewError;
+      } catch (reviewError) {
+        console.error("Falha ao registrar Pix de assinatura para revisão manual", {
+          businessId: data.businessId,
+          providerPaymentId: pix.providerPaymentId,
+          message: reviewError instanceof Error ? reviewError.message : String(reviewError),
+        });
+      }
+      throw new Error(
+        "O Pix pode ter sido criado, mas não conseguimos salvar a cobrança. Não tente pagar novamente; fale com o suporte e informe que a referência do AgPay está em revisão.",
+      );
+    }
 
     return {
       chargeId: charge.id,

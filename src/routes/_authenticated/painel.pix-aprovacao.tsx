@@ -16,6 +16,7 @@ import { maskPixKey } from "@/lib/pix-key-format";
 import { TONE_VIOLET } from "@/components/master/PlatformOverview";
 import { toast } from "sonner";
 import { formatPhoneBR } from "@/lib/format-phone";
+import { pixApprovalListState } from "@/lib/pix-approval-list-state";
 
 export const Route = createFileRoute("/_authenticated/painel/pix-aprovacao")({
   loader: () => (typeof window === "undefined" ? undefined : requireMasterAccess()),
@@ -71,10 +72,17 @@ function PixAprovacaoPage() {
       return false;
     }
   });
-  const { data: list = [] } = useQuery({
+  const {
+    data: listData,
+    isLoading: listLoading,
+    isError: listError,
+    isFetching: listFetching,
+    refetch: refetchList,
+  } = useQuery({
     queryKey: ["pix-key-approvals"],
     queryFn: () => listFn(),
   });
+  const list = listData ?? [];
   const decide = (id: string, status: "aprovado" | "recusado") => {
     statusFn({ data: { id, status } })
       .then(() => {
@@ -404,6 +412,12 @@ function PixAprovacaoPage() {
     seen.add(p.businessId);
     return true;
   });
+  const listState = pixApprovalListState({
+    isLoading: listLoading,
+    isError: listError,
+    hasData: listData !== undefined,
+    hasPending: pending.length > 0,
+  });
   const seenAprov = new Set<string>();
   const aprovadas = list.filter((p) => {
     if (p.status !== "aprovado") return false;
@@ -439,6 +453,30 @@ function PixAprovacaoPage() {
         </div>
       </div>
 
+      {listState === "loading" && (
+        <p className="mt-4 text-sm text-muted-foreground" role="status">
+          Carregando solicitações de Pix…
+        </p>
+      )}
+      {listError && (
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-200"
+          role="alert"
+        >
+          <span>
+            Não foi possível atualizar as aprovações de Pix. A fila pode estar desatualizada.
+          </span>
+          <button
+            type="button"
+            onClick={() => void refetchList()}
+            disabled={listFetching}
+            className="underline disabled:opacity-50"
+          >
+            {listFetching ? "Atualizando…" : "Tentar novamente"}
+          </button>
+        </div>
+      )}
+
       <section className="mt-6 overflow-x-auto report-x-scroll rounded-2xl border border-border bg-card report-luminous-card report-effect-strong">
         <table className="w-full min-w-[720px] text-sm md:table-fixed">
           <thead className="border-b border-border text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -451,7 +489,14 @@ function PixAprovacaoPage() {
             </tr>
           </thead>
           <tbody>
-            {!pending.length && (
+            {listState === "loading" && (
+              <tr>
+                <td colSpan={5} className="px-4 py-12 text-center text-sm text-muted-foreground">
+                  Aguardando a lista de solicitações…
+                </td>
+              </tr>
+            )}
+            {listState === "empty" && (
               <tr>
                 <td colSpan={5} className="px-4 py-16 text-center">
                   <span className="mx-auto flex size-12 items-center justify-center rounded-xl border border-border bg-secondary text-muted-foreground">

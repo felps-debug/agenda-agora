@@ -75,7 +75,7 @@ function dynamicTable<Table extends keyof OutreachTables>(
 /** Lista os templates ativos já personalizados com os dados do negócio; exige vínculo (dono/profissional). */
 export const listOutreachTemplatesForBusiness = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const { data: allowed, error: memberError } = await context.supabase.rpc("is_business_member", {
       _business_id: data.businessId,
@@ -104,10 +104,10 @@ export const listOutreachTemplatesForBusiness = createServerFn({ method: "GET" }
     }));
   });
 
-const visualTemplateInput = z.object({ templateId: z.string().uuid(), design: z.unknown() });
+const visualTemplateInput = z.object({ templateId: z.string().guid(), design: z.unknown() });
 const businessTemplateInput = z.object({
-  businessId: z.string().uuid(),
-  templateId: z.string().uuid(),
+  businessId: z.string().guid(),
+  templateId: z.string().guid(),
 });
 
 async function assertBusinessOwner(context: { userId: string }, businessId: string) {
@@ -144,7 +144,7 @@ export const saveOutreachTemplateDesign = createServerFn({ method: "POST" })
 export const saveBusinessOutreachOverride = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    visualTemplateInput.extend({ businessId: z.string().uuid() }).parse(data),
+    visualTemplateInput.extend({ businessId: z.string().guid() }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const design = parseOutreachDesign(data.design);
@@ -176,7 +176,7 @@ export const resetBusinessOutreachOverride = createServerFn({ method: "POST" })
 export const listVisualOutreachTemplates = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: unknown) =>
-    z.object({ businessId: z.string().uuid().optional() }).parse(data),
+    z.object({ businessId: z.string().guid().optional() }).parse(data),
   )
   .handler(async ({ context, data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -230,7 +230,7 @@ function isMissingSaudacaoColumn(error: unknown): boolean {
 
 export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const admin = await assertBusinessOwner(context, data.businessId);
     const { data: row, error } = await dynamicTable(admin, "businesses")
@@ -279,8 +279,8 @@ export const getOutreachBusinessSettings = createServerFn({ method: "GET" })
   });
 
 const outreachSettingsInput = z.object({
-  businessId: z.string().uuid(),
-  selectedTemplateIds: z.array(z.string().uuid()).max(100),
+  businessId: z.string().guid(),
+  selectedTemplateIds: z.array(z.string().guid()).max(100),
   confirmationTemplate: outreachMessageSchema,
   paymentConfirmationTemplate: outreachMessageSchema,
   reminderTemplate: outreachMessageSchema,

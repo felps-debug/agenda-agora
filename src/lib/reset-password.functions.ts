@@ -10,7 +10,7 @@ export const setOwnerPassword = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         password: z.string().refine(isOwnerPin, OWNER_PIN_MESSAGE),
       })
       .parse(input),
@@ -57,7 +57,7 @@ export const setOwnerPassword = createServerFn({ method: "POST" })
 
 export const resetOwnerPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ businessId: z.string().uuid() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ businessId: z.string().guid() }).parse(input))
   .handler(async ({ context, data }) => {
     const admin = await assertSuperAdmin(context);
     const { data: business, error } = await admin

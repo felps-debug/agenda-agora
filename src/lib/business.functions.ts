@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const updateBusinessProfileInput = z
   .object({
-    businessId: z.string().uuid(),
+    businessId: z.string().guid(),
     name: z.string().min(2).max(120).optional(),
     slug: z.string().min(3).max(60).optional(),
     category: z.string().optional(),
@@ -92,7 +92,7 @@ export const updateBusinessProfile = createServerFn({ method: "POST" })
       .from("businesses")
       .update(buildBusinessProfileUpdate(data))
       .eq("id", data.businessId)
-      .select()
+      .select("id, name, slug, category, phone, address, greeting, timezone, brand_background")
       .single();
     if (error) throw mapBusinessUpdateError(error);
     return updated;

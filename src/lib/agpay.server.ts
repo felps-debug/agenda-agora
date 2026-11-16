@@ -29,6 +29,14 @@ export class AgpayApiError extends Error {
   }
 }
 
+/** The request may have reached AgPay, but its response is not enough to reconcile the payout. */
+export class AgpayAmbiguousResponseError extends Error {
+  constructor(public readonly path: string) {
+    super("O AgPay respondeu sem referência suficiente para confirmar o saque.");
+    this.name = "AgpayAmbiguousResponseError";
+  }
+}
+
 type AgpayRequest = Omit<RequestInit, "headers" | "signal"> & {
   headers?: HeadersInit;
 };
@@ -42,6 +50,8 @@ export async function agpayFetch<T>(path: string, init: AgpayRequest = {}): Prom
 
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${requiredEnv("AGPAY_API_TOKEN")}`);
+  const clientId = process.env["AGPAY_CLIENT_ID"]?.trim();
+  if (clientId) headers.set("X-Client-ID", clientId);
   headers.set("Accept", "application/json");
   if (init.body != null) headers.set("Content-Type", "application/json");
 
@@ -131,9 +141,9 @@ type AgpayPixResponse = {
 export type AgpayPayment = {
   providerPaymentId: string;
   status: string;
-  amount?: string;
-  fee?: string;
-  amountNet?: string;
+  amount?: string | number;
+  fee?: string | number;
+  amountNet?: string | number;
   type?: string;
   externalId?: string | null;
   createdAt?: string;
@@ -145,9 +155,9 @@ type AgpayTransactionResponse = {
   data: {
     uuid: string;
     status: string;
-    amount?: string;
-    fee?: string;
-    amount_net?: string;
+    amount?: string | number;
+    fee?: string | number;
+    amount_net?: string | number;
     type?: string;
     external_id?: string | null;
     created_at?: string;
@@ -216,13 +226,11 @@ export async function createCashoutPix(input: {
   });
   const withdrawal = response.withdrawal ?? response.data;
   const providerRef = withdrawal?.uuid ?? withdrawal?.id;
-  if (
-    response.success === false ||
-    !withdrawal ||
-    providerRef === undefined ||
-    providerRef === null
-  ) {
+  if (response.success === false) {
     throw new AgpayApiError(422, "/cashout/pix");
+  }
+  if (!withdrawal || providerRef === undefined || providerRef === null) {
+    throw new AgpayAmbiguousResponseError("/cashout/pix");
   }
   const fee = Number(withdrawal.fee);
   return {

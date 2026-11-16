@@ -4,7 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 
 const blockInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   blocked: z.boolean(),
 });
 
@@ -62,10 +62,10 @@ export const supportMessageInput = z.object({
   message: z.string().trim().min(1, "Escreva uma mensagem.").max(1000),
 });
 
-export const supportBusinessInput = z.object({ businessId: z.string().uuid() });
+export const supportBusinessInput = z.object({ businessId: z.string().guid() });
 
 export const supportThreadInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   /** Marca as respostas do suporte como lidas (só quando o chat está aberto). */
   markRead: z.boolean().default(false),
 });
@@ -135,9 +135,7 @@ export const getSupportMessages = createServerFn({ method: "GET" })
 /** Dono pergunta no pop-up de suporte (fica pendente pro master). */
 export const sendSupportMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) =>
-    supportBusinessInput.and(supportMessageInput).parse(data),
-  )
+  .inputValidator((data: unknown) => supportBusinessInput.and(supportMessageInput).parse(data))
   .handler(async ({ context, data }) => {
     // Primeiro contato: garante a saudação oficial do suporte antes da pergunta.
     const { data: existing } = await context.supabase
@@ -213,7 +211,10 @@ export const listSupportConversations = createServerFn({ method: "GET" })
     for (const row of rows) {
       let agg = perBusiness.get(row.business_id);
       if (!agg) {
-        agg = { unread: 0, last: { message: row.message, created_at: row.created_at, sender: row.sender } };
+        agg = {
+          unread: 0,
+          last: { message: row.message, created_at: row.created_at, sender: row.sender },
+        };
         perBusiness.set(row.business_id, agg);
       }
       if (row.sender === "user" && !row.read_by_master) agg.unread += 1;
@@ -271,9 +272,7 @@ export const getSupportThreadForMaster = createServerFn({ method: "POST" })
 /** Master responde: chega no pop-up do Painel 2 + badge de não lidas. */
 export const replySupportAsMaster = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) =>
-    supportBusinessInput.and(supportMessageInput).parse(data),
-  )
+  .inputValidator((data: unknown) => supportBusinessInput.and(supportMessageInput).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { data: inserted, error } = await supabaseAdmin

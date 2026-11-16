@@ -60,11 +60,7 @@ interface ChatMessage {
 
 const SUPPORT_NAME = "Suporte AG";
 const SUPPORT_AVATAR = "/suporte-ag.png";
-const HEADER_AVATARS = [
-  "/avatar-suporte-1.png",
-  "/avatar-suporte-2.png",
-  "/avatar-suporte-3.png",
-];
+const HEADER_AVATARS = ["/avatar-suporte-1.png", "/avatar-suporte-2.png", "/avatar-suporte-3.png"];
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
@@ -105,8 +101,7 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
   const thread = useQuery({
     queryKey: ["support-thread", businessId, chatView],
     enabled: !!businessId,
-    queryFn: () =>
-      threadFn({ data: { businessId: businessId!, markRead: chatView } }),
+    queryFn: () => threadFn({ data: { businessId: businessId!, markRead: chatView } }),
     refetchInterval: chatView ? 3000 : 12000,
   });
   const unreadFn = useServerFn(getSupportUnreadCount);
@@ -120,10 +115,8 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
 
   const sendFn = useServerFn(sendSupportMessage);
   const sendMutation = useMutation({
-    mutationFn: (message: string) =>
-      sendFn({ data: { businessId: businessId!, message } }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["support-thread", businessId] }),
+    mutationFn: (message: string) => sendFn({ data: { businessId: businessId!, message } }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["support-thread", businessId] }),
     onError: (error: Error) => toast.error(error.message),
   });
 
@@ -259,10 +252,7 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
                   <div className="agenda-popup-header-right">
                     <div className="agenda-avatars">
                       {HEADER_AVATARS.map((src, index) => (
-                        <span
-                          key={src}
-                          className={`agenda-avatar agenda-avatar-${index + 1}`}
-                        >
+                        <span key={src} className={`agenda-avatar agenda-avatar-${index + 1}`}>
                           <img src={src} alt="" />
                           <span className="agenda-avatar-dot" />
                         </span>
@@ -315,10 +305,7 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
                               onClick={() => setTab("ajuda")}
                             >
                               {item.label}
-                              <ChevronRight
-                                className="agenda-chevron size-4.5"
-                                strokeWidth={2}
-                              />
+                              <ChevronRight className="agenda-chevron size-4.5" strokeWidth={2} />
                             </button>
                           ))}
                         </div>
@@ -345,9 +332,7 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
                                 {unreadCount > 9 ? "9+" : unreadCount}
                               </span>
                             )}
-                            <span className="agenda-chat-time">
-                              {lastMessage?.time ?? "agora"}
-                            </span>
+                            <span className="agenda-chat-time">{lastMessage?.time ?? "agora"}</span>
                           </span>
                           <span className="agenda-chat-preview">
                             {lastMessage
@@ -417,14 +402,9 @@ export const FloatingSupportButton: React.FC<FloatingSupportButtonProps> = ({
                                 onClick={() => setOpenHelp(isOpen ? null : item.label)}
                               >
                                 {item.label}
-                                <ChevronRight
-                                  className="agenda-chevron size-4.5"
-                                  strokeWidth={2}
-                                />
+                                <ChevronRight className="agenda-chevron size-4.5" strokeWidth={2} />
                               </button>
-                              {isOpen && (
-                                <p className="agenda-help-answer">{item.answer}</p>
-                              )}
+                              {isOpen && <p className="agenda-help-answer">{item.answer}</p>}
                             </div>
                           );
                         })}
@@ -533,12 +513,7 @@ function SupportChat({
   return (
     <div className="agenda-chat-view">
       <header className="agenda-chat-header">
-        <button
-          type="button"
-          className="agenda-chat-back"
-          aria-label="Voltar"
-          onClick={onBack}
-        >
+        <button type="button" className="agenda-chat-back" aria-label="Voltar" onClick={onBack}>
           <ArrowLeft className="size-5" strokeWidth={2} />
         </button>
         <span className="agenda-chat-avatar agenda-chat-avatar-sm">
@@ -552,12 +527,7 @@ function SupportChat({
             Online agora
           </span>
         </div>
-        <button
-          type="button"
-          className="agenda-popup-close"
-          aria-label="Fechar"
-          onClick={onClose}
-        >
+        <button type="button" className="agenda-popup-close" aria-label="Fechar" onClick={onClose}>
           <X className="size-4.5" strokeWidth={2} />
         </button>
       </header>
@@ -581,12 +551,7 @@ function SupportChat({
           placeholder="Escreva uma mensagem..."
           aria-label="Escreva uma mensagem"
         />
-        <button
-          type="button"
-          className="agenda-chat-send"
-          aria-label="Enviar"
-          onClick={send}
-        >
+        <button type="button" className="agenda-chat-send" aria-label="Enviar" onClick={send}>
           <ArrowUp className="size-5" strokeWidth={2.2} />
         </button>
       </div>
@@ -618,12 +583,7 @@ function SupportComposer({ onSend }: { onSend: (text: string) => boolean }) {
         placeholder="Descreva sua dúvida..."
         aria-label="Descreva sua dúvida"
       />
-      <button
-        type="button"
-        className="agenda-composer-send"
-        aria-label="Enviar"
-        onClick={send}
-      >
+      <button type="button" className="agenda-composer-send" aria-label="Enviar" onClick={send}>
         <ArrowUp className="size-4.5" strokeWidth={2.2} />
       </button>
     </div>

@@ -10,7 +10,7 @@ export const submitPixKeyApproval = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         keyType: z.string().min(1),
         key: z.string().min(3),
       })
@@ -53,7 +53,7 @@ export const submitPixKeyApproval = createServerFn({ method: "POST" })
 /** Owner lê o status da última solicitação. */
 export const getLatestPixKeyApproval = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data ?? {}))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data ?? {}))
   .handler(async ({ context, data }) => {
     const { data: rows, error } = await context.supabase
       .from("pix_key_approvals")
@@ -106,7 +106,7 @@ export const updatePixKeyApprovalEntry = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        id: z.string().uuid(),
+        id: z.string().guid(),
         keyType: pixKeyTypeEnum,
         key: z.string().trim().min(3).max(140),
       })
@@ -142,7 +142,7 @@ export const updateBusinessTransferPin = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
       })
       .parse(data),
@@ -169,7 +169,7 @@ export const setPixKeyApprovalStatus = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        id: z.string().uuid(),
+        id: z.string().guid(),
         status: z.enum(["aprovado", "recusado"]),
       })
       .parse(data),
@@ -192,10 +192,14 @@ export const setPixKeyApprovalStatus = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (data.status === "aprovado" && row?.business_id) {
       // Aprovar a chave novamente também libera o uso da carteira.
-      await supabaseAdmin
+      const { error: unblockError } = await supabaseAdmin
         .from("businesses")
         .update({ agpay_access_blocked: false })
         .eq("id", row.business_id);
+      if (unblockError)
+        throw new Error(
+          "Chave aprovada, mas não foi possível remover o bloqueio de acesso AG Pay.",
+        );
     }
     return { ok: true };
   });

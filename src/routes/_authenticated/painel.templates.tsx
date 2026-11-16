@@ -21,6 +21,7 @@ import { useBusiness } from "@/lib/business";
 import { NoBusiness } from "@/components/painel/PageHeader";
 import { AgpayBackground } from "@/components/painel/AgpayBackground";
 import { listNicheAssets } from "@/lib/niche-assets";
+import { BusinessTemplatesTab } from "@/components/template-editor/BusinessTemplatesTab";
 
 export const Route = createFileRoute("/_authenticated/painel/templates")({
   head: () => ({
@@ -87,7 +88,16 @@ const TEMPLATE_CATEGORIES: TemplateCategory[] = [
     short: "Cabelo",
     image: "/templates/nichos/cabeleireiro.png",
     icon: Scissors,
-    keywords: ["cabelo", "corte", "escova", "alisamento", "coloracao", "mechas", "luzes", "cauterizacao"],
+    keywords: [
+      "cabelo",
+      "corte",
+      "escova",
+      "alisamento",
+      "coloracao",
+      "mechas",
+      "luzes",
+      "cauterizacao",
+    ],
   },
   {
     id: "maquiadora",
@@ -169,8 +179,7 @@ function TemplatesPage() {
 
   if (!businessId) return <NoBusiness />;
 
-  const openCategory =
-    TEMPLATE_CATEGORIES.find((category) => category.id === openNicheId) ?? null;
+  const openCategory = TEMPLATE_CATEGORIES.find((category) => category.id === openNicheId) ?? null;
 
   /** Destaque: nicho marcado, ou Sobrancelha quando nada está marcado. */
   const featured = TEMPLATE_CATEGORIES.find((category) => category.id === activeCategoryId) ?? null;
@@ -313,15 +322,7 @@ function TemplatesPage() {
           morphDelayMs={500}
           morphDurationMs={1200}
           canvasClassName="pointer-events-none absolute inset-x-0 top-0 z-[1] w-full"
-          words={[
-            "TEMPLATES",
-            "PREMIUM",
-            "DIVULGAÇÃO",
-            "ARTE",
-            "TEMPLATES",
-            "NICHO",
-            "PREMIUM",
-          ]}
+          words={["TEMPLATES", "PREMIUM", "DIVULGAÇÃO", "ARTE", "TEMPLATES", "NICHO", "PREMIUM"]}
         />
         <div className="relative z-10 mx-auto max-w-xl text-center">
           <p className="lembretes-hero-eyebrow lembretes-fade-slide-up lembretes-delay-1">
@@ -332,9 +333,9 @@ function TemplatesPage() {
             Baixe artes <span>Prontas</span>
           </h1>
           <p className="lembretes-hero-sub lembretes-fade-slide-up lembretes-delay-3 mx-auto mt-6 max-w-md">
-            O menu Templates reúne artes de divulgação e fotos de serviços do seu
-            segmento. Escolha o seu nicho, baixe a arte e use nas suas redes
-            sociais e no WhatsApp — sem precisar de designer.
+            O menu Templates reúne artes de divulgação e fotos de serviços do seu segmento. Escolha
+            o seu nicho, baixe a arte e use nas suas redes sociais e no WhatsApp — sem precisar de
+            designer.
           </p>
           <button
             type="button"
@@ -348,18 +349,17 @@ function TemplatesPage() {
             Escolher Nicho
             <ChevronRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            aria-label="Como funciona abaixo"
-            className="lembretes-aviso-outline mt-10"
-          >
+          <a href="#templates-como-funciona" className="lembretes-aviso-outline mt-10">
             Como Funciona
-          </button>
+          </a>
           <div className="lembretes-scroll-cue lembretes-fade-slide-up lembretes-delay-6 mt-10">
             <span>Scroll</span>
             <span aria-hidden="true" className="lembretes-scroll-line" />
           </div>
-          <div className="lembretes-fade-slide-up lembretes-delay-7 mx-auto mt-14 max-w-md text-left">
+          <div
+            id="templates-como-funciona"
+            className="lembretes-fade-slide-up lembretes-delay-7 mx-auto mt-14 max-w-md text-left scroll-mt-6"
+          >
             <p className="flex items-center gap-3">
               <span
                 aria-hidden="true"
@@ -373,79 +373,82 @@ function TemplatesPage() {
               Escolha <span>baixe e use</span>
             </h2>
             <p className="lembretes-hero-sub mt-4">
-              Toque em um nicho, veja as artes disponíveis e baixe as que quiser.
-              Use no status do WhatsApp, no feed das redes sociais e nos panfletos
-              do seu negócio.
+              Toque em um nicho, veja as artes disponíveis e baixe as que quiser. Use no status do
+              WhatsApp, no feed das redes sociais e nos panfletos do seu negócio.
             </p>
           </div>
         </div>
       </section>
 
       {/* Vitrine de nichos. */}
+      <BusinessTemplatesTab businessId={businessId} />
+
       <div id="templates-vitrine" className="scroll-mt-6">
         <div className="w-full rounded-[2rem] border border-white/10 bg-[#f6f1ea] p-5 sm:p-8">
           <h2 className="text-2xl font-bold leading-tight text-[#3f2d1d] sm:text-[28px]">
             Bem-vindo(a)!
           </h2>
-          <p className="mt-1 text-sm font-medium text-[#8a7360]">
-            Seu bem-estar em primeiro lugar
-          </p>
+          <p className="mt-1 text-sm font-medium text-[#8a7360]">Seu bem-estar em primeiro lugar</p>
 
-        {/* Destaque sem valor — a seta abre o nicho de Sobrancelha. */}
-        <div className="relative mt-4 h-40 overflow-hidden rounded-2xl sm:h-48">
-          <img
-            key={featuredImage}
-            src={featuredImage}
-            alt={featuredLabel}
-            decoding="async"
-            className="aa-featured-fade absolute inset-0 size-full object-cover"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute inset-0 bg-gradient-to-r from-[#2e2114]/75 via-[#2e2114]/35 to-transparent"
-          />
-          <div className="relative flex h-full flex-col justify-center px-5 sm:px-7">
-            <p
-              key={featuredLabel}
-              className="aa-featured-fade text-base font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)] sm:text-lg"
-            >
-              {featuredLabel}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => openAssets()}
-            aria-label="Abrir templates do nicho selecionado"
-            className={`aa-cta-pulse absolute right-4 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#f6f1ea] text-[#4a3426] shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8a6a45] sm:right-6 sm:size-12`}
-          >
-            <ArrowRight className="size-5" strokeWidth={2.2} />
-          </button>
-        </div>
-
-        <h3 className="mt-5 text-lg font-bold text-[#3f2d1d] sm:text-xl">Templates Premium</h3>
-
-        <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-          {TEMPLATE_CATEGORIES.map((category) => {
-            const Icon = category.icon;
-            const isActive = category.id === activeCategoryId;
-            return (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => toggleCategory(category.id)}
-                aria-pressed={isActive}
-                className={`flex flex-col items-center gap-2 rounded-2xl bg-white px-1 py-4 shadow-[0_1px_3px_rgba(63,45,29,0.10)] transition-all hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(63,45,29,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8a6a45] sm:py-5 ${
-                  isActive ? "ring-2 ring-[#8a6a45] ring-offset-1 ring-offset-[#f6f1ea]" : ""
-                }`}
+          {/* Destaque sem valor — a seta abre o nicho de Sobrancelha. */}
+          <div className="relative mt-4 h-40 overflow-hidden rounded-2xl sm:h-48">
+            <img
+              key={featuredImage}
+              src={featuredImage}
+              alt={featuredLabel}
+              decoding="async"
+              className="aa-featured-fade absolute inset-0 size-full object-cover"
+            />
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-gradient-to-r from-[#2e2114]/75 via-[#2e2114]/35 to-transparent"
+            />
+            <div className="relative flex h-full flex-col justify-center px-5 sm:px-7">
+              <p
+                key={featuredLabel}
+                className="aa-featured-fade text-base font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)] sm:text-lg"
               >
-                <Icon className="size-7 text-[#6b4f35] sm:size-8" strokeWidth={1.8} aria-hidden="true" />
-                <span className="text-[11px] font-semibold leading-tight text-[#6b5138] sm:text-xs">
-                  {category.short}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                {featuredLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => openAssets()}
+              aria-label="Abrir templates do nicho selecionado"
+              className={`aa-cta-pulse absolute right-4 top-1/2 grid size-11 -translate-y-1/2 place-items-center rounded-full bg-[#f6f1ea] text-[#4a3426] shadow-sm transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8a6a45] sm:right-6 sm:size-12`}
+            >
+              <ArrowRight className="size-5" strokeWidth={2.2} />
+            </button>
+          </div>
+
+          <h3 className="mt-5 text-lg font-bold text-[#3f2d1d] sm:text-xl">Templates Premium</h3>
+
+          <div className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+            {TEMPLATE_CATEGORIES.map((category) => {
+              const Icon = category.icon;
+              const isActive = category.id === activeCategoryId;
+              return (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => toggleCategory(category.id)}
+                  aria-pressed={isActive}
+                  className={`flex flex-col items-center gap-2 rounded-2xl bg-white px-1 py-4 shadow-[0_1px_3px_rgba(63,45,29,0.10)] transition-all hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(63,45,29,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8a6a45] sm:py-5 ${
+                    isActive ? "ring-2 ring-[#8a6a45] ring-offset-1 ring-offset-[#f6f1ea]" : ""
+                  }`}
+                >
+                  <Icon
+                    className="size-7 text-[#6b4f35] sm:size-8"
+                    strokeWidth={1.8}
+                    aria-hidden="true"
+                  />
+                  <span className="text-[11px] font-semibold leading-tight text-[#6b5138] sm:text-xs">
+                    {category.short}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

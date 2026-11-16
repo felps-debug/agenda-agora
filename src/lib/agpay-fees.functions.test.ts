@@ -22,7 +22,7 @@ const save = saveAgpayFees as unknown as (arg: {
   context: unknown;
 }) => Promise<{ ok: true }>;
 
-const master = { userId: "master-1", claims: {} };
+const master = { userId: "master-1", claims: { aal: "aal2" } };
 const owner = { userId: "dono-1", claims: {} };
 
 beforeEach(() => {

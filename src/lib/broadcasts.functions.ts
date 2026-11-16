@@ -96,15 +96,11 @@ export const createBroadcast = createServerFn({ method: "POST" })
 
     // Colunas novas podem não constar nos tipos gerados do Supabase até a
     // migration ser aplicada/`supabase gen types` rodar novamente.
-    const minimal = payload as unknown as { title: string; message: string };
-    let { error } = await supabaseAdmin.from("broadcasts").insert(minimal);
-    // Fallback: base sem as colunas novas (migration pendente) envia sem
-    // públicos/prazo/cor/ícone — a mensagem sempre chega.
-    if (error && /audience|display_days|accent_color|icon/i.test(error.message)) {
-      ({ error } = await supabaseAdmin
-        .from("broadcasts")
-        .insert({ title, message } as unknown as { title: string; message: string }));
-    }
+    const { error } = await supabaseAdmin
+      .from("broadcasts")
+      .insert(payload as unknown as { title: string; message: string });
+    // Sem as colunas atuais, não é seguro gravar parcialmente: a leitura
+    // interpreta audiência ausente como "todos" e poderia ampliar o público.
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -138,7 +134,7 @@ export const listBroadcasts = createServerFn({ method: "GET" })
 /** Master remove um aviso. */
 export const deleteBroadcast = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ id: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ id: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const supabaseAdmin = await assertSuperAdmin(context);
     const { error } = await supabaseAdmin.from("broadcasts").delete().eq("id", data.id);

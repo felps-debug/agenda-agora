@@ -51,11 +51,20 @@ describe("requireMasterAccess na URL /painel/master", () => {
     ).rejects.toThrow("Acesso restrito ao painel master.");
   });
 
-  it("autoriza a rota por role atual mesmo com sessão aal1", async () => {
+  it("autoriza AAL1 quando a role super_admin continua vigente", async () => {
     runtime.role = { role: "super_admin" };
     await expect(
       (requireMasterAccess as unknown as (arg: { context: Context }) => Promise<unknown>)({
         context: { userId: "admin-a", claims: { aal: "aal1" } },
+      }),
+    ).resolves.toEqual({ authorized: true });
+  });
+
+  it("autoriza a rota com role atual sem assurance level", async () => {
+    runtime.role = { role: "super_admin" };
+    await expect(
+      (requireMasterAccess as unknown as (arg: { context: Context }) => Promise<unknown>)({
+        context: { userId: "admin-a" },
       }),
     ).resolves.toEqual({ authorized: true });
   });

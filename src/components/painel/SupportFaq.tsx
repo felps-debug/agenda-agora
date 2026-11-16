@@ -112,7 +112,9 @@ export function SupportFaq() {
                   <span className="mb-1 block text-[0.72rem] uppercase tracking-[0.05em] text-[var(--c-69a2ff)]">
                     {itemCat}
                   </span>
-                  <span className="block text-[0.94rem] font-medium text-[var(--c-f1f2f4)]">{q}</span>
+                  <span className="block text-[0.94rem] font-medium text-[var(--c-f1f2f4)]">
+                    {q}
+                  </span>
                 </span>
                 <ChevronDown
                   className={`size-5 shrink-0 text-[#656871] transition-transform duration-200 ${isOpen ? "rotate-180" : ""}`}

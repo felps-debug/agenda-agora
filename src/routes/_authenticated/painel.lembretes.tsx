@@ -243,7 +243,11 @@ function LembretesPage() {
               Configurar Mensagens
               <ChevronRight className="size-4 shrink-0" strokeWidth={2.5} aria-hidden="true" />
             </button>
-            <button type="button" aria-label="Aviso abaixo" className="lembretes-aviso-outline mt-10">
+            <button
+              type="button"
+              aria-label="Aviso abaixo"
+              className="lembretes-aviso-outline mt-10"
+            >
               Aviso Abaixo
             </button>
             <div className="lembretes-scroll-cue lembretes-fade-slide-up lembretes-delay-6 mt-10">
@@ -412,26 +416,26 @@ function LembretesPage() {
         </div>
 
         <div className="mt-3 rounded-xl bg-[#232327] p-3">
-          {(
-          <div className="flex items-center gap-1">
-            {[
-              { label: "Negrito", marker: "*", Icon: Bold },
-              { label: "Itálico", marker: "_", Icon: Italic },
-              { label: "Riscado", marker: "~", Icon: Strikethrough },
-            ].map(({ label, marker, Icon }) => (
-              <button
-                key={marker}
-                type="button"
-                title={label}
-                aria-label={label}
-                onClick={() => wrapSelection(marker)}
-                className="flex size-9 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/10"
-              >
-                <Icon className="size-4" aria-hidden="true" />
-              </button>
-            ))}
-          </div>
-          )}
+          {
+            <div className="flex items-center gap-1">
+              {[
+                { label: "Negrito", marker: "*", Icon: Bold },
+                { label: "Itálico", marker: "_", Icon: Italic },
+                { label: "Riscado", marker: "~", Icon: Strikethrough },
+              ].map(({ label, marker, Icon }) => (
+                <button
+                  key={marker}
+                  type="button"
+                  title={label}
+                  aria-label={label}
+                  onClick={() => wrapSelection(marker)}
+                  className="flex size-9 items-center justify-center rounded-lg text-white transition-colors hover:bg-white/10"
+                >
+                  <Icon className="size-4" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          }
           <textarea
             ref={textareaRef}
             aria-label={`Texto da mensagem de ${activeTabDef.label.toLowerCase()}`}
@@ -446,67 +450,70 @@ function LembretesPage() {
               Remova os campos não reconhecidos.
             </p>
           )}
-          {(
-          <div className="mt-2 flex gap-1 overflow-x-auto pb-1" aria-label="Emojis">
-            {EMOJIS.map((emoji) => (
+          {
+            <div className="mt-2 flex gap-1 overflow-x-auto pb-1" aria-label="Emojis">
+              {EMOJIS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  aria-label={`Inserir emoji ${emoji}`}
+                  onClick={() => insertAtCursor(emoji)}
+                  className="shrink-0 rounded-lg px-1.5 py-1 text-xl transition-colors hover:bg-white/10"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          }
+          {
+            <div className="mt-2 flex flex-wrap gap-2">
               <button
-                key={emoji}
                 type="button"
-                aria-label={`Inserir emoji ${emoji}`}
-                onClick={() => insertAtCursor(emoji)}
-                className="shrink-0 rounded-lg px-1.5 py-1 text-xl transition-colors hover:bg-white/10"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-          )}
-          {(
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              type="button"
-              aria-label="Abrir emojis"
-              onClick={() => textareaRef.current?.focus()}
-              className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
-            >
-              😁
-            </button>
-            <button
-              type="button"
-              onClick={() => prefixLines(() => "• ")}
-              className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
-            >
-              Marcador
-            </button>
-            <button
-              type="button"
-              onClick={() => prefixLines((index) => `${index + 1}. `)}
-              className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
-            >
-              Tópico
-            </button>
-          </div>
-          )}
-          {(
-          <div className="mt-2 flex flex-wrap gap-2">
-            {activeTabDef.tokens.map(([label, token]) => (
-              <button
-                key={token}
-                type="button"
-                onClick={() => insertAtCursor(token)}
+                aria-label="Abrir emojis"
+                onClick={() => textareaRef.current?.focus()}
                 className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
               >
-                {label}
+                😁
               </button>
-            ))}
-          </div>
-          )}
+              <button
+                type="button"
+                onClick={() => prefixLines(() => "• ")}
+                className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
+              >
+                Marcador
+              </button>
+              <button
+                type="button"
+                onClick={() => prefixLines((index) => `${index + 1}. `)}
+                className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
+              >
+                Tópico
+              </button>
+            </div>
+          }
+          {
+            <div className="mt-2 flex flex-wrap gap-2">
+              {activeTabDef.tokens.map(([label, token]) => (
+                <button
+                  key={token}
+                  type="button"
+                  onClick={() => insertAtCursor(token)}
+                  className="rounded-lg border border-[#2c2c31] bg-[#101013] px-3 py-2 text-xs font-medium text-[var(--c-b8bec7)] transition-colors hover:border-[var(--c-1677ff)]/40 hover:text-white"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          }
         </div>
 
         {activeTab === "avisar" && (
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="space-y-1">
-              <label htmlFor="reminderHoursBefore" className="text-xs font-medium text-[var(--c-b8bec7)]">
+              <label
+                htmlFor="reminderHoursBefore"
+                className="text-xs font-medium text-[var(--c-b8bec7)]"
+              >
                 Enviar quantas horas antes?
               </label>
               <Input

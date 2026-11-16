@@ -14,7 +14,6 @@ export const MIN_WITHDRAWAL_CENTS = AGPAY_MIN_PAYOUT_CENTS + WITHDRAWAL_FEE_CENT
 
 const cpfDigits = (value: string) => value.replace(/\D/g, "");
 
-
 function isValidCnpj(value: string) {
   if (!/^[\d./\-\s]+$/.test(value)) return false;
   const digits = cpfDigits(value);
@@ -136,7 +135,7 @@ export function getWithdrawalPixKeyValidationError(
 
 export const saveWithdrawalPixKeyInput = z
   .object({
-    businessId: z.string().uuid(),
+    businessId: z.string().guid(),
     pixKey: z.string().trim().min(1, "Informe a chave PIX.").max(140),
     pixKeyType: z.enum(withdrawalPixKeyTypes),
   })
@@ -150,9 +149,10 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         amountCents: z.number().int().min(MIN_WITHDRAWAL_CENTS),
-        idempotencyKey: z.string().uuid(),
+        idempotencyKey: z.string().guid(),
+        pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
       })
       .parse(data),
   )
@@ -164,6 +164,7 @@ export const requestWithdrawal = createServerFn({ method: "POST" })
       data.businessId,
       data.amountCents,
       data.idempotencyKey,
+      data.pin,
     );
   });
 
@@ -179,8 +180,16 @@ export const saveWithdrawalPixKey = createServerFn({ method: "POST" })
     return saveWithdrawalPixKeyForOwner(context.supabase, context.userId, data);
   });
 
+export const getWithdrawalPixKey = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
+  .handler(async ({ context, data }) => {
+    const { getWithdrawalPixKeyForOwner } = await import("./withdrawal.server");
+    return getWithdrawalPixKeyForOwner(context.supabase, context.userId, data);
+  });
+
 export const saveWithdrawalPinInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
 });
 
@@ -192,7 +201,7 @@ export const verifyWithdrawalPin = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
     z
       .object({
-        businessId: z.string().uuid(),
+        businessId: z.string().guid(),
         pin: z.string().regex(/^\d{4}$/, "A senha deve ter 4 dígitos numéricos."),
       })
       .parse(data),
@@ -217,7 +226,7 @@ export const saveWithdrawalPin = createServerFn({ method: "POST" })
 /** Informa se o negócio já cadastrou a senha de transferência. */
 export const getWithdrawalPinStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const { getWithdrawalPinStatusForOwner } = await import("./withdrawal.server");
     return getWithdrawalPinStatusForOwner(context.supabase, context.userId, data);
@@ -226,7 +235,7 @@ export const getWithdrawalPinStatus = createServerFn({ method: "GET" })
 export const paymentPixModes = ["desabilitado", "opcional", "obrigatorio"] as const;
 
 export const savePaymentRulesInput = z.object({
-  businessId: z.string().uuid(),
+  businessId: z.string().guid(),
   pixMode: z.enum(paymentPixModes),
   pixExceptionClients: z.array(z.string().trim().min(1).max(80)).max(200).default([]),
 });
@@ -243,7 +252,7 @@ export const savePaymentRules = createServerFn({ method: "POST" })
 /** Lê as regras de pagamento da carteira AgPay do negócio. */
 export const getPaymentRules = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => z.object({ businessId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ businessId: z.string().guid() }).parse(data))
   .handler(async ({ context, data }) => {
     const { getPaymentRulesForOwner } = await import("./withdrawal.server");
     return getPaymentRulesForOwner(context.supabase, context.userId, data);

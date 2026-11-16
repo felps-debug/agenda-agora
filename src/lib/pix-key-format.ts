@@ -54,10 +54,7 @@ const maskAleatoria = (value: string) => {
 const maskEmail = (value: string) => value.replace(/\s/g, "").toLowerCase();
 
 /** Aplica a pontuação no padrão brasileiro Pix conforme o tipo da chave. */
-export function maskPixKey(
-  type: PixKeyMaskType,
-  raw: string,
-): string {
+export function maskPixKey(type: PixKeyMaskType, raw: string): string {
   switch (type) {
     case "cpf":
       return maskCpf(raw);

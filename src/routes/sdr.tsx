@@ -97,7 +97,9 @@ function SdrLoginPage() {
             className="size-11 object-contain"
           />
           <div>
-            <p className="text-lg font-extrabold leading-none tracking-tight text-white">AGENDA AGORA</p>
+            <p className="text-lg font-extrabold leading-none tracking-tight text-white">
+              AGENDA AGORA
+            </p>
             <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-[#626872]">
               Painel do SDR
             </p>

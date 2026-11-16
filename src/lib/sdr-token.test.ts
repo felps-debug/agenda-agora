@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signSdrToken, verifySdrToken } from "./sdr-token";
+import { signSdrToken, verifySdrToken, verifySdrTokenClaims } from "./sdr-token";
 
 const SECRET = "segredo-de-teste";
 
@@ -27,5 +27,20 @@ describe("sdr-token", () => {
     const forged = `${body}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
     expect(verifySdrToken(forged, SECRET)).toBeNull();
     expect(verifySdrToken("lixo", SECRET)).toBeNull();
+  });
+
+  it("assina e retorna a versao de sessao sem quebrar tokens legados de versao zero", () => {
+    const legacy = signSdrToken("sdr-1", SECRET);
+    const current = signSdrToken("sdr-1", SECRET, Date.now(), 4);
+
+    expect(verifySdrTokenClaims(legacy, SECRET)).toMatchObject({
+      sdrId: "sdr-1",
+      sessionVersion: 0,
+    });
+    expect(verifySdrTokenClaims(current, SECRET)).toMatchObject({
+      sdrId: "sdr-1",
+      sessionVersion: 4,
+    });
+    expect(verifySdrToken(current, SECRET)).toBe("sdr-1");
   });
 });

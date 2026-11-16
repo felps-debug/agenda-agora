@@ -12,6 +12,7 @@ type AdminWithdrawal = {
   pix_key_snapshot: string;
   created_at: string;
   status: string;
+  manual_review: { event_type: string; last_error: string | null; received_at: string } | null;
 };
 
 export function WithdrawalsAdmin() {
@@ -74,6 +75,12 @@ export function WithdrawalsAdmin() {
                     : row.status === "paid"
                       ? "Pago"
                       : "Falhou"}
+                {row.manual_review && (
+                  <p role="alert" className="mt-1 max-w-xs text-xs font-medium text-destructive">
+                    Revisão manual: {row.manual_review.last_error} Confirme o status na AgPay antes
+                    de marcar como pago ou falho.
+                  </p>
+                )}
               </td>
               <td className="p-3">
                 {row.status === "processing" && (

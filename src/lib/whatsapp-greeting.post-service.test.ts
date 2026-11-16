@@ -29,6 +29,7 @@ vi.mock("./whatsapp-provider.server", () => ({
   loadWhatsappProvider: async () => ({ sendTextMessage: runtime.sendTextMessage }),
 }));
 vi.mock("./whatsapp-credentials.server", () => ({
+  isWhatsappCredentialStoreUnavailable: () => false,
   readWhatsappCredential: async () => ({ instanceToken: "token-inst" }),
 }));
 vi.mock("@/integrations/supabase/client.server", () => ({
@@ -194,9 +195,11 @@ describe("seleção de clientes do pós-atendimento (agendamento público sem cu
     const { postServiceSelectionMatches } = await import("./whatsapp-greeting.server");
     const chosen = new Set(["11111111-1111-4111-8111-111111111111"]);
     expect(postServiceSelectionMatches(chosen, null, "11981549276")).toBe(false);
-    expect(postServiceSelectionMatches(chosen, null, "11981549276", new Set(["11981549276"]))).toBe(true);
-    expect(
-      postServiceSelectionMatches(chosen, "11111111-1111-4111-8111-111111111111", null),
-    ).toBe(true);
+    expect(postServiceSelectionMatches(chosen, null, "11981549276", new Set(["11981549276"]))).toBe(
+      true,
+    );
+    expect(postServiceSelectionMatches(chosen, "11111111-1111-4111-8111-111111111111", null)).toBe(
+      true,
+    );
   });
 });
