@@ -63,7 +63,10 @@ import { getBillingCycle } from "@/lib/subscription.functions";
 import { isMasterCouponActive } from "@/lib/subscription-coupon";
 import type { BillingStage } from "@/lib/billing-cycle";
 import { SubscriptionPixPayment } from "@/components/painel/SubscriptionPixPayment";
-import { SubscriptionPaymentMethodSelector } from "@/components/painel/SubscriptionPaymentMethodSelector";
+import {
+  SubscriptionPaymentMethodSelector,
+  type SubscriptionPayMethod,
+} from "@/components/painel/SubscriptionPaymentMethodSelector";
 import { AvisoCobranca } from "@/components/painel/AvisoCobranca";
 import { dayKey } from "@/lib/day-key";
 import { consumeFreshSupportSession } from "@/lib/support-session";
@@ -1214,6 +1217,7 @@ function brlAssinatura(cents: number) {
 
 function PagamentosView({ business }: { business: Business | null }) {
   const [planOpen, setPlanOpen] = useState(true);
+  const [payMethod, setPayMethod] = useState<SubscriptionPayMethod>("pix");
   const {
     isOpen: checkoutOpen,
     closing: checkoutClosing,
@@ -1491,7 +1495,7 @@ function PagamentosView({ business }: { business: Business | null }) {
                     ) : null}
                   </div>
 
-                  <SubscriptionPaymentMethodSelector />
+                  <SubscriptionPaymentMethodSelector value={payMethod} onChange={setPayMethod} />
 
                   {/* Cupom — só aparece se o master ativou um cupom para este estabelecimento (auto-expira) */}
                   {activeMasterCoupon ? (
@@ -1534,7 +1538,9 @@ function PagamentosView({ business }: { business: Business | null }) {
 
                   {business ? (
                     <SubscriptionPixPayment
+                      key={payMethod}
                       businessId={business.id}
+                      method={payMethod}
                       onPaid={() => {
                         closeCheckout();
                         void cycle.refetch();
@@ -1542,7 +1548,9 @@ function PagamentosView({ business }: { business: Business | null }) {
                     />
                   ) : null}
                   <p className="mt-2.5 text-center text-xs text-[#8b8e96]">
-                    Pagamento via PIX (instantâneo) — liberação automática.
+                    {payMethod === "card"
+                      ? "Pagamento no cartão de crédito em ambiente seguro — liberação automática após a confirmação."
+                      : "Pagamento via PIX (instantâneo) — liberação automática."}
                   </p>
                 </div>
               </div>

@@ -23,6 +23,7 @@ const runtime = vi.hoisted(() => ({
   sessionBusinessSelects: [] as string[],
   adminBusinessSelects: [] as string[],
   createPixCharge: vi.fn(),
+  createCardCharge: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-start", () => serverFnMock());
@@ -38,6 +39,8 @@ vi.mock("@/lib/auth/require-super-admin", () => ({
 }));
 vi.mock("@/lib/agpay.server", () => ({
   createPixCharge: (...args: unknown[]) => runtime.createPixCharge(...args),
+  createCardCharge: (...args: unknown[]) => runtime.createCardCharge(...args),
+  CARD_MIN_AMOUNT_CENTS: 500,
 }));
 vi.mock("@/integrations/supabase/client.server", () => ({
   supabaseAdmin: {
@@ -138,6 +141,12 @@ const context = {
 beforeEach(() => {
   runtime.createPixCharge.mockReset();
   runtime.createPixCharge.mockResolvedValue(runtime.pix);
+  runtime.createCardCharge.mockReset();
+  runtime.createCardCharge.mockResolvedValue({
+    providerPaymentId: "tx-card-1",
+    status: "pending",
+    checkoutUrl: "https://pay.veopag.co/abc",
+  });
   runtime.professionalsCount = 1;
   runtime.professionalsError = null;
   runtime.email = "dono@example.com";
@@ -375,5 +384,54 @@ describe("saveOwnerCpf (US7) — CPF salvo pelo servidor", () => {
       saveCpf({ data: { businessId, cpf: validCpf }, context: masterContext }),
     ).rejects.toThrow("role lookup failed");
     expect(runtime.cpfUpdate).toBeNull();
+  });
+});
+
+describe("createSubscriptionCharge — cartão de crédito (checkout hospedado)", () => {
+  it("cria a cobrança de cartão e devolve a URL do checkout, sem QR Code", async () => {
+    const result = await create({ data: { businessId, method: "card" }, context });
+
+    expect(runtime.createPixCharge).not.toHaveBeenCalled();
+    expect(runtime.createCardCharge).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 8990, payerCpf: "39053344705" }),
+    );
+    expect(result).toMatchObject({
+      chargeId: "charge-1",
+      providerPaymentId: "tx-card-1",
+      checkoutUrl: "https://pay.veopag.co/abc",
+      qrCode: null,
+      status: "pending",
+    });
+    expect(runtime.inserted).toMatchObject({
+      method: "card",
+      provider: "agpay",
+      provider_payment_id: "tx-card-1",
+      status: "pending",
+    });
+  });
+
+  it("recusa cartão abaixo do mínimo de R$ 5,00 sem chamar o provedor", async () => {
+    runtime.business = { ...runtime.business, monthly_fee_cents: 0 };
+    runtime.professionalsCount = 1;
+    runtime.business["coupon_percent"] = 100;
+    runtime.business["coupon_expires_at"] = new Date(Date.now() + 86_400_000).toISOString();
+
+    await expect(create({ data: { businessId, method: "card" }, context })).rejects.toThrow();
+    expect(runtime.createCardCharge).not.toHaveBeenCalled();
+  });
+
+  it("falha do provedor vira mensagem clara e não grava cobrança", async () => {
+    runtime.createCardCharge.mockRejectedValue(new Error("boom"));
+
+    await expect(create({ data: { businessId, method: "card" }, context })).rejects.toThrow(
+      "Não foi possível abrir o pagamento no cartão agora.",
+    );
+    expect(runtime.inserted).toBeNull();
+  });
+
+  it("o Pix continua devolvendo checkoutUrl nulo", async () => {
+    const result = await create({ data: { businessId, method: "pix" }, context });
+    expect(result["checkoutUrl"]).toBeNull();
+    expect(runtime.inserted).toMatchObject({ method: "pix" });
   });
 });

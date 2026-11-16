@@ -153,7 +153,7 @@ export const getSubscriptionChargeStatus = createServerFn({ method: "GET" })
 
 const schema = z.object({
   businessId: z.string().guid(),
-  method: z.enum(["pix"]).default("pix"),
+  method: z.enum(["pix", "card"]).default("pix"),
 });
 
 export const createSubscriptionCharge = createServerFn({ method: "POST" })
@@ -185,7 +185,9 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
       );
     }
 
-    const { createPixCharge } = await import("@/lib/agpay.server");
+    const { createPixCharge, createCardCharge, CARD_MIN_AMOUNT_CENTS } =
+      await import("@/lib/agpay.server");
+    const isCard = data.method === "card";
 
     // E-mail do pagador (dono) via Auth.
     const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(business.owner_id);
@@ -209,27 +211,41 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
       now,
     });
     if (amountCents < 1) throw new Error("Valor da assinatura inválido.");
+    if (isCard && amountCents < CARD_MIN_AMOUNT_CENTS) {
+      throw new Error("O valor mínimo no cartão de crédito é R$ 5,00. Pague por Pix.");
+    }
 
-    let pix: Awaited<ReturnType<typeof createPixCharge>>;
+    const payerName = authUser?.user?.user_metadata?.["name"] ?? "Responsável";
+    let pix: { providerPaymentId: string; qrCode: string | null; expiresAt: string | null };
+    let checkoutUrl: string | null = null;
     try {
-      pix = await createPixCharge({
-        amountCents,
-        payerName: authUser?.user?.user_metadata?.["name"] ?? "Responsável",
-        payerEmail,
-        payerCpf: cpf,
-      });
+      if (isCard) {
+        const card = await createCardCharge({
+          amountCents,
+          payerName,
+          payerEmail,
+          payerCpf: cpf,
+          description: "Assinatura Agenda Agora (30 dias)",
+        });
+        pix = { providerPaymentId: card.providerPaymentId, qrCode: null, expiresAt: null };
+        checkoutUrl = card.checkoutUrl;
+      } else {
+        pix = await createPixCharge({ amountCents, payerName, payerEmail, payerCpf: cpf });
+      }
     } catch (error) {
       // O erro do AgPay perde o `name` ao cruzar a fronteira do server fn e a UI o mostrava
       // como "serviço indisponível". Registra o motivo real e devolve uma mensagem clara.
       const detail = error as { status?: unknown; providerMessage?: unknown; message?: unknown };
-      console.error("Falha ao criar cobrança Pix da assinatura", {
+      console.error(`Falha ao criar cobrança ${isCard ? "de cartão" : "Pix"} da assinatura`, {
         businessId: data.businessId,
         status: detail.status ?? null,
         providerMessage: detail.providerMessage ?? null,
         message: typeof detail.message === "string" ? detail.message : null,
       });
       throw new Error(
-        "Não foi possível gerar o Pix agora. Tente novamente em instantes ou fale com o suporte.",
+        isCard
+          ? "Não foi possível abrir o pagamento no cartão agora. Tente novamente em instantes ou pague por Pix."
+          : "Não foi possível gerar o Pix agora. Tente novamente em instantes ou fale com o suporte.",
       );
     }
 
@@ -238,7 +254,7 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
       .from("subscription_charges")
       .insert({
         business_id: data.businessId,
-        method: "pix",
+        method: data.method,
         provider: "agpay",
         provider_payment_id: pix.providerPaymentId,
         amount_cents: amountCents,
@@ -294,6 +310,7 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
       amountCents,
       status: "pending" as const,
       qrCode: pix.qrCode,
+      checkoutUrl,
       expiresAt: pix.expiresAt,
     };
   });

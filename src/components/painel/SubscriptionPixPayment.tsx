@@ -31,6 +31,7 @@ type Charge = {
   chargeId: string;
   qrCode: string;
   qrImageUrl: string | null;
+  checkoutUrl: string | null;
   amountCents: number;
 };
 
@@ -45,11 +46,14 @@ type Charge = {
  */
 export function SubscriptionPixPayment({
   businessId,
+  method = "pix",
   onPaid,
 }: {
   businessId: string;
+  method?: "pix" | "card";
   onPaid?: () => void;
 }) {
+  const isCard = method === "card";
   const queryClient = useQueryClient();
   const createFn = useServerFn(createSubscriptionCharge);
   const statusFn = useServerFn(getSubscriptionChargeStatus);
@@ -72,13 +76,32 @@ export function SubscriptionPixPayment({
 
   const pay = useMutation({
     mutationFn: async () => {
-      const result = await createFn({ data: { businessId, method: "pix" } });
+      const result = await createFn({ data: { businessId, method } });
+      if (isCard) {
+        const url = result.checkoutUrl?.trim();
+        if (!url) {
+          throw new Error("O pagamento no cartão não está disponível agora. Tente novamente.");
+        }
+        return {
+          chargeId: result.chargeId,
+          qrCode: "",
+          qrImageUrl: null,
+          checkoutUrl: url,
+          amountCents: result.amountCents,
+        };
+      }
       const qr = result.qrCode?.trim();
       if (!qr) {
         throw new Error("O código Pix ainda não está disponível. Tente novamente em instantes.");
       }
       const qrImageUrl = await QRCode.toDataURL(qr, { margin: 1, width: 300 }).catch(() => null);
-      return { chargeId: result.chargeId, qrCode: qr, qrImageUrl, amountCents: result.amountCents };
+      return {
+        chargeId: result.chargeId,
+        qrCode: qr,
+        qrImageUrl,
+        checkoutUrl: null,
+        amountCents: result.amountCents,
+      };
     },
     onMutate: () => setFailed(null),
     onSuccess: (result) => setCharge(result),
@@ -121,9 +144,12 @@ export function SubscriptionPixPayment({
           onPaidRef.current?.();
         } else if (s.status === "failed" || s.status === "expired") {
           window.clearInterval(timer);
-          toast.error("A cobrança expirou. Gere um novo Pix.");
+          const expired = isCard
+            ? "O pagamento não foi concluído. Tente novamente."
+            : "A cobrança expirou. Gere um novo Pix.";
+          toast.error(expired);
           setCharge(null);
-          setFailed("A cobrança expirou. Gere um novo Pix.");
+          setFailed(expired);
         }
       } catch {
         // Ignora erros transitórios do poll.
@@ -133,7 +159,7 @@ export function SubscriptionPixPayment({
       active = false;
       window.clearInterval(timer);
     };
-  }, [chargeId, paid, statusFn, queryClient]);
+  }, [chargeId, paid, statusFn, queryClient, isCard]);
 
   const copy = () => {
     if (!charge?.qrCode) return;
@@ -181,7 +207,30 @@ export function SubscriptionPixPayment({
   const needsCpfStep = !charge && !hasSavedCpf && !pay.isPending;
 
   let dialogBody;
-  if (charge) {
+  if (charge && charge.checkoutUrl) {
+    dialogBody = (
+      <div className="space-y-3 text-center">
+        <p className="text-sm font-semibold text-white">
+          Pague {brl(charge.amountCents)} no cartão de crédito
+        </p>
+        <p className="text-xs text-[#8b8e96]">
+          Você será levado a um ambiente seguro para digitar os dados do cartão. Nós não
+          guardamos nem vemos os dados do seu cartão.
+        </p>
+        <a
+          href={charge.checkoutUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex h-11 w-full items-center justify-center rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5]"
+        >
+          Abrir pagamento seguro
+        </a>
+        <p className="text-xs text-[#8b8e96]">
+          Depois de pagar, volte para esta tela. Aguardando confirmação do pagamento…
+        </p>
+      </div>
+    );
+  } else if (charge) {
     dialogBody = (
       <div className="space-y-3 text-center">
         <p className="text-sm font-semibold text-white">Pague {brl(charge.amountCents)} com Pix</p>
@@ -260,14 +309,14 @@ export function SubscriptionPixPayment({
           disabled={busy || !cpfValid}
           className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
         >
-          Gerar Pix
+          {isCard ? "Continuar" : "Gerar Pix"}
         </button>
       </form>
     );
   } else {
     dialogBody = (
       <p className="py-6 text-center text-sm text-white" role="status">
-        Gerando Pix...
+        {isCard ? "Preparando pagamento..." : "Gerando Pix..."}
       </p>
     );
   }
@@ -280,7 +329,7 @@ export function SubscriptionPixPayment({
         disabled={cpfStatus.isPending}
         className="h-11 w-full rounded-xl bg-white text-sm font-bold text-black transition-colors hover:bg-[#e5e5e5] disabled:opacity-50"
       >
-        Continuar para PIX
+        {isCard ? "Continuar para cartão" : "Continuar para PIX"}
       </button>
       {dialogOpen && typeof document !== "undefined"
         ? createPortal(
@@ -307,7 +356,15 @@ export function SubscriptionPixPayment({
                     <X className="size-4" aria-hidden="true" />
                   </button>
                   <h2 className="mb-4 pr-8 text-center text-lg font-bold text-white">
-                    {charge ? "Pagar com Pix" : needsCpfStep ? "Seu CPF" : "Pix"}
+                    {charge
+                    ? isCard
+                      ? "Pagar com cartão"
+                      : "Pagar com Pix"
+                    : needsCpfStep
+                      ? "Seu CPF"
+                      : isCard
+                        ? "Cartão de crédito"
+                        : "Pix"}
                   </h2>
                   {dialogBody}
                 </div>

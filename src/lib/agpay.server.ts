@@ -191,6 +191,60 @@ export async function createPixCharge(input: {
   };
 }
 
+export type CardCharge = {
+  providerPaymentId: string;
+  status: string;
+  checkoutUrl: string;
+};
+
+type AgpayCardResponse = {
+  success: boolean;
+  data: {
+    transaction_uuid: string;
+    status: string;
+    checkout_url?: string | null;
+  };
+};
+
+/** Valor mínimo aceito pela VeoPag (via AgPay) no cartão de crédito. */
+export const CARD_MIN_AMOUNT_CENTS = 500;
+
+/**
+ * Cria a cobrança de cartão no checkout hospedado da VeoPag. Os dados do cartão NUNCA passam
+ * pelo nosso servidor: o cliente é redirecionado para `checkout_url` e a confirmação chega
+ * pelo webhook (`deposit.completed`) ou por consulta de status.
+ */
+export async function createCardCharge(input: {
+  amountCents: number;
+  payerName: string;
+  payerEmail: string;
+  payerCpf: string;
+  description?: string;
+}): Promise<CardCharge> {
+  if (!Number.isInteger(input.amountCents) || input.amountCents < CARD_MIN_AMOUNT_CENTS) {
+    throw new Error("O valor mínimo no cartão de crédito é R$ 5,00.");
+  }
+  const response = await agpayFetch<AgpayCardResponse>("/payments/credit-card", {
+    method: "POST",
+    body: JSON.stringify({
+      amount: input.amountCents / 100,
+      payer_name: input.payerName,
+      payer_email: input.payerEmail,
+      payer_cpf: input.payerCpf,
+      ...(input.description ? { description: input.description.slice(0, 500) } : {}),
+    }),
+  });
+  const checkoutUrl = response.data.checkout_url?.trim();
+  if (!checkoutUrl || !/^https:\/\//i.test(checkoutUrl)) {
+    throw new AgpayAmbiguousResponseError("/payments/credit-card");
+  }
+  return {
+    providerPaymentId: response.data.transaction_uuid,
+    status: response.data.status,
+    checkoutUrl,
+  };
+}
+
 export type CashoutPix = {
   providerRef: string | null;
   status: string | null;
