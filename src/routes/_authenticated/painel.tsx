@@ -1640,6 +1640,23 @@ function RoutePendingSkeleton() {
   );
 }
 
+function WhatsAppBrandIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M20.52 3.48A11.82 11.82 0 0 0 12.08 0C5.5 0 .14 5.36.14 11.95c0 2.1.55 4.16 1.6 5.97L.04 24l6.23-1.64a11.9 11.9 0 0 0 5.8 1.48h.01C18.66 23.84 24 18.48 24 11.9c0-3.18-1.24-6.17-3.48-8.42Zm-8.44 18.35h-.01a9.9 9.9 0 0 1-5.04-1.38l-.36-.21-3.7.97.99-3.6-.23-.37a9.88 9.88 0 0 1-1.52-5.29c0-5.47 4.44-9.92 9.9-9.92a9.84 9.84 0 0 1 7 2.91 9.84 9.84 0 0 1 2.9 7c-.01 5.46-4.45 9.89-9.91 9.89Zm5.43-7.42c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.95 1.17-.17.2-.35.22-.65.07-.3-.15-1.25-.46-2.38-1.47-.88-.79-1.48-1.76-1.65-2.06-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.61-.92-2.21-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.21 5.1 4.5.71.31 1.27.49 1.7.63.71.23 1.36.2 1.87.12.57-.08 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.42-.07-.12-.27-.2-.57-.35Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function PainelLayout() {
   const { user, signOut } = useAuth();
   const { businesses, business, businessId, isPlatformAdmin } = useBusiness();
@@ -1649,6 +1666,16 @@ function PainelLayout() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+
+  useEffect(() => {
+    if (!supportOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSupportOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [supportOpen]);
 
   useEffect(() => {
     try {
@@ -2453,6 +2480,39 @@ function PainelLayout() {
             </section>
           ))}
         </nav>
+
+        <div className="relative z-20 shrink-0 border-t border-[#25282c] pt-3">
+          {supportOpen && (
+            <div className="absolute bottom-[calc(100%+0.55rem)] left-0 right-0 rounded-[13px] border border-[#303238] bg-[#0a0b0d] p-2.5 shadow-[0_18px_45px_rgba(0,0,0,0.62)] animate-in fade-in slide-in-from-bottom-2 duration-150">
+              <a
+                href="https://wa.me/5511948037906"
+                target="_blank"
+                rel="noreferrer"
+                className="group flex items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[12px] font-semibold text-[#e9ebef] transition-colors hover:bg-white/[0.045]"
+              >
+                <WhatsAppBrandIcon className="size-[18px] shrink-0 text-[#25d366]" />
+                <span className="owner-nav-copy truncate">Suporte Agenda Agora</span>
+              </a>
+            </div>
+          )}
+
+          <button
+            type="button"
+            aria-expanded={supportOpen}
+            aria-label="Abrir suporte WhatsApp"
+            onClick={() => setSupportOpen((value) => !value)}
+            className="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[#c8cdd4] transition-colors hover:bg-white/[0.035] hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#25d366]/50"
+          >
+            <WhatsAppBrandIcon className="size-5 shrink-0 text-[#25d366]" />
+            <span className="owner-nav-copy min-w-0 flex-1 text-[0.86rem] font-medium">
+              Suporte WhatsApp
+            </span>
+            <ChevronDown
+              className={`owner-nav-copy size-4 shrink-0 text-[#25d366] transition-transform duration-200 ${supportOpen ? "rotate-180" : ""}`}
+              strokeWidth={2}
+            />
+          </button>
+        </div>
       </aside>
 
       <div
