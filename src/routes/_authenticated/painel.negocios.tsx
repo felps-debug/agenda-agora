@@ -8,6 +8,7 @@ import { Pencil, Store } from "lucide-react";
 import { useBusiness, type Business } from "@/lib/business";
 import { CATEGORIES, categoryLabel } from "@/lib/format";
 import { updateBusinessProfile } from "@/lib/business.functions";
+import { publicLinkHost } from "@/lib/public-booking-link";
 import { PageHeader, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const linkPrefix = publicLinkHost() ? `${publicLinkHost()}/` : "/agendar/";
 
 export const Route = createFileRoute("/_authenticated/painel/negocios")({
   head: () => ({
@@ -113,7 +116,7 @@ function NegociosPage() {
               <dl className="mt-5 space-y-2 text-sm text-muted-foreground">
                 {b.phone && <dd>{b.phone}</dd>}
                 {b.address && <dd>{b.address}</dd>}
-                <dd className="text-xs">Link público: /agendar/{b.slug}</dd>
+                <dd className="text-xs">Link público: {linkPrefix}{b.slug}</dd>
               </dl>
             </article>
           ))}
@@ -144,7 +147,7 @@ function NegociosPage() {
               <div className="space-y-2">
                 <Label htmlFor="bslug">Link público</Label>
                 <div className="flex items-center gap-1">
-                  <span className="text-sm text-muted-foreground">/agendar/</span>
+                  <span className="text-sm text-muted-foreground">{linkPrefix}</span>
                   <Input
                     id="bslug"
                     value={form.slug}
