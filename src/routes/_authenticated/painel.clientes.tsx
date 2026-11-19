@@ -26,6 +26,7 @@ import { daysSince } from "@/lib/format";
 import { mergeAppointmentCustomers } from "@/lib/customer-list";
 import { nextDeleteConfirmation } from "@/lib/delete-confirmation";
 import { formatPhoneBR, formatPhoneShort } from "@/lib/format-phone";
+import { maskCpfCnpj, maskDateBR, maskPhoneBR } from "@/lib/input-masks";
 import { NoBusiness, EmptyList } from "@/components/painel/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -98,19 +99,7 @@ function ClientesPage() {
   });
 
   const onlyDigits = (v: string) => v.replace(/\D/g, "");
-  const maskCpf = (v: string) => {
-    const d = onlyDigits(v).slice(0, 11);
-    return d
-      .replace(/(\d{3})(\d)/, "$1.$2")
-      .replace(/(\d{3})(\d)/, "$1.$2")
-      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
-  };
-  const maskBirthdate = (v: string) => {
-    const d = onlyDigits(v).slice(0, 8);
-    if (d.length <= 2) return d;
-    if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
-    return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
-  };
+  // Máscaras progressivas compartilhadas: telefone BR, CPF/CNPJ e data DD/MM/AAAA.
   const birthdateToIso = (v: string) => {
     const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(v);
     if (!m) return null;
@@ -480,12 +469,10 @@ function ClientesPage() {
                           id="cphone"
                           inputMode="numeric"
                           placeholder="(00)00000-0000"
-                          value={formatPhoneBR(form.phone)}
+                          maxLength={15}
+                          value={form.phone}
                           onChange={(e) =>
-                            setForm({
-                              ...form,
-                              phone: e.target.value.replace(/\D/g, "").slice(0, 11),
-                            })
+                            setForm({ ...form, phone: maskPhoneBR(e.target.value) })
                           }
                         />
                       </div>
@@ -499,7 +486,7 @@ function ClientesPage() {
                           placeholder="DD/MM/AAAA"
                           value={form.birthdate}
                           onChange={(e) =>
-                            setForm({ ...form, birthdate: maskBirthdate(e.target.value) })
+                            setForm({ ...form, birthdate: maskDateBR(e.target.value) })
                           }
                         />
                       </div>
@@ -513,7 +500,7 @@ function ClientesPage() {
                         inputMode="numeric"
                         placeholder="000.000.000-00"
                         value={form.cpf}
-                        onChange={(e) => setForm({ ...form, cpf: maskCpf(e.target.value) })}
+                        onChange={(e) => setForm({ ...form, cpf: maskCpfCnpj(e.target.value, 11) })}
                       />
                     </div>
                     <div className="space-y-2">

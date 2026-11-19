@@ -1,5 +1,12 @@
 import { useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
-import { CalendarDays, Clock, Heart, House, LogOut } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  Heart,
+  House,
+  LogOut,
+  User,
+} from "lucide-react";
 import { accessibleTextColor } from "@/lib/contrast";
 import { formatPrice } from "@/lib/format";
 import type { Panel1Appearance } from "@/lib/panel1-config";
@@ -16,7 +23,7 @@ export type EleganceService = {
   image_url?: string | null;
 };
 
-export type EleganceTab = "agendar" | "historico";
+export type EleganceTab = "agendar" | "historico" | "conta";
 
 /** Onda contínua do rodapé (Bézier única, sem recortes sobrepostos). */
 const WAVE_MASK =
@@ -113,6 +120,7 @@ export function ElegancePanel({
   const navItems = [
     { key: "agendar" as const, label: "Início", icon: House },
     { key: "historico" as const, label: "Meus agendamentos", icon: CalendarDays },
+    { key: "conta" as const, label: "Conta", icon: User },
   ];
 
   return (
@@ -328,8 +336,8 @@ export function ElegancePanel({
         aria-label="Navegação principal"
         className={
           (fixedFooter
-            ? "fixed bottom-[20px] left-1/2 z-50 grid h-[74px] w-[calc(100%-20px)] max-w-[492px] -translate-x-1/2 grid-cols-2 rounded-[45px] border px-[7px] py-2 shadow-lg backdrop-blur-md @md:h-[82px]"
-            : "absolute bottom-[10px] left-2.5 right-2.5 z-20 grid h-[74px] grid-cols-2 rounded-[45px] border px-[7px] py-2 backdrop-blur-md @md:bottom-3 @md:left-[14px] @md:right-[14px] @md:h-[82px]") +
+            ? "fixed bottom-[20px] left-1/2 z-50 grid h-[74px] w-[calc(100%-20px)] max-w-[492px] -translate-x-1/2 grid-cols-3 rounded-[45px] border px-[7px] py-2 shadow-lg backdrop-blur-md @md:h-[82px]"
+            : "absolute bottom-[10px] left-2.5 right-2.5 z-20 grid h-[74px] grid-cols-3 rounded-[45px] border px-[7px] py-2 backdrop-blur-md @md:bottom-3 @md:left-[14px] @md:right-[14px] @md:h-[82px]") +
           " slide-up-enter"
         }
         style={{

@@ -23,6 +23,8 @@ type PaymentDialogProps = {
   booking: { amountCents: number; expiresAt: string | null } | null;
   reservedAmountCents: number | null;
   appearance: Panel1Appearance;
+  /** Pix opcional: o agendamento já está confirmado; pagar é escolha do cliente. */
+  optional?: boolean;
   onClose: () => void;
 };
 
@@ -31,6 +33,7 @@ export default function PaymentDialog({
   booking,
   reservedAmountCents,
   appearance,
+  optional = false,
   onClose,
 }: PaymentDialogProps) {
   const amountCents = booking?.amountCents ?? reservedAmountCents;
@@ -83,7 +86,11 @@ export default function PaymentDialog({
         }
         if (r.status === "expirado") {
           stopped = true;
-          toast.error("O prazo do Pix acabou e o agendamento foi cancelado.");
+          toast.error(
+            optional
+              ? "O prazo do Pix acabou. Seu agendamento continua confirmado."
+              : "O prazo do Pix acabou e o agendamento foi cancelado.",
+          );
           onCloseRef.current();
           return;
         }
@@ -102,7 +109,7 @@ export default function PaymentDialog({
       stopped = true;
       clearTimeout(timeout);
     };
-  }, [chargeId, paid, statusFn]);
+  }, [chargeId, paid, statusFn, optional]);
 
   const generate = useMutation({
     mutationFn: async () => {
@@ -227,14 +234,23 @@ export default function PaymentDialog({
         style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
       >
         <h2 className="font-display text-xl font-bold" style={{ color: titleColor }}>
-          Agendamento Aguardando Pagamento
+          {optional ? "Sinal opcional" : "Agendamento Aguardando Pagamento"}
         </h2>
-        <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
-          Para confirmar seu agendamento é necessário efetuar o pagamento via pix.
-        </p>
-        <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
-          Selecione a forma de pagamento desejada
-        </p>
+        {optional ? (
+          <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+            Seu agendamento já está confirmado. Você pode pagar o sinal agora se quiser — ou depois,
+            até o horário marcado.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+              Para confirmar seu agendamento é necessário efetuar o pagamento via pix.
+            </p>
+            <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
+              Selecione a forma de pagamento desejada
+            </p>
+          </>
+        )}
         <p className="text-sm" style={{ color: textColor, opacity: 0.85 }}>
           Clique no valor e após isso clique em "GERAR CÓDIGO PIX" para continuar com seu pagamento.
         </p>
@@ -302,25 +318,44 @@ export default function PaymentDialog({
           </div>
         )}
 
-        <p className="text-xs" style={{ color: textColor, opacity: 0.85 }}>
-          Você tem 5 minutos para efetuar seu pagamento antes que seu agendamento seja cancelado
-          automaticamente
-        </p>
-        <p className="font-display text-lg font-bold" style={{ color: accent }}>
-          Tempo restante: {mm}:{ss}
-        </p>
+        {optional ? (
+          <p className="text-xs" style={{ color: textColor, opacity: 0.85 }}>
+            Pagamento opcional: seu horário não é cancelado se você não pagar.
+          </p>
+        ) : (
+          <p className="text-xs" style={{ color: textColor, opacity: 0.85 }}>
+            Você tem 5 minutos para efetuar seu pagamento antes que seu agendamento seja cancelado
+            automaticamente
+          </p>
+        )}
+        {expiresAt ? (
+          <p className="font-display text-lg font-bold" style={{ color: accent }}>
+            {optional ? "Pagamento até: " : "Tempo restante: "}
+            {mm}:{ss}
+          </p>
+        ) : null}
         {statusCheckFailed && (
           <p role="status" className="text-sm" style={{ color: titleColor }}>
             Não foi possível atualizar o pagamento agora. Continuaremos tentando automaticamente.
           </p>
         )}
-        <Button
-          className="mx-auto w-fit rounded-xl"
-          style={{ backgroundColor: accent, color: accentText }}
-          onClick={() => setConfirmCancel(true)}
-        >
-          Cancelar pagamento
-        </Button>
+        {optional ? (
+          <Button
+            className="mx-auto w-fit rounded-xl"
+            style={{ backgroundColor: accent, color: accentText }}
+            onClick={onClose}
+          >
+            Pagar depois
+          </Button>
+        ) : (
+          <Button
+            className="mx-auto w-fit rounded-xl"
+            style={{ backgroundColor: accent, color: accentText }}
+            onClick={() => setConfirmCancel(true)}
+          >
+            Cancelar pagamento
+          </Button>
+        )}
 
         <Dialog open={confirmCancel} onOpenChange={setConfirmCancel}>
           <DialogContent

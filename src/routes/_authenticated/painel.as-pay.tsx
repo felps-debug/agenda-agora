@@ -223,17 +223,17 @@ const PIX_MODES = [
   {
     id: "desabilitado",
     label: "Desabilitado",
-    desc: "Quando a função de Pix automático está desabilitada, não é apresentada nenhuma opção de pagamento para o cliente.",
+    desc: "Quando a função de Pix automático está desabilitada, não é apresentada nenhuma opção de pagamento para o cliente — para ninguém, com ou sem login. O agendamento é confirmado direto, sem sinal.",
   },
   {
     id: "opcional",
     label: "Opcional",
-    desc: "Quando a função opcional está habilitada, o Pix é apresentado ao cliente após a confirmação do agendamento, e ele pode antecipar o pagamento, que será processado e validado automaticamente.",
+    desc: "O cliente agenda com ou sem login e o horário sobe CONFIRMADO na agenda mesmo sem pagar o sinal. O Pix aparece no final para ele pagar o sinal se quiser — não é obrigatório — e fica disponível até o horário marcado.",
   },
   {
     id: "obrigatorio",
     label: "Obrigatório",
-    desc: "Na função obrigatória, o sistema solicitará o pagamento antes de confirmar o agendamento. O cliente realiza o agendamento, e após isso, entra em uma fila de pendência, tendo o prazo de 5 minutos antes que o agendamento seja cancelado automaticamente. O pagamento é confirmado e validado por meio da nossa plataforma, garantindo o recebimento antes do agendamento definitivo. Enquanto o agendamento estiver aguardando pagamento, o horário escolhido não estará disponível para outros clientes. Caso o pagamento não seja efetuado, o horário volta a ficar disponível automaticamente.",
+    desc: "Na função obrigatória, o sistema solicitará o pagamento antes de confirmar o agendamento. O cliente realiza o agendamento, e após isso, entra em uma fila de pendência, tendo o prazo de 5 minutos antes que o agendamento seja cancelado automaticamente. O pagamento é confirmado e validado por meio da nossa plataforma, garantindo o recebimento antes do agendamento definitivo. Enquanto o agendamento estiver aguardando pagamento, o horário escolhido não estará disponível para outros clientes. Caso o pagamento não seja efetuado, o horário volta a ficar disponível automaticamente. Vale para todos, com ou sem login — exceto os clientes selecionados abaixo quando estiverem logados nas suas contas.",
   },
 ] as const;
 
@@ -527,22 +527,44 @@ function PaymentRulesView({
     onError: (e: Error) => toast.error(friendlyError(e)),
   });
 
+  // Entradas "Nome|telefonesemdígitos": a isenção é conferida no login da conta
+  // (nome + telefone). Entradas antigas só com nome continuam funcionando.
+  const exceptionKey = (name: string, phone?: string | null) =>
+    `${name}|${(phone ?? "").replace(/\D/g, "")}`;
+  const exceptionEntries = useMemo(
+    () =>
+      exceptions.map((entry) => {
+        const separator = entry.indexOf("|");
+        return {
+          raw: entry,
+          name: separator >= 0 ? entry.slice(0, separator) : entry,
+          phone: separator >= 0 ? entry.slice(separator + 1) : "",
+        };
+      }),
+    [exceptions],
+  );
+
   const setMode = (next: PixMode) => {
     if (next === mode || save.isPending) return;
     save.mutate({ pixMode: next, pixExceptionClients: exceptions });
   };
 
-  const toggleException = (name: string) => {
+  const toggleException = (name: string, phone?: string | null) => {
     if (save.isPending) return;
-    const has = exceptions.includes(name);
-    const next = has ? exceptions.filter((n) => n !== name) : [...exceptions, name].slice(0, 200);
+    const key = exceptionKey(name, phone);
+    const has = exceptions.includes(key);
+    const next = has ? exceptions.filter((n) => n !== key) : [...exceptions, key].slice(0, 200);
     save.mutate({ pixMode: mode, pixExceptionClients: next });
   };
 
   const searchTerm = exceptionSearch.trim().toLowerCase();
   const suggestions = searchTerm
     ? customerNames
-        .filter((c) => c.name.toLowerCase().includes(searchTerm) && !exceptions.includes(c.name))
+        .filter(
+          (c) =>
+            c.name.toLowerCase().includes(searchTerm) &&
+            !exceptions.includes(exceptionKey(c.name, c.phone)),
+        )
         .slice(0, 6)
     : [];
 
@@ -648,6 +670,10 @@ function PaymentRulesView({
                 Configure as exceções em que não será obrigatório o pagamento para clientes ou
                 assinantes.
               </p>
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--c-9aa4b2)]">
+                A isenção vale quando o cliente estiver LOGADO na conta com o telefone e o nome
+                cadastrados aqui. Sem login, o sinal é cobrado normalmente.
+              </p>
               <div className="mt-4 border-b border-[#c9a227]/50 pb-1">
                 <span className="text-sm font-semibold text-[#e8b93e]">Cliente</span>
               </div>
@@ -668,10 +694,10 @@ function PaymentRulesView({
                 <div className="mt-2 overflow-hidden rounded-lg border border-[#2c2c31] bg-[#101013]">
                   {suggestions.map(({ name, phone }) => (
                     <button
-                      key={name}
+                      key={exceptionKey(name, phone)}
                       type="button"
                       onClick={() => {
-                        toggleException(name);
+                        toggleException(name, phone);
                         setExceptionSearch("");
                       }}
                       className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#e8b93e]/10"
@@ -689,17 +715,18 @@ function PaymentRulesView({
                   ))}
                 </div>
               )}
-              {exceptions.length > 0 && (
+              {exceptionEntries.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {exceptions.map((name) => (
+                  {exceptionEntries.map(({ raw, name, phone }) => (
                     <span
-                      key={name}
+                      key={raw}
                       className="inline-flex items-center gap-1.5 rounded-full border border-[#c9a227]/50 bg-[#c9a227]/10 px-3 py-1 text-xs text-[#e8b93e]"
                     >
                       {name}
+                      {phone ? ` · ${formatPhoneBR(phone)}` : ""}
                       <button
                         type="button"
-                        onClick={() => toggleException(name)}
+                        onClick={() => toggleException(name, phone)}
                         aria-label={`Remover ${name} das exceções`}
                         className="text-[#e8b93e]/70 hover:text-white"
                       >

@@ -257,6 +257,8 @@ function seed(charge: Row = {}, claim: Row = {}) {
     agpay_webhook_events: [],
     deposit_payment_whatsapp_confirmations: [],
   };
+  if (runtime.tables["businesses"]![0]!["pix_mode"] === undefined)
+    runtime.tables["businesses"]![0]!["pix_mode"] = "obrigatorio";
   runtime.claim = {
     acquired: true,
     reason: "ok",
@@ -551,6 +553,19 @@ describe("eventos de pagamento AgPay", () => {
     expect(charge()["status"]).toBe("pendente");
     expect(appointment()["status"]).toBe("aguardando_sinal");
     expect(runtime.sendPaymentConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("expira cobrança vencida cancelando o agendamento no modo obrigatório", async () => {
+    await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "expirado" });
+    expect(charge()["status"]).toBe("expirado");
+    expect(appointment()["status"]).toBe("cancelado");
+  });
+
+  it("pix opcional: expira a cobrança vencida SEM cancelar o agendamento confirmado", async () => {
+    runtime.tables["businesses"]![0]!["pix_mode"] = "opcional";
+    await expect(synchronizeDepositPayment(CHARGE)).resolves.toEqual({ status: "expirado" });
+    expect(charge()["status"]).toBe("expirado");
+    expect(appointment()["status"]).toBe("aguardando_sinal");
   });
 
   it("atualiza saque quando chega withdrawal.completed", async () => {

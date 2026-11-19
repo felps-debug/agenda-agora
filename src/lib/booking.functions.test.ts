@@ -22,6 +22,7 @@ import {
 } from "./booking.functions";
 import { DEFAULT_PANEL1_APPEARANCE, defaultPanel1Config } from "./panel1-config";
 import { formatAppointmentDateTime } from "./booking-history";
+import { signCustomerToken } from "./customer-token";
 import { resetRateLimits } from "./rate-limit.server";
 import { sendBookingConfirmation } from "./whatsapp-notify.server";
 
@@ -1026,6 +1027,7 @@ function setupReserve(
     depositError?: { message: string } | null;
     appointmentUpdateResult?: { data: { id: string } | null; error: { message: string } | null };
   } = {},
+  rules: { pixMode?: string; exceptionClients?: string[]; customers?: Array<{ name: string; phone: string }> } = {},
 ) {
   const config = defaultPanel1Config();
   config.preferences.timezone = timezone;
@@ -1038,6 +1040,8 @@ function setupReserve(
         id: businessId,
         status: availability.businessStatus ?? "ativo",
         cancelled_at: availability.businessCancelledAt ?? null,
+        pix_mode: rules.pixMode ?? "obrigatorio",
+        pix_exception_clients: rules.exceptionClients ?? [],
       },
       error: null,
     },
@@ -1082,6 +1086,7 @@ function setupReserve(
     deposit_payments: availability.depositError
       ? { data: null, error: availability.depositError }
       : { data: { id: chargeId }, error: null },
+    customers: { data: rules.customers ?? [], error: null },
   };
   pixRuntime.db.from.mockImplementation((table: string) => {
     if (!(table in results)) throw new Error(`Tabela inesperada no teste: ${table}`);
@@ -1589,6 +1594,113 @@ describe("reserveBooking: as regras de agenda valem no servidor, não só na UI"
     );
     expect(db.inserted("appointments")).toHaveLength(0);
     expect(pixRuntime.createPixCharge).not.toHaveBeenCalled();
+  });
+});
+
+describe("reserveBooking: regras de pagamento do painel 2 (pix_mode)", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    process.env["SUPABASE_SERVICE_ROLE_KEY"] = "segredo-teste";
+  });
+
+  afterEach(() => {
+    delete process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  });
+
+  it("desabilitado: confirma direto, sem cobrança, mesmo com sinal configurado", async () => {
+    const db = setupReserve(
+      { deposit_mode: "fixed", deposit_cents: 2_500 },
+      "America/Sao_Paulo",
+      {},
+      { pixMode: "desabilitado" },
+    );
+
+    const result = await reserveBooking({ data: reserveInput });
+
+    expect(result.chargeId).toBeNull();
+    expect(result.amountCents).toBe(0);
+    expect(db.inserted("appointments")[0]).toMatchObject({ status: "agendado", deposit_cents: 0 });
+    expect(db.inserted("deposit_payments")).toHaveLength(0);
+  });
+
+  it("opcional: horário sobe CONFIRMADO com cobrança pendente até o horário marcado", async () => {
+    const db = setupReserve(
+      { deposit_mode: "fixed", deposit_cents: 1_000 },
+      "America/Sao_Paulo",
+      {},
+      { pixMode: "opcional" },
+    );
+
+    const result = await reserveBooking({ data: reserveInput });
+
+    expect(result.chargeId).toBe(chargeId);
+    expect(result.amountCents).toBe(1_000);
+    expect(db.inserted("appointments")[0]).toMatchObject({
+      status: "agendado",
+      deposit_cents: 1_000,
+    });
+    expect(db.inserted("deposit_payments")[0]).toMatchObject({
+      amount_cents: 1_000,
+      status: "pendente",
+      expires_at: result.startsAt,
+    });
+  });
+
+  it("obrigatório isenta o cliente selecionado LOGADO na conta (nome + telefone)", async () => {
+    const token = signCustomerToken(businessId, "11955554444", "segredo-teste");
+    const db = setupReserve(
+      { deposit_mode: "fixed", deposit_cents: 1_000 },
+      "America/Sao_Paulo",
+      {},
+      {
+        pixMode: "obrigatorio",
+        exceptionClients: ["Teste da Silva|11955554444"],
+        customers: [{ name: "Teste da Silva", phone: "11955554444" }],
+      },
+    );
+
+    const result = await reserveBooking({ data: { ...reserveInput, customerToken: token } });
+
+    expect(result.chargeId).toBeNull();
+    expect(db.inserted("appointments")[0]).toMatchObject({ status: "agendado", deposit_cents: 0 });
+    expect(db.inserted("deposit_payments")).toHaveLength(0);
+  });
+
+  it("obrigatório cobra o cliente selecionado quando ele está SEM login", async () => {
+    const db = setupReserve(
+      { deposit_mode: "fixed", deposit_cents: 1_000 },
+      "America/Sao_Paulo",
+      {},
+      {
+        pixMode: "obrigatorio",
+        exceptionClients: ["Teste da Silva|11955554444"],
+        customers: [{ name: "Teste da Silva", phone: "11955554444" }],
+      },
+    );
+
+    const result = await reserveBooking({ data: reserveInput });
+
+    expect(result.chargeId).toBe(chargeId);
+    expect(db.inserted("appointments")[0]).toMatchObject({ status: "aguardando_sinal" });
+  });
+
+  it("obrigatório NÃO isenta conta com nome diferente do selecionado", async () => {
+    const token = signCustomerToken(businessId, "11955554444", "segredo-teste");
+    const db = setupReserve(
+      { deposit_mode: "fixed", deposit_cents: 1_000 },
+      "America/Sao_Paulo",
+      {},
+      {
+        pixMode: "obrigatorio",
+        exceptionClients: ["Outro Nome|11955554444"],
+        customers: [{ name: "Teste da Silva", phone: "11955554444" }],
+      },
+    );
+
+    const result = await reserveBooking({ data: { ...reserveInput, customerToken: token } });
+
+    expect(result.chargeId).toBe(chargeId);
+    expect(db.inserted("appointments")[0]).toMatchObject({ status: "aguardando_sinal" });
   });
 });
 
