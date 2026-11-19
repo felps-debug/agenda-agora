@@ -12,6 +12,8 @@ describe("caminhos públicos de imagens", () => {
   it("aceita somente logo, serviço e fundo do próprio negócio", () => {
     expect(isBusinessImagePath(`${businessId}/logo-123.webp`, businessId, "logo")).toBe(true);
     expect(isBusinessImagePath(`${businessId}/services/abc.jpg`, businessId, "service")).toBe(true);
+    // Pasta que a tela de serviços realmente usa no upload.
+    expect(isBusinessImagePath(`${businessId}/service/abc.jpg`, businessId, "service")).toBe(true);
     expect(isBusinessImagePath(`${businessId}/background-abc.jpg`, businessId, "background")).toBe(
       true,
     );

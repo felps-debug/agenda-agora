@@ -1,13 +1,38 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { friendlyError } from "@/lib/error-page";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { CalendarX2, Clock3, Eye, LoaderCircle, LockKeyhole, Trash2, X } from "lucide-react";
+import {
+  CalendarX2,
+  Clock3,
+  DollarSign,
+  Eye,
+  Hourglass,
+  LoaderCircle,
+  LockKeyhole,
+  Phone,
+  RotateCcw,
+  Trash2,
+  User,
+  X,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { setAppointmentStatus } from "@/lib/appointments.functions";
+import {
+  setAppointmentStatus,
+  getPendingDepositExpiries,
+  skipDepositStep,
+  finalizeAppointment,
+  reopenRealizedAppointment,
+} from "@/lib/appointments.functions";
+import {
+  PAYMENT_METHOD_LABEL,
+  descriptionFromNotes,
+  paymentMethodFromNotes,
+  type PaymentMethod,
+} from "@/lib/payment-method";
 import { useBusiness } from "@/lib/business";
 import {
   STATUSES,
@@ -67,6 +92,238 @@ export const Route = createFileRoute("/_authenticated/painel/")({
 const START_HOUR = 8;
 const END_HOUR = 19;
 
+/**
+ * Contagem regressiva da fila do Pix obrigatório (segundos restantes).
+ * Zerada, o cron cancela o agendamento e ele some da agenda na próxima busca.
+ */
+function useCountdownSeconds(expiresAt: string) {
+  const target = new Date(expiresAt).getTime();
+  const [left, setLeft] = useState(() => Math.max(0, Math.round((target - Date.now()) / 1000)));
+  useEffect(() => {
+    const tick = () => setLeft(Math.max(0, Math.round((target - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [target]);
+  return left;
+}
+
+const formatCountdown = (left: number) =>
+  `${String(Math.floor(left / 60)).padStart(2, "0")}:${String(left % 60).padStart(2, "0")}`;
+
+/** Selo "⏳ mm:ss" da linha laranja na agenda — só ícone e números, nada mais. */
+function PendingDepositCountdown({ expiresAt }: { expiresAt: string }) {
+  const left = useCountdownSeconds(expiresAt);
+  return (
+    <span className="agenda-pendente-contagem">
+      <Hourglass className="size-3 shrink-0" aria-hidden="true" />
+      {formatCountdown(left)}
+    </span>
+  );
+}
+
+/**
+ * Painel "Pular etapa" do pop-up de detalhes: linha do tempo com o
+ * agendamento cadastrado → aguardando pagamento, contagem ao vivo e o botão
+ * que confirma o cliente sem pagar o sinal.
+ */
+function PendingDepositPanel({
+  expiresAt,
+  skipping,
+  onSkip,
+}: {
+  expiresAt: string;
+  skipping: boolean;
+  onSkip: () => void;
+}) {
+  const left = useCountdownSeconds(expiresAt);
+  return (
+    <div className="agenda-pendente-painel">
+      <span className="agenda-pendente-painel-brilho" aria-hidden="true" />
+      <div className="agenda-pendente-painel-icones">
+        <span className="agenda-pendente-icone agenda-pendente-icone--registro">
+          <RotateCcw className="size-4" />
+        </span>
+        <span className="agenda-pendente-linha" aria-hidden="true" />
+        <span className="agenda-pendente-icone agenda-pendente-icone--pix">
+          <DollarSign className="size-4" />
+        </span>
+      </div>
+      <div className="agenda-pendente-painel-colunas">
+        <div className="agenda-pendente-coluna">
+          <p className="agenda-pendente-rotulo agenda-pendente-rotulo--registro">
+            Agendamento
+            <br />
+            Cadastrado
+          </p>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={skipping}
+            className="agenda-pendente-pular"
+          >
+            {skipping ? "Confirmando..." : "Pular etapa"}
+          </button>
+          <p className="agenda-pendente-timer">{formatCountdown(left)}</p>
+        </div>
+        <div className="agenda-pendente-coluna">
+          <p className="agenda-pendente-rotulo agenda-pendente-rotulo--pix">
+            Aguardando
+            <br />
+            Pagamento
+          </p>
+          <p className="agenda-pendente-tempo-texto">
+            Tempo restante para cancelamento automático
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Pop-up "Serviço realizado" (somente leitura): abre ao clicar no cliente
+ * VERDE da agenda. Mostra o serviço, se o sinal Ag Pay foi pago (e qual
+ * valor), a forma de pagamento escolhida na finalização e a descrição —
+ * nenhuma dessas informações pode ser editada.
+ */
+function RealizedServiceDialog({
+  open,
+  appointment,
+  reopening,
+  onClose,
+  onReopen,
+}: {
+  open: boolean;
+  appointment: {
+    id: string;
+    customer_name: string;
+    customer_phone: string | null;
+    starts_at: string;
+    ends_at: string;
+    notes: string | null;
+    deposit_cents: number | null;
+    deposit_paid_at: string | null;
+    services: { name: string; price_cents: number } | null;
+  };
+  reopening: boolean;
+  onClose: () => void;
+  onReopen: () => void;
+}) {
+  const price = appointment.services?.price_cents ?? 0;
+  const depositPaid = !!appointment.deposit_paid_at;
+  const deposito = depositPaid ? (appointment.deposit_cents ?? 0) : 0;
+  const restante = Math.max(price - deposito, 0);
+  const forma = paymentMethodFromNotes(appointment.notes);
+  const formaLabel = forma ? PAYMENT_METHOD_LABEL[forma] : "não informada";
+  const descricao = descriptionFromNotes(appointment.notes);
+
+  const printRealized = () => {
+    const win = window.open("", "_blank", "width=480,height=680");
+    if (!win) {
+      toast.error("Permita os pop-ups para imprimir.");
+      return;
+    }
+    const escape = (value: string) =>
+      value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const data = new Date(appointment.starts_at)
+      .toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })
+      .replace(".", "");
+    const linhas = [
+      `<h2 style="margin:0 0 4px">Serviço realizado</h2>`,
+      `<p style="margin:0"><b>${escape(appointment.customer_name)}</b> — ${escape(
+        formatPhoneBR(appointment.customer_phone ?? ""),
+      )}</p>`,
+      `<p style="margin:0 0 12px">${slotOf(appointment.starts_at)} - ${slotOf(
+        appointment.ends_at,
+      )} ${escape(data)}</p>`,
+      `<p style="margin:0">Serviço: <b>${escape(appointment.services?.name ?? "Serviço")}</b> — ${formatPrice(price)}</p>`,
+      `<p style="margin:0">Sinal Ag Pay: ${
+        depositPaid ? formatPrice(deposito) : "não pagou sinal"
+      }</p>`,
+      `<p style="margin:0">Pagamento via ${escape(formaLabel)}: ${formatPrice(restante)}</p>`,
+      `<p style="margin:0 0 12px"><b>Total: ${formatPrice(price)}</b></p>`,
+      `<p style="margin:0;color:#555">${escape(descricao || "Sem descrição anexada")}</p>`,
+    ];
+    win.document.write(
+      `<html><head><title>Serviço realizado</title></head><body style="font-family:Arial,sans-serif;padding:24px">${linhas.join(
+        "",
+      )}</body></html>`,
+    );
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="agenda-realizado-dialog max-h-[90vh] overflow-y-auto p-0 text-center">
+        <h2 className="agenda-realizado-titulo">Serviço realizado</h2>
+        <div className="agenda-realizado-chips">
+          <div className="agenda-realizado-chip">
+            <User className="size-3.5 shrink-0 text-[#8b8e96]" aria-hidden="true" />
+            <span className="truncate">{appointment.customer_name}</span>
+          </div>
+          <div className="agenda-realizado-chip">
+            <Phone className="size-3.5 shrink-0 text-[#8b8e96]" aria-hidden="true" />
+            <span className="truncate">{formatPhoneBR(appointment.customer_phone ?? "")}</span>
+          </div>
+        </div>
+        <p className="agenda-realizado-horario">
+          {slotOf(appointment.starts_at)} - {slotOf(appointment.ends_at)}{" "}
+          {new Date(appointment.starts_at)
+            .toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })
+            .replace(".", "")}
+        </p>
+        <div className="agenda-realizado-caixa agenda-realizado-caixa--servico">
+          <span className="agenda-realizado-selo agenda-realizado-selo--servico">Serviços</span>
+          <div className="agenda-realizado-linha">
+            <span className="agenda-realizado-servico-nome">
+              1 - {(appointment.services?.name ?? "Serviço").toUpperCase()}
+            </span>
+            <span className="agenda-realizado-valor">{formatPrice(price)}</span>
+          </div>
+        </div>
+        <div className="agenda-realizado-caixa agenda-realizado-caixa--total">
+          <span className="agenda-realizado-selo agenda-realizado-selo--total">Total</span>
+          <div className="agenda-realizado-linha">
+            <span className="agenda-realizado-rotulo">Sinal Ag Pay</span>
+            <span className={depositPaid ? "agenda-realizado-valor" : "agenda-realizado-valor--fraco"}>
+              {depositPaid ? formatPrice(deposito) : "não pagou sinal"}
+            </span>
+          </div>
+          <div className="agenda-realizado-linha">
+            <span className="agenda-realizado-rotulo agenda-realizado-rotulo--ouro">
+              Pagamento via {formaLabel}
+            </span>
+            <span className="agenda-realizado-valor agenda-realizado-valor--ouro">
+              {formatPrice(restante)}
+            </span>
+          </div>
+          <div className="agenda-realizado-total-selo">{formatPrice(price)}</div>
+        </div>
+        <div className="agenda-realizado-caixa agenda-realizado-caixa--descricao">
+          <span className="agenda-realizado-selo agenda-realizado-selo--descricao">Descrição</span>
+          <p className="agenda-realizado-descricao">{descricao || "Sem descrição anexada"}</p>
+        </div>
+        <div className="agenda-realizado-acoes">
+          <Button className="agenda-realizado-btn-print" onClick={printRealized}>
+            Imprimir
+          </Button>
+          <Button
+            variant="destructive"
+            className="agenda-realizado-btn-reopen"
+            disabled={reopening}
+            onClick={onReopen}
+          >
+            {reopening ? "Desfazendo..." : "Desfazer registro"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function buildSlots() {
   const slots: string[] = [];
   for (let h = START_HOUR; h <= END_HOUR; h++) {
@@ -118,6 +375,8 @@ function AgendaPage() {
   const [pickedProfessionalId, setPickedProfessionalId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<string | null>(null);
+  /** Pop-up "Serviço realizado" (somente leitura) para atendimentos concluídos. */
+  const [realized, setRealized] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -224,7 +483,9 @@ function AgendaPage() {
         .eq("business_id", businessId!)
         .gte("starts_at", start)
         .lte("starts_at", end)
-        .not("status", "in", "(aguardando_sinal,cancelado)");
+        // aguardando_sinal ENTRA na agenda: o dono vê quem está na fila do Pix
+        // (nome, serviço, telefone) enquanto o cliente tem os 5 minutos.
+        .not("status", "in", "(cancelado)");
       // Itens sem profissional (ex.: horário bloqueado) valem para todos.
       if (viewProfessionalId) {
         query = query.or(`professional_id.eq.${viewProfessionalId},professional_id.is.null`);
@@ -233,7 +494,57 @@ function AgendaPage() {
       if (error) throw error;
       return data;
     },
+    // Tempo real: fila do Pix muda sozinha (pago → confirmado; expirou → sai da agenda).
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
   });
+
+  // Cobranças pendentes de sinal: alimenta a contagem "faltam mm:ss" da agenda.
+  // deposit_payments não é legível pelo navegador (RLS) — vem da server function.
+  const pendingExpiriesFn = useServerFn(getPendingDepositExpiries);
+  const skipDepositFn = useServerFn(skipDepositStep);
+  const skipDeposit = useMutation({
+    mutationFn: (appointmentId: string) => skipDepositFn({ data: { appointmentId } }),
+    onSuccess: () => {
+      toast.success("Sinal dispensado — cliente confirmado na agenda.");
+      setDetail(null);
+      void invalidate();
+    },
+    onError: (e: Error) => toast.error(friendlyError(e)),
+  });
+  const finalizeFn = useServerFn(finalizeAppointment);
+  const finalize = useMutation({
+    mutationFn: (input: { id: string; paymentMethod: string }) =>
+      finalizeFn({ data: { id: input.id, paymentMethod: input.paymentMethod as PaymentMethod } }),
+    onSuccess: () => {
+      // Fecha sozinho: a linha do cliente fica VERDE (atendimento concluído).
+      toast.success("Serviço finalizado.");
+      setDetail(null);
+      setFormaPagamento("");
+      void invalidate();
+    },
+    onError: (e: Error) => toast.error(friendlyError(e)),
+  });
+  const reopenFn = useServerFn(reopenRealizedAppointment);
+  const reopenRealized = useMutation({
+    mutationFn: (id: string) => reopenFn({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Registro desfeito — agendamento de volta na agenda.");
+      setRealized(null);
+      void invalidate();
+    },
+    onError: (e: Error) => toast.error(friendlyError(e)),
+  });
+  const { data: pendingCharges } = useQuery({
+    queryKey: ["pending-charges", businessId],
+    enabled: !!businessId,
+    queryFn: () => pendingExpiriesFn({ data: { businessId: businessId! } }),
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: true,
+  });
+  const pendingExpiryByAppointment = new Map(
+    (pendingCharges ?? []).map((charge) => [charge.appointmentId, charge.expiresAt]),
+  );
 
   // 1) Primeira montagem da grade: assim que os profissionais resolvem, fixa o
   //    dia/profissional exibidos e começa a carregar (sem animação de saída).
@@ -459,6 +770,13 @@ function AgendaPage() {
   });
 
   const selected = (appointments ?? []).find((a) => a.id === detail) ?? null;
+  const realizedAppointment =
+    (appointments ?? []).find((a) => a.id === realized && a.status === "concluido") ?? null;
+  // Guarda o último atendimento aberto: mantém o conteúdo na tela enquanto a
+  // caixa roda a animação de fechamento (descendo, igual às outras pop-ups).
+  const realizedSnapshot = useRef(realizedAppointment);
+  if (realizedAppointment) realizedSnapshot.current = realizedAppointment;
+  const realizedView = realizedAppointment ?? realizedSnapshot.current;
   const [detailForm, setDetailForm] = useState({ name: "", phone: "" });
   const [formaPagamento, setFormaPagamento] = useState("");
   useEffect(() => {
@@ -687,6 +1005,10 @@ function AgendaPage() {
               return items.map((a) => {
                 const cancelled = a.status === "cancelado";
                 const blocked = a.status === "bloqueado";
+                const pendente = a.status === "aguardando_sinal";
+                const pendenteExpira = pendente
+                  ? (pendingExpiryByAppointment.get(a.id) ?? null)
+                  : null;
                 // Bloqueios antigos salvos como agendamento somem quando o slot já
                 // está coberto por um bloqueio do menu Horários bloqueados
                 // (evita linha duplicada "morta" depois de excluir o bloqueio).
@@ -698,13 +1020,17 @@ function AgendaPage() {
                   ? "blocked"
                   : cancelled
                     ? "cancelled"
-                    : isEncaixe
-                      ? "encaixe"
-                      : isPublicBooking
-                        ? "public"
-                        : depositPaid
-                          ? "admin-pix"
-                          : "admin";
+                    : pendente
+                      ? "pendente"
+                      : a.status === "concluido"
+                        ? "concluido"
+                        : isEncaixe
+                          ? "encaixe"
+                          : isPublicBooking
+                            ? "public"
+                            : depositPaid
+                              ? "admin-pix"
+                              : "admin";
                 const price = (a.services as { price_cents: number } | null)?.price_cents ?? 0;
                 const serviceName = (a.services as { name: string } | null)?.name ?? "Serviço";
                 // Espaço do Pix só existe se o serviço tem sinal configurado
@@ -732,11 +1058,18 @@ function AgendaPage() {
                       onClick={() =>
                         blocked
                           ? openBlockedPopup({ type: "appointment", appointment: a })
-                          : setDetail(a.id)
+                          : a.status === "concluido"
+                            ? setRealized(a.id)
+                            : setDetail(a.id)
                       }
                       className="agenda-row-btn"
                     >
-                      <span className="agenda-cell agenda-cell--time">{slot}</span>
+                      <span className="agenda-cell agenda-cell--time">
+                        {slot}
+                        {pendente && pendenteExpira ? (
+                          <PendingDepositCountdown expiresAt={pendenteExpira} />
+                        ) : null}
+                      </span>
                       <span className="agenda-cell agenda-cell--cliente">
                         {blocked ? (
                           <span className="agenda-blocked-label">Horário bloqueado</span>
@@ -1034,8 +1367,7 @@ function AgendaPage() {
       </Dialog>
 
       <Dialog open={!!selected} onOpenChange={(v) => !v && setDetail(null)}>
-        <DialogContent className="agenda-booking-dialog overflow-y-auto p-0">
-          <DialogHeader className="agenda-booking-dialog-header">
+        <DialogContent className="agenda-booking-dialog overflow-y-auto p-0">          <DialogHeader className="agenda-booking-dialog-header">
             <div className="flex items-start gap-3 text-left">
               <div className="agenda-booking-dialog-icon">
                 <Clock3 className="size-[1.05rem]" strokeWidth={1.8} />
@@ -1056,6 +1388,14 @@ function AgendaPage() {
 
           {selected && (
             <div className="agenda-booking-dialog-body">
+              {selected.status === "aguardando_sinal" &&
+              pendingExpiryByAppointment.get(selected.id) ? (
+                <PendingDepositPanel
+                  expiresAt={pendingExpiryByAppointment.get(selected.id)!}
+                  skipping={skipDeposit.isPending}
+                  onSkip={() => skipDeposit.mutate(selected.id)}
+                />
+              ) : null}
               <div className="agenda-booking-form-section space-y-5">
                 <div className="agenda-booking-duo grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -1165,13 +1505,35 @@ function AgendaPage() {
             </Button>
             <Button
               className="flex-1"
-              onClick={() => setStatus.mutate({ id: selected!.id, status: "concluido" })}
+              disabled={!!selected && selected.status === "aguardando_sinal"}
+              title={
+                selected?.status === "aguardando_sinal"
+                  ? "Resolva o pagamento do sinal (ou use Pular etapa) antes de finalizar."
+                  : undefined
+              }
+              onClick={() => {
+                if (!formaPagamento) {
+                  toast.error("Selecione a forma de pagamento antes de finalizar.");
+                  return;
+                }
+                finalize.mutate({ id: selected!.id, paymentMethod: formaPagamento });
+              }}
             >
-              Finalizar serviço
+              {finalize.isPending ? "Finalizando..." : "Finalizar serviço"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {realizedView ? (
+        <RealizedServiceDialog
+          open={!!realizedAppointment}
+          appointment={realizedView}
+          reopening={reopenRealized.isPending}
+          onClose={() => setRealized(null)}
+          onReopen={() => reopenRealized.mutate(realizedView.id)}
+        />
+      ) : null}
 
       <Dialog
         open={encaixeOpen}

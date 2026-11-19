@@ -106,20 +106,19 @@ export function CookieBanner({ appearance }: { appearance: Panel1Appearance }) {
     >
       {view === "aviso" ? (
         <div
-          className="w-full max-w-[27.5rem] rounded-2xl border px-8 py-9 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
+          className="w-full max-w-[22rem] rounded-2xl border p-6 shadow-[0_24px_70px_rgba(0,0,0,0.5)]"
           style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
         >
           <p
-            className="text-center text-[1.3rem] font-bold leading-tight"
+            className="text-center text-[15.5px] font-extrabold leading-snug tracking-wide"
             style={{ color: titleColor }}
           >
             Utilizamos cookies no site!
           </p>
           <p
-            className="mt-3 text-left text-[1.15rem] leading-[1.4]"
-            style={{ color: textColor, opacity: 0.97 }}
+            className="mt-4 text-left text-[12.5px] leading-[1.6]"
+            style={{ color: textColor, opacity: 0.95 }}
           >
-            <span className="inline-block w-[1.2em]" aria-hidden="true" />
             Utilizamos cookies e coletamos algumas informações para personalizar sua experiência e
             melhorar nossos serviços e conteúdo. Ao continuar a navegação você concorda com essa
             coleta. Para mais detalhes, consulte nossa{" "}
@@ -133,11 +132,11 @@ export function CookieBanner({ appearance }: { appearance: Panel1Appearance }) {
             </button>
             .
           </p>
-          <div className="mt-7 flex justify-end">
+          <div className="mt-5 flex justify-end">
             <button
               type="button"
               onClick={accept}
-              className="rounded-lg border px-6 py-3 text-[1.05rem] font-semibold transition-opacity hover:opacity-85"
+              className="rounded-lg border px-6 py-2.5 text-[13px] font-semibold transition-opacity hover:opacity-85"
               style={{ color: accentText, backgroundColor: accent, borderColor: accent }}
             >
               Concordo

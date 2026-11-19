@@ -260,6 +260,7 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => publicCatalogSchema.parse(d))
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.catalog);
+    kickDepositSweep();
     const supabase = await admin();
     const { data: business, error: businessError } = await supabase
       .from("businesses")
@@ -372,13 +373,24 @@ export const getPublicBookingCatalog = createServerFn({ method: "POST" })
       reschedule_enabled: config.preferences.reschedule_enabled,
     };
     const { logo_url: _logoPath, brand_background_image: _bgPath, ...publicBusiness } = business;
+    const rules = await loadDepositRules(supabase, business.id);
+    // Desabilitado: nenhum sinal aparece para ninguém, com ou sem login.
+    const visibleServices =
+      rules.mode === "desabilitado"
+        ? publicServices.map((service) => ({
+            ...service,
+            effectiveDepositCents: 0,
+            deposit_cents: 0,
+          }))
+        : publicServices;
     return {
       business: {
         ...publicBusiness,
         logo_url: logoUrl,
         brand_background_image: backgroundImageUrl,
       },
-      services: publicServices,
+      services: visibleServices,
+      pixMode: rules.mode,
       categories,
       appearance: config.appearance ?? DEFAULT_PANEL1_APPEARANCE,
       preferences: publicPreferences,
@@ -547,6 +559,94 @@ async function loadPreferences(businessId: string) {
   const db = await admin();
   const config = await loadPanel1Config(db, businessId);
   return config.preferences;
+}
+
+/**
+ * Mantém a fila do Pix expirando sem depender do cron: qualquer página viva
+ * (painel 1, painel 2 ou página pública) dá o empurrão — a varredura interna
+ * tem trava de tempo própria e roda em segundo plano.
+ */
+function kickDepositSweep() {
+  void import("./agpay-events.server")
+    .then((m) => m.sweepExpiredDeposits())
+    .catch(() => {
+      // Sem segredo configurado (ex.: testes): segue sem a varredura.
+    });
+}
+
+type DepositPixMode = "desabilitado" | "opcional" | "obrigatorio";
+
+/**
+ * Regras de pagamento da carteira Ag Pay definidas no painel 2.
+ * Sem a migration (ou sem regra salva) o comportamento permanece o de sempre:
+ * cobrar o sinal configurado — equivalente ao modo "obrigatorio".
+ */
+async function loadDepositRules(
+  db: Awaited<ReturnType<typeof admin>>,
+  businessId: string,
+): Promise<{ mode: DepositPixMode; exceptionClients: string[] }> {
+  const { data, error } = await db
+    .from("businesses")
+    .select("pix_mode, pix_exception_clients")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (error || !data) return { mode: "obrigatorio", exceptionClients: [] };
+  const mode = data.pix_mode;
+  return {
+    mode: mode === "desabilitado" || mode === "opcional" ? mode : "obrigatorio",
+    exceptionClients: (data.pix_exception_clients ?? []) as string[],
+  };
+}
+
+const normalizeName = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+/**
+ * Isenção do sinal (modo obrigatório) vale SOMENTE LOGADO.
+ * O painel 2 seleciona o cliente pelos dados (nome e telefone); para reconhecer
+ * a pessoa o cliente precisa estar com a conta aberta no número cadastrado —
+ * sem login não há como identificar ninguém e o sinal é cobrado normalmente.
+ */
+async function findDepositExemption(
+  db: Awaited<ReturnType<typeof admin>>,
+  businessId: string,
+  accountPhone: string,
+  exceptionClients: string[],
+): Promise<{ exempt: boolean; name: string | null }> {
+  const PAGE = 1000;
+  const rows: Array<{ name: string; phone: string | null }> = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("customers")
+      .select("name, phone")
+      .eq("business_id", businessId)
+      .range(from, from + PAGE - 1);
+    if (error) return { exempt: false, name: null };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  const accountRow = rows.find((row) => onlyDigits(row.phone) === accountPhone);
+  if (!accountRow) return { exempt: false, name: null };
+  const accountName = normalizeName(accountRow.name ?? "");
+  for (const entry of exceptionClients) {
+    const separator = entry.indexOf("|");
+    const entryName = normalizeName(separator >= 0 ? entry.slice(0, separator) : entry);
+    const entryPhone = separator >= 0 ? onlyDigits(entry.slice(separator + 1)) : null;
+    if (!entryName) continue;
+    if (entryPhone && entryPhone !== accountPhone) continue;
+    if (!entryPhone) {
+      // Entrada antiga só com nome: o telefone vem do cadastro desse nome.
+      const byName = rows.find((row) => normalizeName(row.name ?? "") === entryName);
+      if (!byName || onlyDigits(byName.phone) !== accountPhone) continue;
+    }
+    if (accountName === entryName) return { exempt: true, name: accountRow.name };
+  }
+  return { exempt: false, name: accountRow.name };
 }
 
 type PublicAppointment = {
@@ -742,6 +842,11 @@ async function computeAvailableSlots(params: {
   workingDays?: number[] | null | undefined;
   /** Dias da semana em que o serviço pode ser agendado; null = sem restrição. */
   serviceAvailableDays?: number[] | null | undefined;
+  /**
+   * Pix obrigatório: horário aguardando sinal OCUPA o horário até pagar ou
+   * expirar — ninguém mais pode marcar enquanto a cobrança está na fila.
+   */
+  blockPendingDeposit?: boolean;
 }): Promise<string[]> {
   const db = await admin();
   const weekday = weekdayInTimezone(params.date, params.timezone);
@@ -779,7 +884,10 @@ async function computeAvailableSlots(params: {
       busy.push([minutesOf(b.starts_at.slice(0, 5)), minutesOf(b.ends_at.slice(0, 5))]);
   }
   for (const a of appts ?? []) {
-    if (a.status === "cancelado") continue;
+    const pendingDeposit =
+      a.status === "aguardando_sinal" &&
+      !params.blockPendingDeposit;
+    if (a.status === "cancelado" || pendingDeposit) continue;
     if (params.professionalId && a.professional_id && a.professional_id !== params.professionalId)
       continue;
     const off = (d: Date) =>
@@ -820,12 +928,17 @@ async function computeAvailableSlots(params: {
 }
 
 export const getAvailability = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => slugSchema.parse(d))
+  .inputValidator((d: unknown) =>
+    slugSchema.extend({ customerToken: z.string().max(4096).optional() }).parse(d),
+  )
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.availability);
+    kickDepositSweep();
+    const db = await admin();
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const preferences = await loadPreferences(businessId);
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
+    const rules = await loadDepositRules(db, businessId);
     const slots = await computeAvailableSlots({
       businessId,
       durationMinutes: service.duration_minutes,
@@ -836,8 +949,29 @@ export const getAvailability = createServerFn({ method: "POST" })
       professionalId: data.professionalId,
       workingDays: professional?.working_days ?? null,
       serviceAvailableDays: service.availableDays,
+      // No obrigatório, horário aguardando sinal fica ocupado até pagar ou expirar.
+      blockPendingDeposit: rules.mode === "obrigatorio",
     });
-    return { slots, depositCents: service.depositCents };
+    // Modo desabilitado: a tela não pede documento nem mostra sinal para ninguém.
+    // Cliente isento logado (painel 2): também não vê sinal nem documento.
+    let depositCents = rules.mode === "desabilitado" ? 0 : service.depositCents;
+    if (rules.mode === "obrigatorio" && data.customerToken && depositCents > 0) {
+      const secret = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+      if (secret) {
+        const { verifyCustomerToken } = await import("./customer-token");
+        const session = verifyCustomerToken(data.customerToken, secret);
+        if (session && session.bid === businessId) {
+          const exemption = await findDepositExemption(
+            db,
+            businessId,
+            session.phone,
+            rules.exceptionClients,
+          );
+          if (exemption.exempt) depositCents = 0;
+        }
+      }
+    }
+    return { slots, depositCents };
   });
 
 export const getOpenDays = createServerFn({ method: "POST" })
@@ -883,6 +1017,8 @@ export const reserveBooking = createServerFn({ method: "POST" })
           .transform((v) => v?.replace(/\D/g, "") || undefined)
           .refine((v) => v === undefined || isValidCpfCnpj(v), "CPF ou CNPJ inválido"),
         notes: z.string().max(300).optional(),
+        // Sessão da conta (opcional): habilita a isenção do sinal no modo obrigatório.
+        customerToken: z.string().max(4096).optional(),
       })
       .parse(d),
   )
@@ -892,6 +1028,22 @@ export const reserveBooking = createServerFn({ method: "POST" })
     const { businessId, service } = await loadContext(data.slug, data.serviceId);
     const preferences = await loadPreferences(businessId);
     const professional = await validateProfessional(businessId, service.id, data.professionalId);
+    const rules = await loadDepositRules(db, businessId);
+
+    // Identifica a conta quando o cliente está logado: é o que permite a isenção
+    // do sinal para clientes selecionados no painel 2 (nome + telefone da conta).
+    let account: { phone: string; name: string | null } | null = null;
+    if (data.customerToken) {
+      const secret = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+      if (secret) {
+        const { verifyCustomerToken } = await import("./customer-token");
+        const session = verifyCustomerToken(data.customerToken, secret);
+        if (session && session.bid === businessId) {
+          const record = await findCustomerRecord(db, businessId, session.phone);
+          account = { phone: session.phone, name: record?.name ?? null };
+        }
+      }
+    }
 
     // Expediente, bloqueio e antecedência precisam valer no servidor. Esconder o
     // horário na UI não impede ninguém de chamar este endpoint público direto —
@@ -910,13 +1062,27 @@ export const reserveBooking = createServerFn({ method: "POST" })
       professionalId: data.professionalId,
       workingDays: professional?.working_days ?? null,
       serviceAvailableDays: service.availableDays,
+      // No modo obrigatório, horário aguardando sinal fica ocupado até pagar
+      // ou até os 5 minutos expirarem (o cron cancela e libera de novo).
+      blockPendingDeposit: rules.mode === "obrigatorio",
     });
     if (!available.includes(data.time))
       throw new Error("Esse horário não está mais disponível. Escolha outro.");
-    // Snapshot único do sinal: o mesmo valor vai para appointments.deposit_cents,
-    // deposit_payments.amount_cents e para a resposta. Sinal efetivo zero (0% ou
-    // preço zero no modo percentual) confirma o horário sem cobrança.
-    const depositCents = service.depositCents;
+
+    // Regras do sinal:
+    // • desabilitado → nenhum sinal para ninguém, com ou sem login;
+    // • obrigatório → cobra de todos, EXCETO o cliente selecionado no painel 2
+    //   quando ele está LOGADO com a conta do telefone e nome cadastrados;
+    // • opcional → cobra o sinal, mas o horário sobe CONFIRMADO na agenda mesmo
+    //   sem pagar: o Pix aparece no final para pagar se quiser.
+    const exempt =
+      rules.mode === "obrigatorio" && account
+        ? (await findDepositExemption(db, businessId, account.phone, rules.exceptionClients)).exempt
+        : false;
+    let depositCents = service.depositCents;
+    if (rules.mode === "desabilitado") depositCents = 0;
+    if (exempt) depositCents = 0;
+    const pixOptional = rules.mode === "opcional";
     const chargesDeposit = depositCents > 0;
     // O documento do pagador só é solicitado quando há cobrança de sinal.
     const payerDocument = chargesDeposit ? data.customerCpfCnpj : undefined;
@@ -936,8 +1102,14 @@ export const reserveBooking = createServerFn({ method: "POST" })
       .select("id")
       .eq("business_id", businessId)
       .lt("starts_at", endsAt)
-      .gt("ends_at", startsAt)
-      .neq("status", "cancelado");
+      .gt("ends_at", startsAt);
+    // No obrigatório, horário aguardando sinal OCUPA o slot; nos outros modos,
+    // pendências de sinal não bloqueiam ninguém.
+    clashQuery = clashQuery.not(
+      "status",
+      "in",
+      rules.mode === "obrigatorio" ? '("cancelado")' : '("cancelado","aguardando_sinal")',
+    );
     if (data.professionalId) clashQuery = clashQuery.eq("professional_id", data.professionalId);
     const { data: clash, error: clashError } = await clashQuery.limit(1);
     if (clashError) throw new Error("Não foi possível confirmar a disponibilidade.");
@@ -954,7 +1126,9 @@ export const reserveBooking = createServerFn({ method: "POST" })
       public_code: publicCode,
       starts_at: startsAt,
       ends_at: endsAt,
-      status: chargesDeposit ? "aguardando_sinal" : "agendado",
+      // Opcional: o horário é CONFIRMADO na hora (sobe na agenda do dono) e o
+      // sinal pode ser pago depois. Obrigatório: fica na fila até pagar.
+      status: chargesDeposit && !pixOptional ? "aguardando_sinal" : "agendado",
       deposit_cents: chargesDeposit ? depositCents : 0,
       notes: data.notes ?? null,
     };
@@ -983,7 +1157,11 @@ export const reserveBooking = createServerFn({ method: "POST" })
       };
     }
 
-    const expiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+    // No opcional o Pix fica disponível até o horário do agendamento (pagar
+    // quando quiser); no obrigatório, a janela curta de 5 minutos mantém a fila.
+    const expiresAt = pixOptional
+      ? startsAt
+      : new Date(Date.now() + 5 * 60_000).toISOString();
     const { data: charge, error: chargeError } = await db
       .from("deposit_payments")
       .insert({
@@ -1299,6 +1477,9 @@ export const getMyBookings = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     enforceRateLimit(PUBLIC_RATE_LIMITS.myBookings);
+    // A página do cliente fica polando aqui a cada 15s: é o pulso que mantém a
+    // fila do Pix expirando na hora certa (pagou → confirma; passou → cancela).
+    kickDepositSweep();
     if (!data.chargeIds.length && !data.publicCodes.length) return { bookings: [] };
     const db = await admin();
     const { data: chargeRows, error: chargeRowsError } = data.chargeIds.length
@@ -1380,6 +1561,273 @@ export const getMyBookings = createServerFn({ method: "POST" })
       };
     });
     return { bookings };
+  });
+
+const onlyDigits = (value: string | null | undefined) => (value ?? "").replace(/\D/g, "");
+
+const customerPinSchema = z.string().regex(/^\d{4}$/, "A senha precisa ter 4 números.");
+
+const customerLoginInput = z.object({
+  slug: z.string().min(1),
+  phone: z.string().min(8).max(30),
+  pin: customerPinSchema,
+});
+
+const customerRegisterInput = z.object({
+  slug: z.string().min(1),
+  phone: z.string().min(8).max(30),
+  name: z.string().trim().min(3, "Informe seu nome completo.").max(80),
+  pin: customerPinSchema,
+});
+
+const customerEmail = (digits: string) => `${digits}@cliente.agenda.local`;
+const customerPassword = (pin: string) => `agendaagora:${pin}`;
+
+async function businessBySlug(slug: string) {
+  const db = await admin();
+  const { data: business, error } = await db
+    .from("businesses")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error || !business) throw new Error("Negócio não encontrado.");
+  return { db, businessId: business.id };
+}
+
+/** Confere a senha do cliente no Supabase Auth (conta sintética por telefone). */
+async function customerPasswordMatches(email: string, password: string): Promise<boolean> {
+  const url = process.env["SUPABASE_URL"];
+  const key =
+    process.env["SUPABASE_PUBLISHABLE_KEY"] ?? process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  if (!url || !key) return false;
+  try {
+    const response = await fetch(`${url}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({ email, password }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cadastro do cliente no registro do negócio (tabela `customers`).
+ * É a identidade da conta por telefone: guarda o nome do dono e define quem
+ * pode entrar. Lido com service-role, comparando apenas os dígitos do telefone.
+ */
+async function findCustomerRecord(
+  db: Awaited<ReturnType<typeof admin>>,
+  businessId: string,
+  phoneDigits: string,
+): Promise<{ name: string } | null> {
+  const PAGE = 1000;
+  const rows: Array<{ name: string; phone: string | null }> = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("customers")
+      .select("name, phone")
+      .eq("business_id", businessId)
+      .range(from, from + PAGE - 1);
+    if (error) return null;
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  const match = rows.find((row) => onlyDigits(row.phone) === phoneDigits);
+  return match ? { name: match.name } : null;
+}
+
+/** Conta por telefone tem senha própria, definida no cadastro. Sem senha padrão. */
+function customerAccountError(error: { message: string } | null): Error {
+  if (error && /registered|already|exists/i.test(error.message))
+    return new Error("Este telefone já tem cadastro. Use Entrar.");
+  return new Error("Não foi possível criar o cadastro. Tente novamente.");
+}
+
+/**
+ * Códigos públicos e cobranças ligados ao telefone, para montar o histórico.
+ *
+ * O PostgREST limita cada resposta a 1000 linhas; o histórico precisa de todos
+ * os registros, então a leitura pagina até a última página.
+ */
+async function findCustomerBookingCodes(
+  db: Awaited<ReturnType<typeof admin>>,
+  businessId: string,
+  phoneDigits: string,
+) {
+  const PAGE = 1000;
+  type PhoneAppointment = {
+    id: string;
+    public_code: string | null;
+    customer_phone: string | null;
+    status: string;
+  };
+  const appointmentsTable = db.from("appointments") as unknown as {
+    select(columns: string): {
+      eq(column: string, value: string): {
+        range(
+          from: number,
+          to: number,
+        ): PromiseLike<{
+          data: PhoneAppointment[] | null;
+          error: { message: string } | null;
+        }>;
+      };
+    };
+  };
+
+  const appointments: PhoneAppointment[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await appointmentsTable
+      .select("id, public_code, customer_phone, status")
+      .eq("business_id", businessId)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error("Não foi possível consultar seus agendamentos.");
+    appointments.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+
+  const matched = appointments.filter(
+    (appointment) =>
+      appointment.status !== "bloqueado" &&
+      onlyDigits(appointment.customer_phone) === phoneDigits,
+  );
+  const appointmentIds = new Set(matched.map((appointment) => appointment.id));
+  const publicCodes = [
+    ...new Set(
+      matched
+        .map((appointment) => appointment.public_code)
+        .filter((code): code is string => typeof code === "string" && code.length > 0),
+    ),
+  ];
+
+  const charges: Array<{
+    id: string;
+    appointment_id: string | null;
+    payer_phone: string | null;
+  }> = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await db
+      .from("deposit_payments")
+      .select("id, appointment_id, payer_phone")
+      .eq("business_id", businessId)
+      .range(from, from + PAGE - 1);
+    if (error) break;
+    charges.push(...(data ?? []));
+    if (!data || data.length < PAGE) break;
+  }
+  const chargeIds = [
+    ...new Set(
+      charges
+        .filter(
+          (charge) =>
+            onlyDigits(charge.payer_phone) === phoneDigits ||
+            (!!charge.appointment_id && appointmentIds.has(charge.appointment_id)),
+        )
+        .map((charge) => charge.id),
+    ),
+  ];
+
+  // Quantidade de agendamentos da conta (sem duplicar cobrança + agendamento).
+  const accountAppointmentIds = new Set(appointmentIds);
+  for (const charge of charges) {
+    if (onlyDigits(charge.payer_phone) === phoneDigits && charge.appointment_id)
+      accountAppointmentIds.add(charge.appointment_id);
+  }
+
+  return { publicCodes, chargeIds, bookingCount: accountAppointmentIds.size };
+}
+
+/** Sessão da conta: token assinado + dados da conta + histórico do telefone. */
+async function customerSessionPayload(
+  db: Awaited<ReturnType<typeof admin>>,
+  businessId: string,
+  digits: string,
+  name: string,
+) {
+  const secret = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  if (!secret) throw new Error("Conta indisponível no momento.");
+  const { signCustomerToken } = await import("./customer-token");
+  const token = signCustomerToken(businessId, digits, secret);
+  const codes = await findCustomerBookingCodes(db, businessId, digits);
+  return { token, phone: digits, name, ...codes };
+}
+
+/** Cria o cadastro: nome + telefone + senha de 4 números escolhida pelo dono. */
+export const customerRegister = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => customerRegisterInput.parse(d))
+  .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.customerRegister);
+    const digits = onlyDigits(data.phone);
+    if (digits.length < 10 || digits.length > 13)
+      throw new Error("Informe um telefone válido com DDD.");
+
+    const { db, businessId } = await businessBySlug(data.slug);
+    const existing = await findCustomerRecord(db, businessId, digits);
+    if (existing && (await customerPasswordMatches(customerEmail(digits), customerPassword(data.pin))))
+      throw new Error("Este telefone já tem cadastro. Use Entrar.");
+
+    // A conta de acesso é criada SÓ aqui: cada telefone tem a própria senha.
+    const created = await db.auth.admin.createUser({
+      email: customerEmail(digits),
+      password: customerPassword(data.pin),
+      email_confirm: true,
+      user_metadata: { full_name: data.name, phone: digits, account_kind: "customer" },
+    });
+    if (created.error) throw customerAccountError(created.error);
+
+    if (!existing) {
+      await db.from("customers").insert({ business_id: businessId, name: data.name, phone: digits });
+    }
+    const name = existing?.name ?? data.name;
+    return customerSessionPayload(db, businessId, digits, name);
+  });
+
+/** Entra numa conta EXISTENTE: nunca cria conta nem aceita senha genérica. */
+export const customerLogin = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => customerLoginInput.parse(d))
+  .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.customerLogin);
+    const digits = onlyDigits(data.phone);
+    if (digits.length < 10 || digits.length > 13)
+      throw new Error("Informe um telefone válido com DDD.");
+
+    const { db, businessId } = await businessBySlug(data.slug);
+    const record = await findCustomerRecord(db, businessId, digits);
+    if (!record) throw new Error("Telefone não cadastrado. Toque em Criar cadastro.");
+    if (!(await customerPasswordMatches(customerEmail(digits), customerPassword(data.pin))))
+      throw new Error("Telefone ou senha incorretos.");
+    return customerSessionPayload(db, businessId, digits, record.name);
+  });
+
+/** Restaura a sessão salva no aparelho e recarrega o histórico do telefone. */
+export const customerSession = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        slug: z.string().min(1),
+        token: z.string().min(10).max(4096),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    enforceRateLimit(PUBLIC_RATE_LIMITS.customerSession);
+    const secret = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+    if (!secret) throw new Error("Conta indisponível no momento.");
+    const { verifyCustomerToken } = await import("./customer-token");
+    const session = verifyCustomerToken(data.token, secret);
+    if (!session) throw new Error("Sessão expirada. Entre novamente.");
+
+    const { db, businessId } = await businessBySlug(data.slug);
+    if (businessId !== session.bid) throw new Error("Sessão inválida. Entre novamente.");
+    const record = await findCustomerRecord(db, businessId, session.phone);
+    const codes = await findCustomerBookingCodes(db, businessId, session.phone);
+    return { phone: session.phone, name: record?.name ?? "Cliente", ...codes };
   });
 
 export const getDepositStatus = createServerFn({ method: "POST" })

@@ -5,6 +5,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin, MASTER_ACCESS_DENIED } from "@/lib/auth/require-super-admin";
 import { subscriptionTotalCents, nextAccessAfterPayment } from "@/lib/billing-cycle";
 import { isValidCpf } from "@/lib/cpf";
+import { cardPaymentEnabled } from "@/lib/payment-methods";
 import { isMasterCouponActive } from "@/lib/subscription-coupon";
 
 /**
@@ -188,6 +189,9 @@ export const createSubscriptionCharge = createServerFn({ method: "POST" })
     const { createPixCharge, createCardCharge, CARD_MIN_AMOUNT_CENTS } =
       await import("@/lib/agpay.server");
     const isCard = data.method === "card";
+    if (isCard && !cardPaymentEnabled()) {
+      throw new Error("O pagamento no cartão ainda não está disponível. Pague por Pix.");
+    }
 
     // E-mail do pagador (dono) via Auth.
     const { data: authUser } = await supabaseAdmin.auth.admin.getUserById(business.owner_id);

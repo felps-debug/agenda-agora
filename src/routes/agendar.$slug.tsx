@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatPrice } from "@/lib/format";
+import { maskCpfCnpj, maskPhoneBR } from "@/lib/input-masks";
 import { accessibleTextColor } from "@/lib/contrast";
 import {
   DEFAULT_PANEL1_APPEARANCE,
@@ -44,6 +45,9 @@ import {
   getMyBookings,
   cancelAppointmentPublic,
   rescheduleAppointmentPublic,
+  customerLogin,
+  customerRegister,
+  customerSession,
 } from "@/lib/booking.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +60,7 @@ import {
 } from "@/components/public-booking/appearance-preview";
 import { ElegancePanel, EleganceServiceList } from "@/components/public-booking/elegance";
 import { EleganceBookingDialog } from "@/components/public-booking/elegance-booking";
+import { EleganceAccount } from "@/components/public-booking/elegance-account";
 import type { EleganceHistoryBooking } from "@/components/public-booking/elegance-history";
 import {
   BookingHistoryLoadError,
@@ -152,6 +157,70 @@ function readCharges(slug: string): string[] {
   }
 }
 
+/**
+ * Junta os códigos já salvos no aparelho com os da conta, sem descartar nada.
+ * O login é opcional: ele só acrescenta o histórico do telefone ao que já existe.
+ */
+function mergeCodes(current: string[], incoming: string[]): string[] {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+  for (const value of [...current, ...incoming]) {
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    merged.push(value);
+  }
+  // O servidor aceita até 200 códigos por consulta.
+  return merged.slice(0, 200);
+}
+
+/** Sessão da conta do cliente: localStorage + cookie para sobreviver ao navegador. */
+function accountStorageKey(slug: string) {
+  return `agenda-servico:${slug}:account`;
+}
+
+function accountCookieName(slug: string) {
+  return `aa-conta-${slug}`;
+}
+
+function readAccountToken(slug: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(accountStorageKey(slug));
+    if (stored) return stored;
+  } catch {
+    // Sem localStorage: tenta o cookie.
+  }
+  try {
+    const entry = document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${accountCookieName(slug)}=`));
+    return entry
+      ? decodeURIComponent(entry.slice(accountCookieName(slug).length + 1))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveAccountToken(slug: string, token: string) {
+  try {
+    window.localStorage.setItem(accountStorageKey(slug), token);
+    document.cookie = `${accountCookieName(slug)}=${encodeURIComponent(token)}; path=/; max-age=31536000; SameSite=Lax`;
+  } catch {
+    // Sem armazenamento: a sessão vale só para esta página.
+  }
+}
+
+function clearAccountToken(slug: string) {
+  try {
+    window.localStorage.removeItem(accountStorageKey(slug));
+    document.cookie = `${accountCookieName(slug)}=; path=/; max-age=0; SameSite=Lax`;
+  } catch {
+    // Nada a limpar.
+  }
+}
+
 /** Serviços agrupados por categoria ativa (colapsada); sem categoria, lista direta. */
 function GroupedServices({
   services,
@@ -231,7 +300,7 @@ function GroupedServices({
 
 function PublicBooking() {
   const { slug } = Route.useParams();
-  const [tab, setTab] = useState<"agendar" | "historico" | "perfil">("agendar");
+  const [tab, setTab] = useState<"agendar" | "historico" | "perfil" | "conta">("agendar");
   const [service, setService] = useState<Service | null>(null);
   const [professional, setProfessional] = useState<Professional | null>(null);
   const [date, setDate] = useState<string | null>(null);
@@ -246,6 +315,20 @@ function PublicBooking() {
   const [publicCodes, setPublicCodes] = useState<string[]>([]);
   const [exitStage, setExitStage] = useState<"hidden" | "shown" | "hiding">("hidden");
   const [activeCharge, setActiveCharge] = useState<string | null>(null);
+  /**
+   * Sessão da conta: token + dono + códigos DO TELEFONE DA CONTA. Ficam
+   * separados do histórico do aparelho (`charges`/`publicCodes`) para nunca
+   * misturar contas diferentes no mesmo aparelho.
+   */
+  const [account, setAccount] = useState<{
+    token: string;
+    phone: string;
+    name: string;
+    codes: { publicCodes: string[]; chargeIds: string[] };
+  } | null>(null);
+  const [accountBookingCount, setAccountBookingCount] = useState(0);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [accountPending, setAccountPending] = useState(false);
 
   const handleClientLogout = () => {
     try {
@@ -255,8 +338,9 @@ function PublicBooking() {
           document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
         }
       });
-      window.localStorage.removeItem(`agenda-servico:${slug}:charges`);
-      window.localStorage.removeItem(`agenda-servico:${slug}:booking-codes`);
+      // O histórico de agendamentos do aparelho é preservado: sair da página
+      // não apaga mais os agendamentos feitos sem login.
+      window.localStorage.removeItem(accountStorageKey(slug));
       window.localStorage.removeItem("aa-cookie-consent-v1");
       window.sessionStorage.clear();
     } catch {
@@ -286,6 +370,9 @@ function PublicBooking() {
   const cancelAppointmentFn = useServerFn(cancelAppointmentPublic);
   const rescheduleAppointmentFn = useServerFn(rescheduleAppointmentPublic);
   const professionalsFn = useServerFn(getPublicBookingProfessionals);
+  const customerLoginFn = useServerFn(customerLogin);
+  const customerRegisterFn = useServerFn(customerRegister);
+  const customerSessionFn = useServerFn(customerSession);
   const catalog = Route.useLoaderData();
 
   useEffect(() => {
@@ -301,6 +388,12 @@ function PublicBooking() {
         toast.error(
           "Não foi possível salvar neste aparelho; o pagamento e o código seguem no histórico aberto.",
         );
+      // Logado: o novo agendamento também entra no histórico da conta.
+      setAccount((prev) =>
+        prev
+          ? { ...prev, codes: { ...prev.codes, chargeIds: mergeCodes(prev.codes.chargeIds, [id]) } }
+          : prev,
+      );
     },
     [charges, slug],
   );
@@ -314,12 +407,98 @@ function PublicBooking() {
         );
         setPublicCodes(next);
         window.localStorage.setItem(publicCodesStorageKey(slug), JSON.stringify(next));
+        setAccount((prev) =>
+          prev
+            ? {
+                ...prev,
+                codes: { ...prev.codes, publicCodes: mergeCodes(prev.codes.publicCodes, [publicCode]) },
+              }
+            : prev,
+        );
       } catch {
         toast.error("Não foi possível salvar este agendamento neste aparelho.");
       }
     },
     [publicCodes, slug],
   );
+
+  // Restaura a sessão salva no aparelho: histórico exclusivo do telefone da conta.
+  useEffect(() => {
+    const token = readAccountToken(slug);
+    if (!token) return;
+    let active = true;
+    customerSessionFn({ data: { slug, token } })
+      .then((session) => {
+        if (!active) return;
+        setAccount({
+          token,
+          phone: session.phone,
+          name: session.name,
+          codes: { publicCodes: session.publicCodes, chargeIds: session.chargeIds },
+        });
+        setAccountBookingCount(session.bookingCount);
+      })
+      .catch(() => {
+        if (active) clearAccountToken(slug);
+      });
+    return () => {
+      active = false;
+    };
+  }, [slug, customerSessionFn]);
+
+  const handleAccountLogin = async (phoneDigits: string, pin: string) => {
+    setAccountPending(true);
+    setAccountError(null);
+    try {
+      const session = await customerLoginFn({ data: { slug, phone: phoneDigits, pin } });
+      saveAccountToken(slug, session.token);
+      setAccount({
+        token: session.token,
+        phone: session.phone,
+        name: session.name,
+        codes: { publicCodes: session.publicCodes, chargeIds: session.chargeIds },
+      });
+      setAccountBookingCount(session.bookingCount);
+      toast.success("Login realizado!");
+      setTab("historico");
+    } catch (error) {
+      setAccountError(friendlyError(error, "entrar na conta"));
+    } finally {
+      setAccountPending(false);
+    }
+  };
+
+  const handleAccountRegister = async (fullName: string, phoneDigits: string, pin: string) => {
+    setAccountPending(true);
+    setAccountError(null);
+    try {
+      const session = await customerRegisterFn({
+        data: { slug, name: fullName, phone: phoneDigits, pin },
+      });
+      saveAccountToken(slug, session.token);
+      setAccount({
+        token: session.token,
+        phone: session.phone,
+        name: session.name,
+        codes: { publicCodes: session.publicCodes, chargeIds: session.chargeIds },
+      });
+      setAccountBookingCount(session.bookingCount);
+      toast.success(`Cadastro criado! Bem-vindo, ${session.name.split(" ")[0]}.`);
+      setTab("historico");
+    } catch (error) {
+      setAccountError(friendlyError(error, "criar o cadastro"));
+    } finally {
+      setAccountPending(false);
+    }
+  };
+
+  const handleAccountLogout = () => {
+    clearAccountToken(slug);
+    setAccount(null);
+    setAccountBookingCount(0);
+    setAccountError(null);
+    toast.success("Você saiu da conta.");
+  };
 
   const business = catalog?.business ?? null;
   const appearance: Panel1Appearance = {
@@ -367,7 +546,7 @@ function PublicBooking() {
     isError: slotsError,
     refetch: refetchAvailability,
   } = useQuery({
-    queryKey: ["public-slots", slug, service?.id, professional?.id, date],
+    queryKey: ["public-slots", slug, service?.id, professional?.id, date, account?.token],
     enabled: !!service && !!date && ((professionals?.length ?? 0) === 0 || !!professional),
     queryFn: () =>
       availabilityFn({
@@ -376,13 +555,22 @@ function PublicBooking() {
           serviceId: service!.id,
           date: date!,
           professionalId: professional?.id ?? null,
+          // Sessão da conta: cliente isento (painel 2) não vê documento do pagador.
+          ...(account ? { customerToken: account.token } : {}),
         },
       }),
   });
 
+  /**
+   * Histórico exibido: logado = agendamentos da conta (só do telefone dela,
+   * nunca de outro usuário); sem login = agendamentos feitos neste aparelho.
+   */
+  const historyCharges = account?.codes.chargeIds ?? charges;
+  const historyCodes = account?.codes.publicCodes ?? publicCodes;
+
   const bookings = useQuery({
-    queryKey: ["public-bookings", slug, charges.join(","), publicCodes.join(",")],
-    enabled: charges.length > 0 || publicCodes.length > 0,
+    queryKey: ["public-bookings", slug, historyCharges.join(","), historyCodes.join(",")],
+    enabled: historyCharges.length > 0 || historyCodes.length > 0,
     refetchInterval: (query) => {
       const rows = query.state.data?.bookings;
       return !rows?.length || rows.some((booking) => booking.chargeStatus === "pendente")
@@ -390,7 +578,7 @@ function PublicBooking() {
         : false;
     },
     refetchIntervalInBackground: false,
-    queryFn: () => bookingsFn({ data: { chargeIds: charges, publicCodes } }),
+    queryFn: () => bookingsFn({ data: { chargeIds: historyCharges, publicCodes: historyCodes } }),
   });
 
   const cancelAppointment = useMutation({
@@ -416,6 +604,7 @@ function PublicBooking() {
     ? (availability?.depositCents ?? service.effectiveDepositCents)
     : 0;
   const needsDocument = selectedDepositCents > 0;
+  const pixMode: "desabilitado" | "opcional" | "obrigatorio" = catalog?.pixMode ?? "opcional";
 
   const days = openDays?.days ?? [];
   const visibleDays = useMemo(() => days.slice(pageStart, pageStart + 7), [days, pageStart]);
@@ -455,6 +644,8 @@ function PublicBooking() {
           ...(needsDocument
             ? { customerEmail: email.trim(), customerCpfCnpj: cpfCnpj.trim() }
             : {}),
+          // Sessão da conta: permite reconhecer clientes isentos do sinal.
+          ...(account ? { customerToken: account.token } : {}),
           professionalId: professional?.id ?? null,
         },
       }),
@@ -489,7 +680,10 @@ function PublicBooking() {
 
   const submit = () => {
     if (name.trim().length < 2) return setFormError("Informe o seu nome e sobrenome");
-    if (phone.trim().length < 8) return setFormError("Informe o seu telefone");
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length !== 10 && phoneDigits.length !== 11) {
+      return setFormError("Informe o telefone com DDD (10 ou 11 números)");
+    }
     if (needsDocument && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setFormError("Informe um e-mail válido (necessário pra gerar o Pix)");
       return;
@@ -552,7 +746,7 @@ function PublicBooking() {
         <ElegancePanel
           appearance={appearance}
           brandName={business.name}
-          title={tab === "historico" ? "Meus agendamentos" : null}
+          title={tab === "historico" ? "Meus agendamentos" : tab === "conta" ? "Minha conta" : null}
           logoUrl={business.logo_url}
           coverUrl={pageBackgroundImage}
           pageBackground={pageBackground}
@@ -571,6 +765,23 @@ function PublicBooking() {
               services={services}
               onSelect={openService}
               appearance={appearance}
+            />
+          ) : tab === "conta" ? (
+            <EleganceAccount
+              appearance={appearance}
+              modalText={modalText}
+              loggedIn={!!account}
+              name={account?.name ?? null}
+              phone={account?.phone ?? null}
+              bookingCount={
+                account ? (bookings.data?.bookings?.length ?? accountBookingCount) : accountBookingCount
+              }
+              pending={accountPending}
+              error={accountError}
+              onLogin={handleAccountLogin}
+              onRegister={handleAccountRegister}
+              onLogout={handleAccountLogout}
+              onGoHistory={() => setTab("historico")}
             />
           ) : (
             <EleganceHistoryList
@@ -743,18 +954,20 @@ function PublicBooking() {
             formName={name}
             onNameChange={setName}
             formPhone={phone}
-            onPhoneChange={setPhone}
+            onPhoneChange={(value) => setPhone(maskPhoneBR(value))}
             formEmail={email}
             onEmailChange={setEmail}
             formCpfCnpj={cpfCnpj}
-            onCpfCnpjChange={setCpfCnpj}
+            onCpfCnpjChange={(value) => setCpfCnpj(maskCpfCnpj(value))}
             needsDocument={needsDocument}
             formError={formError}
             pending={reserve.isPending}
             onSubmit={submit}
             noteText={
               needsDocument
-                ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
+                ? pixMode === "opcional"
+                  ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix (opcional): o horário é confirmado na hora e o Pix aparece no final para pagar se quiser.`
+                  : `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
                 : "Este serviço não exige sinal. O horário é confirmado ao finalizar."
             }
           />
@@ -1035,8 +1248,9 @@ function PublicBooking() {
                           inputMode="tel"
                           autoComplete="tel"
                           placeholder="(99) 99999-9999"
+                          maxLength={15}
                           value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
+                          onChange={(e) => setPhone(maskPhoneBR(e.target.value))}
                         />
                       </div>
                       {needsDocument && (
@@ -1060,8 +1274,9 @@ function PublicBooking() {
                               id="cpf"
                               inputMode="numeric"
                               placeholder="000.000.000-00"
+                              maxLength={18}
                               value={cpfCnpj}
-                              onChange={(e) => setCpfCnpj(e.target.value)}
+                              onChange={(e) => setCpfCnpj(maskCpfCnpj(e.target.value))}
                             />
                             <p className="text-xs">Necessário pra emitir o Pix do sinal.</p>
                           </div>
@@ -1080,7 +1295,9 @@ function PublicBooking() {
                     </Button>
                     <p className="text-xs">
                       {needsDocument
-                        ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
+                        ? pixMode === "opcional"
+                          ? `Sinal de ${formatPrice(selectedDepositCents)} por Pix (opcional): o horário é confirmado na hora e o Pix aparece no final para pagar se quiser.`
+                          : `Sinal de ${formatPrice(selectedDepositCents)} por Pix. O horário só é confirmado após o pagamento.`
                         : "Este serviço não exige sinal. O horário é confirmado ao finalizar."}
                     </p>
                   </div>
@@ -1100,6 +1317,7 @@ function PublicBooking() {
               reservedAmount?.chargeId === activeCharge ? reservedAmount.amountCents : null
             }
             appearance={appearance}
+            optional={pixMode === "opcional"}
             onClose={() => {
               setActiveCharge(null);
               void bookings.refetch();
@@ -1552,49 +1770,59 @@ function ConfirmedDialog({
   timezone: string;
   onClose: () => void;
 }) {
+  // Mesma identidade visual do pop-up de pagamento do sinal:
+  // fundo = "Fundo dos serviços" · borda = "Borda do serviço" · textos =
+  // nome/texto do serviço · botão e destaque = "Fundo/Texto do botão".
+  const popupBackground = appearance.service_background || "#ffffff";
+  const popupBorder = appearance.service_border || "transparent";
+  const titleColor = appearance.service_name_text || appearance.modal_text;
+  const textColor = appearance.service_text || appearance.modal_text;
+  const accent = appearance.modal_active_background;
+  const accentText = appearance.modal_active_text;
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
-        className={`max-w-sm text-center ${""}`}
-        style={{
-          backgroundColor: appearance.modal_background,
-          color: accessibleTextColor(appearance.modal_background),
-          borderColor: appearance.modal_border,
-        }}
+        className="max-h-[90vh] max-w-md overflow-y-auto rounded-3xl p-6 text-center shadow-xl"
+        style={{ backgroundColor: popupBackground, borderColor: popupBorder }}
       >
-        <div className="space-y-4 p-2">
+        <div className="space-y-4">
           <span
-            className="mx-auto flex size-14 items-center justify-center rounded-full border"
-            style={{
-              color: accessibleTextColor(appearance.modal_background),
-              borderColor: appearance.modal_border,
-            }}
+            aria-hidden="true"
+            className="mx-auto flex size-14 items-center justify-center rounded-full"
+            style={{ backgroundColor: `${accent}1F`, color: accent }}
           >
             <Check className="size-7" />
           </span>
           <div>
-            <h2 className="font-display text-lg font-bold">Agendamento confirmado!</h2>
-            <p className="mt-1 text-sm">
+            <h2 className="font-display text-xl font-bold" style={{ color: titleColor }}>
+              Agendamento confirmado!
+            </h2>
+            <p className="mt-1 text-sm" style={{ color: textColor, opacity: 0.85 }}>
               Este serviço não exige sinal — seu horário já está garantido.
             </p>
           </div>
           <div
-            className={`space-y-2 rounded-lg border p-4 text-left text-sm ${""}`}
+            className="space-y-2 rounded-2xl border p-4 text-left text-sm"
             style={{
-              backgroundColor: appearance.modal_background,
-              color: accessibleTextColor(appearance.modal_background),
-              borderColor: appearance.modal_border,
+              backgroundColor: popupBackground,
+              color: textColor,
+              borderColor: popupBorder,
             }}
           >
             <p className="flex items-center gap-2">
-              <Info className="size-4 shrink-0" /> {booking.serviceName}
+              <Info className="size-4 shrink-0" style={{ color: accent }} /> {booking.serviceName}
             </p>
             <p className="flex items-center gap-2">
-              <CalendarDays className="size-4 shrink-0" />{" "}
+              <CalendarDays className="size-4 shrink-0" style={{ color: accent }} />{" "}
               {formatAppointmentDateTime(booking.startsAt, timezone)}
             </p>
           </div>
-          <Button className="w-full" onClick={onClose}>
+          <Button
+            onClick={onClose}
+            className="w-full rounded-xl"
+            style={{ backgroundColor: accent, color: accentText }}
+          >
             Fechar
           </Button>
         </div>

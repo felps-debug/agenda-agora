@@ -3069,6 +3069,225 @@ body:has(.owner-panel) .bloqueio-type-option.is-selected {
   overflow: hidden;
 }
 
+/* Atendimento CONCLUÍDO ("Finalizar serviço"): linha VERDE, igual à
+   referência de quem já foi atendido. */
+.owner-panel
+  main
+  .owner-route-content
+  > div:has(.agenda-date-selector)
+  > div:has(> ul)
+  > ul
+  > li.agenda-row--concluido {
+  background: #9ff5b3;
+  min-height: var(--agenda-row-height);
+  height: var(--agenda-row-height);
+  border-radius: var(--agenda-row-radius);
+  overflow: hidden;
+}
+
+/* Fila do Pix obrigatório: horário aguardando sinal em LARANJA,
+   com contagem "faltam mm:ss" até o cancelamento automático.
+   Altura automática: a pill da contagem precisa aparecer inteira. */
+.owner-panel
+  main
+  .owner-route-content
+  > div:has(.agenda-date-selector)
+  > div:has(> ul)
+  > ul
+  > li.agenda-row--pendente {
+  background: #f4a44e;
+  min-height: var(--agenda-row-height);
+  height: auto;
+  border-radius: var(--agenda-row-radius);
+  overflow: hidden;
+}
+
+.agenda-pendente-contagem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #231a03;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 2px 8px;
+  width: fit-content;
+  margin-top: 4px;
+  /* Nunca invade as colunas vizinhas (celulares): contido na própria coluna. */
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* Coluna do horário na fila do Pix: hora em cima, contagem embaixo */
+.owner-panel
+  main
+  .owner-route-content
+  > div:has(.agenda-date-selector)
+  > div:has(> ul)
+  > ul
+  > li.agenda-row--pendente
+  .agenda-cell--time {
+  align-items: flex-start;
+  justify-content: center;
+}
+
+/* Telas pequenas (celulares): selo um pouco menor e a coluna do horário
+   mais larga, para nada sobrepor nome/telefone/serviço. */
+@media (max-width: 639px) {
+  .agenda-pendente-contagem {
+    font-size: 10px;
+    padding: 2px 6px;
+    gap: 3px;
+    margin-top: 3px;
+  }
+
+  .owner-panel
+    main
+    .owner-route-content
+    > div:has(.agenda-date-selector)
+    > div:has(> ul)
+    > ul
+    > li.agenda-row--pendente
+    > button.agenda-row-btn {
+    grid-template-columns: 24% 38% 26% 12%;
+  }
+}
+
+/* Pop-up de detalhes: painel "Pular etapa" — identidade visual do SaaS
+   (cartão escuro com borda azul, filete de luz no topo, tipografia afiada). */
+.agenda-pendente-painel {
+  position: relative;
+  margin: 0 0 14px;
+  padding: 14px 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  background: linear-gradient(180deg, rgba(23, 37, 68, 0.35), rgba(9, 11, 17, 0.55));
+  overflow: hidden;
+}
+
+.agenda-pendente-painel-brilho {
+  position: absolute;
+  left: 8%;
+  top: 0;
+  height: 1px;
+  width: 84%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(93, 168, 255, 0.55) 50%,
+    transparent
+  );
+}
+
+/* Ícones com a linha EXATAMENTE entre eles: a linha é um elemento flex
+   entre os dois, então nunca atravessa os círculos nem vaza para os lados. */
+.agenda-pendente-painel-icones {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.agenda-pendente-linha {
+  width: clamp(72px, 26%, 132px);
+  height: 2px;
+  background: linear-gradient(90deg, rgba(93, 168, 255, 0.5), rgba(255, 90, 90, 0.5));
+}
+
+.agenda-pendente-icone {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.agenda-pendente-icone--registro {
+  color: #5da8ff;
+  background: rgba(22, 119, 255, 0.14);
+  border: 1px solid rgba(93, 168, 255, 0.45);
+  box-shadow: 0 0 14px rgba(59, 130, 246, 0.25);
+}
+
+.agenda-pendente-icone--pix {
+  color: #ff5a5a;
+  background: rgba(255, 90, 90, 0.1);
+  border: 1px solid rgba(255, 90, 90, 0.5);
+  box-shadow: 0 0 14px rgba(255, 90, 90, 0.18);
+}
+
+.agenda-pendente-painel-colunas {
+  display: flex;
+  justify-content: center;
+  gap: 44px;
+}
+
+.agenda-pendente-coluna {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: 132px;
+}
+
+.agenda-pendente-rotulo {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.agenda-pendente-rotulo--registro {
+  color: #5da8ff;
+}
+
+.agenda-pendente-rotulo--pix {
+  color: #ff5a5a;
+}
+
+.agenda-pendente-pular {
+  border: 0;
+  cursor: pointer;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #231a03;
+  background: linear-gradient(90deg, #f6d97a, #ffd645, #f6d97a);
+  box-shadow: 0 4px 14px rgba(217, 168, 63, 0.25);
+  transition: opacity 0.15s ease;
+}
+
+.agenda-pendente-pular:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.agenda-pendente-pular:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.agenda-pendente-timer {
+  margin: 8px 0 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #f1f2f4;
+  font-variant-numeric: tabular-nums;
+}
+
+.agenda-pendente-tempo-texto {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #9aa4b2;
+}
+
 .owner-panel
   main
   .owner-route-content
@@ -3746,8 +3965,9 @@ body .agenda-booking-dialog {
   left: 50% !important;
   top: 50% !important;
   display: block !important;
-  width: min(calc(100vw - 24px), 34rem) !important;
-  max-width: 34rem !important;
+  /* ~10% menor que antes (era 34rem): proporção reduzida em PC e celular. */
+  width: min(calc(100vw - 24px), 30.6rem) !important;
+  max-width: 30.6rem !important;
   max-height: calc(100dvh - 24px) !important;
   translate: -50% -50% !important;
   margin: 0 !important;
@@ -3805,7 +4025,7 @@ body .agenda-booking-dialog-header {
   margin: 0 !important;
   border-bottom: 1px solid #24272e;
   background: linear-gradient(180deg, rgb(var(--c-rgb-17-21-29) / 0.72), rgb(var(--c-rgb-10-11-14) / 0.22));
-  padding: 0.9rem 1.1rem 0.85rem;
+  padding: 0.8rem 1rem 0.75rem;
 }
 
 body .agenda-booking-dialog-icon {
@@ -3830,18 +4050,18 @@ body .agenda-booking-dialog-body {
   position: relative;
   z-index: 1;
   margin: 0 !important;
-  padding: 0 1rem 1rem;
+  padding: 0 0.9rem 0.9rem;
 }
 
 body .agenda-booking-form-section {
   position: relative;
-  margin-top: 1rem;
+  margin-top: 0.9rem;
   border: 1px solid rgba(42, 45, 52, 0.96);
   border-radius: 0.82rem;
   background:
     radial-gradient(ellipse 75% 40% at 92% -18%, rgb(var(--c-rgb-22-119-255) / 0.035), transparent 68%),
     linear-gradient(145deg, rgb(var(--c-rgb-15-16-20) / 0.98), rgb(var(--c-rgb-10-11-14) / 0.99));
-  padding: 1rem;
+  padding: 0.9rem;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.018),
     0 14px 32px -30px rgba(0, 0, 0, 0.98);
@@ -3917,20 +4137,232 @@ body .agenda-booking-primary-button:hover {
 
 @media (max-width: 639px) {
   body .agenda-booking-dialog {
-    width: calc(100vw - 16px) !important;
-    max-height: calc(100dvh - 16px) !important;
+    /* Celular: 90% da largura da tela (era quase 100%). */
+    width: min(calc(100vw - 16px), 90vw) !important;
+    max-width: 90vw !important;
+    max-height: calc(100dvh - 24px) !important;
   }
 }
 
 @media (max-width: 639px) {
   body .agenda-booking-dialog-body {
-    padding-inline: 1rem;
+    padding-inline: 0.9rem;
   }
 }
 
 @media (max-width: 639px) {
   body .agenda-booking-form-section {
-    padding: 0.9rem;
+    padding: 0.8rem;
+  }
+}
+
+/* Pop-up "Serviço realizado" (cliente verde): identidade visual simples do
+   painel (cartão escuro, caixas com borda ciano/verde), com espaçamentos
+   curtos pra altura ficar enxuta. */
+body .agenda-realizado-dialog {
+  position: fixed !important;
+  left: 50% !important;
+  top: 50% !important;
+  display: block !important;
+  width: min(calc(100vw - 24px), 22rem) !important;
+  max-width: 22rem !important;
+  max-height: calc(100dvh - 24px) !important;
+  translate: -50% -50% !important;
+  margin: 0 !important;
+  padding: 14px 14px 12px !important;
+  gap: 0 !important;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #2a2e35 !important;
+  border-radius: 1rem !important;
+  background: #131418 !important;
+  color: #eef0f4;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.012) !important;
+}
+
+body .agenda-realizado-dialog [data-slot="dialog-close"] {
+  z-index: 20;
+  top: 0.6rem;
+  right: 0.6rem;
+  color: #6c7079;
+}
+
+body .agenda-realizado-dialog [data-slot="dialog-close"]:hover {
+  color: #dfe2e8;
+}
+
+body .agenda-realizado-titulo {
+  margin: 0 0 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #f1f2f4;
+}
+
+body .agenda-realizado-chips {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+body .agenda-realizado-chip {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: #1f2126;
+  color: #e6e9ee;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+body .agenda-realizado-horario {
+  margin: 8px 0 9px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: #e6e9ee;
+}
+
+body .agenda-realizado-caixa {
+  margin-top: 7px;
+  padding: 8px 10px 9px;
+  border-radius: 0.75rem;
+  text-align: left;
+}
+
+body .agenda-realizado-caixa--servico {
+  border: 1px solid rgba(34, 211, 238, 0.6);
+}
+
+body .agenda-realizado-caixa--total {
+  border: 1px solid rgba(52, 211, 153, 0.6);
+}
+
+body .agenda-realizado-caixa--descricao {
+  border: 1px solid #2a2e35;
+}
+
+body .agenda-realizado-selo {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #000000;
+}
+
+body .agenda-realizado-selo--servico {
+  background: #22d3ee;
+}
+
+body .agenda-realizado-selo--total {
+  background: #34d399;
+}
+
+body .agenda-realizado-selo--descricao {
+  background: #9aa4b2;
+}
+
+body .agenda-realizado-linha {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 0.79rem;
+}
+
+body .agenda-realizado-servico-nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+  color: #22d3ee;
+}
+
+body .agenda-realizado-valor {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: #eef0f4;
+}
+
+body .agenda-realizado-valor--fraco {
+  flex-shrink: 0;
+  color: #9aa4b2;
+}
+
+body .agenda-realizado-rotulo {
+  color: #dfe4ec;
+}
+
+body .agenda-realizado-rotulo--ouro,
+body .agenda-realizado-valor--ouro {
+  color: #fbbf24;
+}
+
+body .agenda-realizado-total-selo {
+  width: fit-content;
+  margin: 9px auto 0;
+  padding: 3px 12px;
+  border-radius: 7px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #000000;
+  background: #34d399;
+}
+
+body .agenda-realizado-descricao {
+  margin: 5px 0 0;
+  font-size: 0.79rem;
+  line-height: 1.35;
+  color: #dfe4ec;
+}
+
+body .agenda-realizado-acoes {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+body .agenda-realizado-acoes > button {
+  flex: 1;
+  height: 2.2rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+body .agenda-realizado-btn-print {
+  border: 1px solid transparent !important;
+  background: #a5b4fc !important;
+  color: #000000 !important;
+}
+
+body .agenda-realizado-btn-print:hover {
+  background: #c7d2fe !important;
+}
+
+body .agenda-realizado-btn-reopen {
+  border: 1px solid transparent !important;
+  background: #f43f5e !important;
+  color: #ffffff !important;
+}
+
+body .agenda-realizado-btn-reopen:hover {
+  background: #fb7185 !important;
+}
+
+@media (max-width: 639px) {
+  body .agenda-realizado-dialog {
+    width: min(calc(100vw - 16px), 90vw) !important;
+    max-width: 90vw !important;
+    padding: 12px 11px 10px !important;
   }
 }
 

@@ -588,11 +588,29 @@ export async function synchronizeDepositPayment(chargeId: string) {
   const db = await database();
   const { data: charge, error } = await db
     .from("deposit_payments")
-    .select("id, appointment_id, status, provider_payment_id, amount_cents, expires_at")
+    .select("id, appointment_id, status, provider_payment_id, amount_cents, expires_at, business_id")
     .eq("id", chargeId)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!charge) throw new Error("Cobrança não encontrada.");
+  // Pix opcional: o agendamento já está confirmado na agenda; a expiração do
+  // Pix encerra só a cobrança, nunca o horário do cliente.
+  let pixOptional = false;
+  if (charge.business_id) {
+    const { data: business } = await db
+      .from("businesses")
+      .select("pix_mode")
+      .eq("id", charge.business_id)
+      .maybeSingle();
+    pixOptional = (business?.pix_mode ?? "obrigatorio") === "opcional";
+  }
+  const expireCharge = (providerStatus: string) =>
+    expireLocalCharge(
+      charge.id,
+      pixOptional ? null : charge.appointment_id,
+      providerStatus,
+      undefined,
+    );
   if (["pago", "pago_sem_agendamento"].includes(charge.status)) {
     if (charge.provider_payment_id) {
       await confirmDepositPayment(charge.provider_payment_id, charge.status);
@@ -631,12 +649,17 @@ export async function synchronizeDepositPayment(chargeId: string) {
       .update({ provider_status: payment.status })
       .eq("id", charge.id);
     if (payment.status === "failed") {
-      await expireLocalCharge(charge.id, charge.appointment_id, payment.status);
+      await expireCharge(payment.status);
       return { status: "expirado" as const };
     }
   }
 
   if (charge.expires_at && new Date(charge.expires_at).getTime() <= Date.now()) {
+    if (pixOptional) {
+      // Opcional: nada de cancelar o horário — só encerra a cobrança vencida.
+      await expireCharge("expired_local");
+      return { status: "expirado" as const };
+    }
     const cancelled = await cancelPendingDeposit(charge.id);
     if (cancelled.status === "pendente") return { status: "pendente" as const };
     return { status: "expirado" as const };
@@ -867,4 +890,29 @@ export async function expirePendingDeposits(limit = 25) {
     }
   }
   return { expired, recovered, waitingReceipt: 0, deferred, failed };
+}
+
+let lastSweepStartedAt = 0;
+let sweepInFlight = false;
+
+/**
+ * Varredura da fila do Pix chamada pelas rotas vivas (painel 1, painel 2 e
+ * páginas públicas): expira cobranças vencidas e libera os horários mesmo
+ * quando o timer do cron não está rodando (ex.: ambiente de desenvolvimento).
+ * Trava de 20s entre execuções para não martelar o banco.
+ */
+export async function sweepExpiredDeposits(limit = 25) {
+  const now = Date.now();
+  if (sweepInFlight || now - lastSweepStartedAt < 20_000) return;
+  lastSweepStartedAt = now;
+  sweepInFlight = true;
+  try {
+    await expirePendingDeposits(limit);
+  } catch (error) {
+    console.error("Varredura da fila do Pix falhou", {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+  } finally {
+    sweepInFlight = false;
+  }
 }

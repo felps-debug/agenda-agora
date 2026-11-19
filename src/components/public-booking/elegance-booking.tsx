@@ -735,7 +735,7 @@ export function EleganceBookingDialog({
                   inputMode="tel"
                   autoComplete="tel"
                   placeholder="(00) 00000-0000"
-                  maxLength={20}
+                  maxLength={15}
                   value={formPhone}
                   onChange={(event) => onPhoneChange(event.target.value)}
                   className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"
@@ -772,6 +772,7 @@ export function EleganceBookingDialog({
                       id="elegance-cpf"
                       inputMode="numeric"
                       placeholder="000.000.000-00"
+                      maxLength={18}
                       value={formCpfCnpj}
                       onChange={(event) => onCpfCnpjChange(event.target.value)}
                       className="mt-1.5 block w-full rounded-xl border px-2.5 py-3 text-sm focus:outline-none"

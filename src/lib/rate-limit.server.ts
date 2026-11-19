@@ -103,6 +103,9 @@ export const PUBLIC_RATE_LIMITS = {
   cancelDeposit: { scope: "cancelar-sinal", limit: 20, windowMs: 10 * 60_000 },
   reschedule: { scope: "remarcacao", limit: 20, windowMs: 10 * 60_000 },
   myBookings: { scope: "meus-agendamentos", limit: 60, windowMs: 60_000 },
+  customerLogin: { scope: "conta-login", limit: 20, windowMs: 10 * 60_000 },
+  customerRegister: { scope: "conta-cadastro", limit: 10, windowMs: 60 * 60_000 },
+  customerSession: { scope: "conta-sessao", limit: 120, windowMs: 60_000 },
   depositStatus: { scope: "status-sinal", limit: 120, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 

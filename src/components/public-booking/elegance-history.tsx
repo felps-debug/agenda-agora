@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { formatPrice } from "@/lib/format";
+import { toast } from "sonner";
 import type { Panel1Appearance } from "@/lib/panel1-config";
 import { getAvailability } from "@/lib/booking.functions";
 import {
@@ -31,6 +32,7 @@ export type EleganceHistoryBooking = {
   chargeId: string | null;
   chargeStatus: string;
   amountCents: number;
+  expiresAt?: string | null;
   appointmentStatus: string;
   startsAt: string | null;
   createdAt: string;
@@ -66,14 +68,22 @@ export function BookingHistoryLoadError({
 }
 
 type StatusVisual = {
-  label: "Confirmado" | "Aguardando pagamento" | "Cancelado";
+  label: "Confirmado" | "Concluído" | "Aguardando pagamento" | "Cancelado";
   icon: typeof Check;
 };
 
 function statusVisual(b: EleganceHistoryBooking): StatusVisual {
   if (b.appointmentStatus === "cancelado") return { label: "Cancelado", icon: X };
-  if (b.chargeStatus === "sem_sinal" || b.chargeStatus === "pago")
-    return { label: "Confirmado", icon: CalendarCheck };
+  if (
+    b.chargeStatus === "sem_sinal" ||
+    b.chargeStatus === "pago" ||
+    // Sinal dispensado pelo dono ("Pular etapa"): confirmado sem pagamento.
+    b.chargeStatus === "isento"
+  ) {
+    // Horário que já passou deixa de ser "Confirmado" e passa a "Concluído".
+    const past = !!b.startsAt && new Date(b.startsAt).getTime() < Date.now();
+    return past ? { label: "Concluído", icon: CalendarCheck } : { label: "Confirmado", icon: CalendarCheck };
+  }
   if (b.chargeStatus === "pendente") return { label: "Aguardando pagamento", icon: CalendarCheck };
   return { label: "Cancelado", icon: X };
 }
@@ -577,7 +587,20 @@ function EleganceHistoryActions({
         {booking.chargeStatus === "pendente" && booking.chargeId ? (
           <button
             type="button"
-            onClick={() => onOpenCharge(booking.chargeId!)}
+            onClick={() => {
+              // Prazo vencido: nada de abrir o Pix — a fila já está sendo
+              // cancelada e o horário liberado. A pessoa agenda de novo.
+              if (
+                booking.expiresAt &&
+                new Date(booking.expiresAt).getTime() <= Date.now()
+              ) {
+                toast.error(
+                  "O prazo deste Pix acabou. Faça um novo agendamento para gerar outro.",
+                );
+                return;
+              }
+              onOpenCharge(booking.chargeId!);
+            }}
             className="min-w-0 flex-1 cursor-pointer rounded-full border-0 px-4 py-2.5 text-sm font-semibold hover:opacity-95"
             style={{ backgroundColor: accent, color: accentText }}
           >
