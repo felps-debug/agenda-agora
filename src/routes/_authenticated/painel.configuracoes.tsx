@@ -24,6 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useListedCustomers } from "@/hooks/useListedCustomers";
 import { useAuth } from "@/hooks/useAuth";
 import { useBusiness } from "@/lib/business";
+import { publicBookingUrl } from "@/lib/public-booking-link";
 import { getPanel1Config, savePanel1Config } from "@/lib/panel1-config.functions";
 import {
   resolveBusinessGreeting,
@@ -271,6 +272,9 @@ function PreferencesSidebarInner({
 
 function ConfiguracoesPage() {
   const { businessId, business } = useBusiness();
+  const bookingLink =
+    publicBookingUrl(window.location.origin, business?.slug) ??
+    `${window.location.origin}/agendar/`;
   const { secao } = Route.useSearch();
   const [appearanceSaveStatus, setAppearanceSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
@@ -332,12 +336,12 @@ function ConfiguracoesPage() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[var(--c-f5f7fb)]">Link do Painel 1</p>
                 <a
-                  href={`${window.location.origin}/agendar/${business?.slug ?? ""}`}
+                  href={bookingLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block truncate text-xs text-[var(--c-79b1ff)] hover:underline"
                 >
-                  {window.location.origin}/agendar/{business?.slug ?? ""}
+                  {bookingLink}
                 </a>
               </div>
             </div>
@@ -347,9 +351,7 @@ function ConfiguracoesPage() {
               size="sm"
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(
-                    `${window.location.origin}/agendar/${business?.slug ?? ""}`,
-                  );
+                  await navigator.clipboard.writeText(bookingLink);
                   toast.success("Link copiado!");
                 } catch {
                   toast.error("Não foi possível copiar o link.");

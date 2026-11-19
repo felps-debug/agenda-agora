@@ -1,6 +1,7 @@
 // Envio automático de WhatsApp: confirmação (após pagar o sinal) e lembrete
 // (X horas antes do horário, disparado pelo agendador).
 import { loadWhatsappProvider } from "./whatsapp-provider.server";
+import { publicBookingUrl } from "./public-booking-link";
 import {
   DEFAULT_REMINDER_TEMPLATE,
   resolveReminderTemplate,
@@ -43,7 +44,10 @@ export function renderMessage(template: string, vars: Record<string, string>) {
 /** Link público de agendamento do negócio, usado pelo campo {Link}. */
 export function bookingLinkForSlug(slug: string): string {
   const base = process.env["PUBLIC_BOOKING_BASE_URL"]?.trim().replace(/\/+$/, "");
-  return `${base || "https://app.agendagora.company"}/agendar/${slug}`;
+  return (
+    publicBookingUrl(base || "https://app.agendagora.company", slug) ??
+    `${base || "https://app.agendagora.company"}/agendar/${slug}`
+  );
 }
 
 type AppointmentRow = {

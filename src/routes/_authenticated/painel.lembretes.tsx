@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Bold, ChevronRight, Italic, Strikethrough } from "lucide-react";
 import { useBusiness } from "@/lib/business";
 import { APP_HOSTS } from "@/lib/app-hosts";
+import { publicBookingUrl } from "@/lib/public-booking-link";
 import {
   getOutreachBusinessSettings,
   saveOutreachBusinessSettings,
@@ -304,7 +305,8 @@ function LembretesPage() {
     negocio: business?.name ?? "seu negócio",
     Cliente: "João",
     Saudacao: "Olá!",
-    Link: `https://${APP_HOSTS.public}/agendar/${business?.slug ?? "seu-negocio"}`,
+    Link:
+      publicBookingUrl(`https://${APP_HOSTS.public}`, business?.slug ?? "seu-negocio") ?? "",
     Data: "23/08/2022",
     Horario: "10:30",
     Serviço: "Corte",

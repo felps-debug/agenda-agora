@@ -27,4 +27,13 @@ describe("link público de agendamento", () => {
     expect(publicBookingPath(slug)).toBeNull();
     expect(publicBookingUrl("https://app.agendaagora.test", slug)).toBeNull();
   });
+
+  it("usa o domínio curto agendas.link/<nome> quando configurado", () => {
+    expect(publicBookingUrl("https://app.agendaagora.test", "thalesbarbearia", "agendas.link")).toBe(
+      "https://agendas.link/thalesbarbearia",
+    );
+    expect(publicBookingUrl(null, "thalesbarbearia", "https://agendas.link/")).toBe(
+      "https://agendas.link/thalesbarbearia",
+    );
+  });
 });
