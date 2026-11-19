@@ -62,10 +62,10 @@ export function isBusinessImagePath(
     }
     return relativePath.startsWith("background-") && imageFilenamePattern.test(relativePath);
   }
-  return (
-    relativePath.startsWith("services/") &&
-    imageFilenamePattern.test(relativePath.slice("services/".length))
-  );
+  // A tela grava em `service/` (singular, o que a policy do storage permite); `services/`
+  // é o formato antigo e continua válido.
+  const folder = ["service/", "services/"].find((prefix) => relativePath.startsWith(prefix));
+  return folder !== undefined && imageFilenamePattern.test(relativePath.slice(folder.length));
 }
 
 export function businessImageSignatureMatchesPath(
