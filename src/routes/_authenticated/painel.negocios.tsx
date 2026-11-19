@@ -116,7 +116,10 @@ function NegociosPage() {
               <dl className="mt-5 space-y-2 text-sm text-muted-foreground">
                 {b.phone && <dd>{b.phone}</dd>}
                 {b.address && <dd>{b.address}</dd>}
-                <dd className="text-xs">Link público: {linkPrefix}{b.slug}</dd>
+                <dd className="text-xs">
+                  Link público: {linkPrefix}
+                  {b.slug}
+                </dd>
               </dl>
             </article>
           ))}
