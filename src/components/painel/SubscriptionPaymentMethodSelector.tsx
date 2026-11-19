@@ -1,3 +1,5 @@
+import { cardPaymentEnabled } from "@/lib/payment-methods";
+
 export type SubscriptionPayMethod = "pix" | "card";
 
 const OPTIONS: { id: SubscriptionPayMethod; label: string; hint: string }[] = [
@@ -16,13 +18,18 @@ export function SubscriptionPaymentMethodSelector({
   value?: SubscriptionPayMethod;
   onChange?: (method: SubscriptionPayMethod) => void;
 }) {
+  const options = OPTIONS.filter((option) => option.id !== "card" || cardPaymentEnabled());
   return (
     <div className="mt-4">
       <p className="mb-2 text-[0.72rem] font-semibold uppercase tracking-[0.06em] text-[#8b8e96]">
         Forma de pagamento
       </p>
-      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Forma de pagamento">
-        {OPTIONS.map((option) => {
+      <div
+        className={`grid gap-2 ${options.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}
+        role="radiogroup"
+        aria-label="Forma de pagamento"
+      >
+        {options.map((option) => {
           const selected = option.id === value;
           return (
             <button

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { serverFnMock } from "@/test-support/fake-admin";
 
 /**
@@ -387,7 +387,25 @@ describe("saveOwnerCpf (US7) — CPF salvo pelo servidor", () => {
   });
 });
 
+describe("createSubscriptionCharge — cartão desligado (padrão)", () => {
+  it("recusa cartão sem chamar o provedor nem gravar cobrança enquanto a flag está off", async () => {
+    vi.stubEnv("VITE_CARD_PAYMENT_ENABLED", "");
+    await expect(create({ data: { businessId, method: "card" }, context })).rejects.toThrow(
+      /cartão ainda não está disponível/i,
+    );
+    expect(runtime.inserted).toBeNull();
+    vi.unstubAllEnvs();
+  });
+});
+
 describe("createSubscriptionCharge — cartão de crédito (checkout hospedado)", () => {
+  beforeEach(() => {
+    vi.stubEnv("VITE_CARD_PAYMENT_ENABLED", "true");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("cria a cobrança de cartão e devolve a URL do checkout, sem QR Code", async () => {
     const result = await create({ data: { businessId, method: "card" }, context });
 
