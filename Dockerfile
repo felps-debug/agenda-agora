@@ -11,9 +11,13 @@ RUN npm ci --include=dev
 ARG VITE_SUPABASE_URL
 ARG VITE_SUPABASE_PUBLISHABLE_KEY
 ARG VITE_SPLIT_PANELS=true
+# Dominio curto do link do cliente final (agendas.link/<nome>). DNS e dominio no
+# EasyPanel precisam existir antes do deploy; vazio volta ao /agendar/<nome>.
+ARG VITE_PUBLIC_LINK_HOST=agendas.link
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
     VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY \
-    VITE_SPLIT_PANELS=$VITE_SPLIT_PANELS
+    VITE_SPLIT_PANELS=$VITE_SPLIT_PANELS \
+    VITE_PUBLIC_LINK_HOST=$VITE_PUBLIC_LINK_HOST
 
 COPY . .
 RUN npm run build
