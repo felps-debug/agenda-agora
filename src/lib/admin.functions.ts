@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin, getSuperAdminStatus } from "@/lib/auth/require-super-admin";
+import { uniqueBusinessSlug } from "@/lib/business-slug";
 import { nextAccessAfterPayment, subscriptionTotalCents } from "@/lib/billing-cycle";
 
 const brlCharge = (cents: number) =>
@@ -117,14 +118,14 @@ export const createBusinessWithOwner = createServerFn({ method: "POST" })
         throw new Error("Owner role assignment failed and the Auth account could not be removed.");
       throw new Error("Could not assign owner access.");
     }
-    const base = data.businessName
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 40);
-    const slug = `${base || "negocio"}-${Math.random().toString(36).slice(2, 6)}`;
+    const slug = await uniqueBusinessSlug(data.businessName, async (candidate) => {
+      const { data: row } = await supabaseAdmin
+        .from("businesses")
+        .select("id")
+        .eq("slug", candidate)
+        .maybeSingle();
+      return !!row;
+    });
     const { data: business, error } = await supabaseAdmin
       .from("businesses")
       .insert({

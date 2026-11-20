@@ -6,6 +6,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { assertSuperAdmin } from "@/lib/auth/require-super-admin";
 import { signSdrToken, verifySdrTokenClaims } from "@/lib/sdr-token";
 import { conversionRate, monthKey, percentChange, weeklyBuckets } from "@/lib/sdr-stats";
+import { uniqueBusinessSlug } from "@/lib/business-slug";
 import { getSdrTokenSecret } from "@/lib/env-security.server";
 import { checkLock, registerFailure, registerSuccess } from "@/lib/login-attempts.server";
 import { clientIp } from "@/lib/rate-limit.server";
@@ -727,14 +728,14 @@ export const sdrCreateBusiness = createServerFn({ method: "POST" })
         throw new Error("Owner role assignment failed and the Auth account could not be removed.");
       throw new Error("Could not assign owner access.");
     }
-    const base = data.businessName
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)/g, "")
-      .slice(0, 40);
-    const slug = `${base || "negocio"}-${Math.random().toString(36).slice(2, 6)}`;
+    const slug = await uniqueBusinessSlug(data.businessName, async (candidate) => {
+      const { data: row } = await supabaseAdmin
+        .from("businesses")
+        .select("id")
+        .eq("slug", candidate)
+        .maybeSingle();
+      return !!row;
+    });
     const { data: business, error } = await supabaseAdmin
       .from("businesses")
       .insert({
