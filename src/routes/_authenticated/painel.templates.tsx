@@ -21,7 +21,6 @@ import { useBusiness } from "@/lib/business";
 import { NoBusiness } from "@/components/painel/PageHeader";
 import { AgpayBackground } from "@/components/painel/AgpayBackground";
 import { listNicheAssets } from "@/lib/niche-assets";
-import { BusinessTemplatesTab } from "@/components/template-editor/BusinessTemplatesTab";
 
 export const Route = createFileRoute("/_authenticated/painel/templates")({
   head: () => ({
@@ -381,8 +380,6 @@ function TemplatesPage() {
       </section>
 
       {/* Vitrine de nichos. */}
-      <BusinessTemplatesTab businessId={businessId} />
-
       <div id="templates-vitrine" className="scroll-mt-6">
         <div className="w-full rounded-[2rem] border border-white/10 bg-[#f6f1ea] p-5 sm:p-8">
           <h2 className="text-2xl font-bold leading-tight text-[#3f2d1d] sm:text-[28px]">

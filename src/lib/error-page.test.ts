@@ -17,6 +17,10 @@ describe("friendlyError", () => {
     expect(friendlyError(error)).toBe("O campo Valor é obrigatório.");
   });
 
+  it("explica telefone já cadastrado em vez da mensagem genérica", () => {
+    expect(friendlyError(new Error("PHONE_ALREADY_REGISTERED"))).toContain("Já existe um acesso");
+  });
+
   it("converte falhas de rede e timeout em uma orientação acionável", () => {
     expect(friendlyError(new Error("Failed to fetch"))).toContain("Confira sua internet");
     expect(friendlyError(new Error("Request timeout"))).toContain("Tente novamente");

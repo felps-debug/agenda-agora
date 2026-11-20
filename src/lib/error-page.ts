@@ -124,6 +124,10 @@ export function friendlyError(error: unknown, context?: string): string {
     return "Não foi possível concluir o pagamento agora. Tente novamente em instantes ou fale com o estabelecimento.";
   }
 
+  if (/PHONE_ALREADY_REGISTERED/.test(message)) {
+    return "Já existe um acesso com este telefone. Use outro telefone ou procure o estabelecimento na lista.";
+  }
+
   const status = getStatus(error);
   if (status === 401) return "Sua sessão expirou. Entre novamente para continuar.";
   if (status === 403) return "Você não tem permissão para fazer isso. Confira seu acesso.";
